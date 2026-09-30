@@ -4,7 +4,7 @@
   "description": "Ariana Reyes — WhatsApp AI Girlfriend",
   "main": "index.js",
   "scripts": {
-    "start": "concurrently --kill-others-on-fail \"node index.js\" \"node wa-web.js\"",
+    "start": "concurrently --kill-others-on-fail \"node index.js\" \"node wa-web.js\" \"node wacalls.js\"",
     "test": "node --test \"tests/*.test.js\"",
     "test:social": "node --test \"tests/*.test.js\"",
     "test:engine": "node --test \"tests/social-engine.test.js\"",
