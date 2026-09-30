@@ -29,8 +29,14 @@ const getGeminiKey = () => process.env.GEMINI_API_KEY   || '';
 const WA_PROVIDER   = (process.env.WA_PROVIDER || 'wwebjs').toLowerCase();
 const WA_WEB_URL    = process.env.WA_WEB_URL || `http://127.0.0.1:${process.env.WA_WEB_PORT || 3001}`;
 const WA_ADMIN_KEY  = process.env.WA_ADMIN_KEY || '';
+const WACALLS_ADAPTER_URL = process.env.WACALLS_ADAPTER_URL || `http://127.0.0.1:${process.env.WACALLS_ADAPTER_PORT || 3002}`;
+const WACALLS_TOKEN = '__wacalls__'; // internal transport marker, never a credential
 async function waWeb(route, body) {
   try { return await axios.post(WA_WEB_URL + route, body, { timeout: 45000 }); }
+  catch (e) { throw new Error(e.response?.data?.error || e.message); }
+}
+async function waCalls(route, body) {
+  try { return await axios.post(WACALLS_ADAPTER_URL + route, body, { timeout: 120000 }); }
   catch (e) { throw new Error(e.response?.data?.error || e.message); }
 }
 const PORT            = process.env.PORT || 3000;
@@ -1374,6 +1380,9 @@ async function handleNewTexter(id, userMsg, imageBase64 = null) {
 
 // ── WHATSAPP SENDERS ──────────────────────────────────────────
 async function sendWhatsApp(to, message, phoneNumberId) {
+  // Inbound WaCalls chats must reply through the same paired session while the
+  // existing provider continues serving all other conversations in parallel.
+  if (phoneNumberId === WACALLS_TOKEN) { await waCalls('/send', { to, message }); return; }
   if (WA_PROVIDER === 'wwebjs') { await waWeb('/send', { to, message }); return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   await axios.post(
@@ -1384,6 +1393,7 @@ async function sendWhatsApp(to, message, phoneNumberId) {
 }
 
 async function sendWhatsAppTyping(to, phoneNumberId) {
+  if (phoneNumberId === WACALLS_TOKEN) return; // WaCalls has no typing API
   if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to }); } catch { /* silent */ } return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   try {
@@ -2048,6 +2058,63 @@ Ariana replied: "${reply.slice(0, 200)}"`;
     if (tgTypingInterval) clearInterval(tgTypingInterval);
   }
 }
+
+// ── WACALLS INTEGRATION ───────────────────────────────────────
+// These callbacks are localhost by default. If a remote media bridge calls
+// /turn directly, protect it with WACALLS_WEBHOOK_SECRET.
+function requireWaCallsSecret(req, res, next) {
+  const secret = process.env.WACALLS_WEBHOOK_SECRET;
+  if (!secret || req.headers['x-wacalls-secret'] === secret) return next();
+  return res.status(401).json({ error: 'invalid WaCalls secret' });
+}
+app.post('/integrations/wacalls/message', requireWaCallsSecret, (req, res) => {
+  res.status(202).json({ ok: true });
+  const msg = req.body?.message || {};
+  const from = msg.from || msg.sender || msg.phone || msg.chatId;
+  const caption = msg.caption || msg.media?.caption || msg.image?.caption || msg.video?.caption;
+  const text = msg.text?.body || msg.text || msg.body || caption;
+  if (!from || !text || msg.fromMe || msg.from_me) return;
+  console.log(`📱 WA [WaCalls] ${from}: ${JSON.stringify(String(text))}`);
+  handleMessage({ id: String(from), platform: 'whatsapp', from: String(from), text: String(text),
+    chatId: null, phoneNumberId: WACALLS_TOKEN, name: msg.pushName || msg.name || null }).catch(e =>
+      console.error('[WaCalls] message handling failed:', e.message));
+});
+app.post('/integrations/wacalls/event', requireWaCallsSecret, (req, res) => {
+  const event = req.body || {};
+  console.log(`[WaCalls] ${event.type || 'event'}${event.callId ? ` (${event.callId})` : ''}`);
+  io.emit('wacalls:event', event);
+  res.json({ ok: true });
+});
+// Media adapter contract: submit each final STT utterance. Ariana's normal LLM
+// memory/personality is used and the response includes TTS audio for injection
+// into WaCalls' 16 kHz PCM WebRTC channel. This keeps avatar/video independent.
+app.post('/integrations/wacalls/calls/:callId/turn', requireWaCallsSecret, async (req, res) => {
+  try {
+    const transcript = String(req.body?.transcript || '').trim();
+    if (!transcript) return res.status(400).json({ error: 'transcript is required' });
+    const peer = String(req.body?.from || req.body?.phone || `call_${req.params.callId}`);
+    const id = `wacall_${peer}`;
+    const convo = getConvo(id); const first = convo.isNew;
+    addMessage(id, 'user', transcript);
+    let reply = first ? await handleNewTexter(id, transcript) : await getReply(id, transcript);
+    if (!reply || reply === 'hold on') reply = 'one sec';
+    addMessage(id, 'ariana', reply);
+    const audioBase64 = await ttsBase64(reply);
+    res.json({ reply, audioBase64, audioFormat: 'mp3', video: { mode: 'placeholder', avatarReady: true } });
+  } catch (e) { console.error('[WaCalls] call turn failed:', e.message); res.status(500).json({ error: e.message }); }
+});
+app.get('/api/wacalls/status', requireDashboardAuth, async (_req, res) => {
+  try { res.json((await axios.get(WACALLS_ADAPTER_URL + '/status', { timeout: 5000 })).data); }
+  catch (e) { res.status(503).json({ enabled: false, connected: false, error: e.message }); }
+});
+app.post('/api/wacalls/calls', requireDashboardAuth, async (req, res) => {
+  try { res.json((await waCalls('/call', { to: req.body.to || req.body.phone, video: !!req.body.video })).data); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post('/api/wacalls/calls/:id/:action(answer|reject|end)', requireDashboardAuth, async (req, res) => {
+  try { res.json((await waCalls(`/calls/${encodeURIComponent(req.params.id)}/${req.params.action}`, {})).data); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
 
 // ── WHATSAPP WEBHOOK ──────────────────────────────────────────
 app.post("/webhook", async (req, res) => {

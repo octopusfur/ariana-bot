@@ -16,3 +16,7 @@ Baileys has been removed. WhatsApp text now runs through `wa-web.js` (whatsapp-w
 | `WA_PROXY` | Optional `http://user:pass@host:port` for Chromium. Leave unset to connect directly |
 
 Link the number at `/wa` (pairing code or QR). Reset a bad session with `POST /api/whatsapp/reset-auth`, then restart.
+
+## WaCalls (parallel audio/video calling)
+
+The optional `wacalls.js` adapter runs alongside the existing WhatsApp transport and does not replace it. It adds WaCalls lifecycle events, auto-answer, outgoing audio/video controls, and a modular STT → Ariana LLM → TTS call-turn endpoint. See [WACALLS.md](WACALLS.md) and [.env.example](.env.example) for pairing, configuration, media-bridge details, and the upstream text capability note.
