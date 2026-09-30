@@ -2062,9 +2062,15 @@ Ariana replied: "${reply.slice(0, 200)}"`;
 // ── WACALLS INTEGRATION ───────────────────────────────────────
 // These callbacks are localhost by default. If a remote media bridge calls
 // /turn directly, protect it with WACALLS_WEBHOOK_SECRET.
+// Fail-closed: loopback callers (the wacalls.js adapter in the same container) are trusted;
+// anything arriving through the public URL must present WACALLS_WEBHOOK_SECRET.
 function requireWaCallsSecret(req, res, next) {
-  const secret = process.env.WACALLS_WEBHOOK_SECRET;
-  if (!secret || req.headers['x-wacalls-secret'] === secret) return next();
+  const addr = String(req.socket?.remoteAddress || '');
+  if (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1') return next();
+  const secret = process.env.WACALLS_WEBHOOK_SECRET || '';
+  const given  = String(req.headers['x-wacalls-secret'] || '');
+  if (secret && given.length === secret.length &&
+      require('crypto').timingSafeEqual(Buffer.from(given), Buffer.from(secret))) return next();
   return res.status(401).json({ error: 'invalid WaCalls secret' });
 }
 app.post('/integrations/wacalls/message', requireWaCallsSecret, (req, res) => {
