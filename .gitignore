@@ -8,3 +8,7 @@ social_data/
 sessions/
 browser-data/
 *.json.enc
+
+# whatsapp-web.js session + browser cache — contains WhatsApp credentials, never commit
+.wwebjs_auth/
+.wwebjs_cache/

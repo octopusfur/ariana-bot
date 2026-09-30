@@ -25,6 +25,14 @@ const GROQ_API_KEY_2  = process.env.GROQ_API_KEY_2;
 // These are read dynamically so Supabase-loaded keys take effect immediately
 const getKapsoKey  = () => process.env.KAPSO_API_KEY        || '';
 const getGeminiKey = () => process.env.GEMINI_API_KEY   || '';
+// WhatsApp transport: "wwebjs" (whatsapp-web.js sidecar, wa-web.js) or "kapso" (Meta Cloud API via Kapso)
+const WA_PROVIDER   = (process.env.WA_PROVIDER || 'wwebjs').toLowerCase();
+const WA_WEB_URL    = process.env.WA_WEB_URL || `http://127.0.0.1:${process.env.WA_WEB_PORT || 3001}`;
+const WA_ADMIN_KEY  = process.env.WA_ADMIN_KEY || '';
+async function waWeb(route, body) {
+  try { return await axios.post(WA_WEB_URL + route, body, { timeout: 45000 }); }
+  catch (e) { throw new Error(e.response?.data?.error || e.message); }
+}
 const PORT            = process.env.PORT || 3000;
 const OWNER_PHONE     = process.env.OWNER_PHONE || "";
 const SIGNAL_CLI_URL  = process.env.SIGNAL_CLI_URL || "https://signal-cli-rest-api-y65f.onrender.com";
@@ -1366,6 +1374,7 @@ async function handleNewTexter(id, userMsg, imageBase64 = null) {
 
 // ── WHATSAPP SENDERS ──────────────────────────────────────────
 async function sendWhatsApp(to, message, phoneNumberId) {
+  if (WA_PROVIDER === 'wwebjs') { await waWeb('/send', { to, message }); return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   await axios.post(
     `https://api.kapso.ai/meta/whatsapp/v24.0/${id}/messages`,
@@ -1375,6 +1384,7 @@ async function sendWhatsApp(to, message, phoneNumberId) {
 }
 
 async function sendWhatsAppTyping(to, phoneNumberId) {
+  if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to }); } catch { /* silent */ } return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   try {
     await axios.post(
@@ -1386,6 +1396,7 @@ async function sendWhatsAppTyping(to, phoneNumberId) {
 }
 
 async function markWhatsAppRead(messageId, phoneNumberId) {
+  if (WA_PROVIDER === 'wwebjs') return; // wa-web.js marks chats as seen on receipt
   const id = phoneNumberId || KAPSO_PHONE_ID;
   try {
     await axios.post(
@@ -1397,6 +1408,7 @@ async function markWhatsAppRead(messageId, phoneNumberId) {
 }
 
 async function sendWhatsAppImage(to, imageUrl, caption, phoneNumberId) {
+  if (WA_PROVIDER === 'wwebjs') { await waWeb('/send-media', { to, url: imageUrl, caption: caption || '' }); return; }
   const pid = phoneNumberId || KAPSO_PHONE_ID;
 
   // Download the image so we can upload the binary directly to WhatsApp.
@@ -1441,6 +1453,7 @@ async function sendWhatsAppImage(to, imageUrl, caption, phoneNumberId) {
 }
 
 async function sendWhatsAppVoiceNote(to, audioUrl, phoneNumberId) {
+  if (WA_PROVIDER === 'wwebjs') { await waWeb('/send-media', { to, url: audioUrl, voice: true }); return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   await axios.post(
     `https://api.kapso.ai/meta/whatsapp/v24.0/${id}/messages`,
@@ -2550,16 +2563,16 @@ app.delete("/api/friends/:phone", async (req, res) => {
 });
 
 // ── WHATSAPP AUTH RESET ───────────────────────────────────────
-// Clears Baileys session from Supabase — restart service after this, then re-pair at /pair
+// Clears the WhatsApp session — restart the service after this, then re-pair at /wa
 app.post("/api/whatsapp/reset-auth", async (req, res) => {
   if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
   try {
     await Promise.allSettled([
-      supabase.from("baileys_auth").delete().neq("id", 0),
       supabase.from("whatsapp_auth").delete().neq("id", 0),
-      supabase.from("sessions").delete().eq("type", "whatsapp")
+      supabase.from("sessions").delete().eq("type", "whatsapp"),
+      axios.post(WA_WEB_URL + "/reset", {}, { timeout: 30000 })
     ]);
-    res.json({ ok: true, message: "Auth cleared — restart the service then pair at /pair" });
+    res.json({ ok: true, message: "Auth cleared — restart the service then pair at /wa" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4411,17 +4424,28 @@ app.get("/signal-status", async (req, res) => {
   }
 });
 
-// ── BAILEYS PAIRING ───────────────────────────────────────────
-app.get("/pair", async (req, res) => {
+// ── WHATSAPP LINKING UI (proxied from the wa-web.js sidecar) ─────
+// Set WA_ADMIN_KEY and open /wa?key=<WA_ADMIN_KEY>. Unset = open (not recommended once live).
+function waAdminOk(req) {
+  if (!WA_ADMIN_KEY) return true;
+  const a = Buffer.from(String(req.query.key || "")), b = Buffer.from(WA_ADMIN_KEY);
+  return a.length === b.length && require("crypto").timingSafeEqual(a, b);
+}
+async function proxyWaUi(req, res, sub) {
+  if (!waAdminOk(req)) return res.status(401).send("Unauthorized — add ?key=<WA_ADMIN_KEY>");
   try {
-    const r = await axios.get("http://localhost:3001/pair?phone=" + (process.env.PHONE_NUMBER || ""));
-    res.send(r.data);
+    const r = await axios.get(WA_WEB_URL + sub, { params: req.query, timeout: 30000, responseType: "text", transformResponse: x => x, validateStatus: () => true });
+    res.status(r.status).type("html").send(r.data);
   } catch (e) {
     res.send(`<html><body style="background:#111;color:white;padding:30px;font-family:sans-serif">
-    <p>Baileys not ready yet — check Render logs for pairing code</p>
+    <p>WhatsApp sidecar not ready yet — check the Render logs</p>
     <p style="color:#555">${e.message}</p></body></html>`);
   }
-});
+}
+app.get("/wa",      (req, res) => proxyWaUi(req, res, "/"));
+app.get("/wa/qr",   (req, res) => proxyWaUi(req, res, "/qr"));
+app.get("/wa/pair", (req, res) => proxyWaUi(req, res, "/pair"));
+app.get("/pair",    (req, res) => proxyWaUi(req, res, "/pair"));
 
 function startKeepAlive() {
   if (!RENDER_URL) return;
@@ -4482,7 +4506,8 @@ server.listen(PORT, async () => {
   }
 
   console.log(`\n🌸 Ariana LIVE on port ${PORT}`);
-  console.log(`📱 WhatsApp:    ${getKapsoKey()                   ? "✅" : "❌"}`);
+  console.log(`📱 WhatsApp:    ${WA_PROVIDER === 'wwebjs' ? 'whatsapp-web.js sidecar (link at /wa)' : (getKapsoKey() ? '✅ Kapso' : '❌ Kapso key missing')}`);
+  if (WA_PROVIDER === 'wwebjs' && !WA_ADMIN_KEY) console.warn('⚠️  WA_ADMIN_KEY not set — /wa linking pages are open to anyone with the URL');
   console.log(`🧠 Groq (BRAIN, sole reply generator): ${GROQ_API_KEY ? "✅" : "❌ — Ariana cannot reply without this"}`);
   console.log(`🔁 Groq #2 (backup key):     ${GROQ_API_KEY_2      ? "✅" : "—"}`);
   console.log(`👁️  Gemini (EYES, image analysis only): ${getGeminiKey() ? "✅" : "—"}`);
