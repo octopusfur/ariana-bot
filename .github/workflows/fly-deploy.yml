@@ -39,3 +39,15 @@ jobs:
           flyctl secrets set --stage -a "$APP" "${ARGS[@]}"
       - name: Deploy
         run: flyctl deploy --remote-only -a "$APP"
+      - name: Verify the service came up
+        if: always()
+        run: |
+          URL="https://$APP.fly.dev"
+          for i in $(seq 1 30); do
+            if curl -sf "$URL/ping" >/dev/null; then OK=1; break; fi
+            sleep 6
+          done
+          echo "::notice title=ping::ok=${OK:-0} url=$URL"
+          echo "::notice title=status::$(curl -s "$URL/status?key=$WA_ADMIN_KEY" | head -c 300)"
+          echo "::notice title=flyctl::$(flyctl status -a "$APP" 2>&1 | tr '\n' ' ' | head -c 700)"
+          [ -n "$OK" ]
