@@ -1,0 +1,16 @@
+name: Fly status (read-only)
+on: workflow_dispatch
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      WA_ADMIN_KEY: ${{ secrets.WA_ADMIN_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Report
+        run: |
+          APP=$(grep -m1 '^app *=' fly.toml | cut -d'"' -f2)
+          echo "::notice title=status::$(curl -s "https://$APP.fly.dev/status?key=$WA_ADMIN_KEY" | head -c 300)"
+          echo "::notice title=logs::$(flyctl logs -a "$APP" --no-tail 2>&1 | tail -45 | cut -c1-230 | tr '\n' '|' | head -c 6000)"
