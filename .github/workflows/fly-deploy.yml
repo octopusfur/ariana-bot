@@ -2,14 +2,40 @@ name: Deploy WhatsApp sidecar to Fly
 on:
   push:
     branches: [main]
-    paths: ["wa-web.js", "Dockerfile.wa", "fly.toml", "package.json", "package-lock.json"]
+    paths: ["wa-web.js", "Dockerfile.wa", "fly.toml", "package.json", "package-lock.json", ".github/workflows/fly-deploy.yml"]
   workflow_dispatch:
+concurrency: fly-deploy
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      WA_API_SECRET: ${{ secrets.WA_API_SECRET }}
+      WA_ADMIN_KEY: ${{ secrets.WA_ADMIN_KEY }}
+      MAIN_APP_URL: ${{ secrets.MAIN_APP_URL }}
+      PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Ensure the Fly app exists
+        run: |
+          APP=$(grep -m1 '^app *=' fly.toml | cut -d'"' -f2)
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          if flyctl status -a "$APP" >/dev/null 2>&1; then
+            echo "App $APP already exists"
+          else
+            ORG=$(flyctl orgs list --json | jq -r 'keys[0]')
+            echo "Creating $APP in org $ORG"
+            flyctl apps create "$APP" --org "$ORG"
+          fi
+      - name: Sync secrets to Fly
+        run: |
+          ARGS=()
+          for k in WA_API_SECRET WA_ADMIN_KEY MAIN_APP_URL PHONE_NUMBER SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            v="${!k}"; if [ -n "$v" ]; then ARGS+=("$k=$v"); fi
+          done
+          flyctl secrets set --stage -a "$APP" "${ARGS[@]}"
+      - name: Deploy
+        run: flyctl deploy --remote-only -a "$APP"
