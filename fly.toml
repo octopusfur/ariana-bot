@@ -1,0 +1,30 @@
+# WhatsApp sidecar on Fly.io. "app" must match the app name you create in Fly (names are global).
+app = "ariana-wa"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile.wa"
+
+[env]
+  WA_WEB_HOST = "0.0.0.0"
+  WA_WEB_PORT = "8080"
+  # Secrets (set in Fly, never here): WA_API_SECRET, WA_ADMIN_KEY, MAIN_APP_URL, PHONE_NUMBER,
+  # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"     # she must stay connected to WhatsApp 24/7
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "90s"
+    interval = "30s"
+    method = "GET"
+    path = "/ping"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

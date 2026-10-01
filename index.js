@@ -31,8 +31,9 @@ const WA_WEB_URL    = process.env.WA_WEB_URL || `http://127.0.0.1:${process.env.
 const WA_ADMIN_KEY  = process.env.WA_ADMIN_KEY || '';
 const WACALLS_ADAPTER_URL = process.env.WACALLS_ADAPTER_URL || `http://127.0.0.1:${process.env.WACALLS_ADAPTER_PORT || 3002}`;
 const WACALLS_TOKEN = '__wacalls__'; // internal transport marker, never a credential
+const WA_API_SECRET = process.env.WA_API_SECRET || '';
 async function waWeb(route, body) {
-  try { return await axios.post(WA_WEB_URL + route, body, { timeout: 45000 }); }
+  try { return await axios.post(WA_WEB_URL + route, body, { timeout: 45000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} }); }
   catch (e) { throw new Error(e.response?.data?.error || e.message); }
 }
 async function waCalls(route, body) {
@@ -2123,7 +2124,18 @@ app.post('/api/wacalls/calls/:id/:action(answer|reject|end)', requireDashboardAu
 });
 
 // ── WHATSAPP WEBHOOK ──────────────────────────────────────────
-app.post("/webhook", async (req, res) => {
+// In wwebjs mode the only legitimate caller is our own WhatsApp sidecar. Same container (loopback) is
+// trusted; a remote sidecar (Fly.io) must send x-wa-secret = WA_API_SECRET. Fail-closed otherwise.
+function requireWaWebhookAuth(req, res, next) {
+  if (WA_PROVIDER !== 'wwebjs') return next();
+  const addr = String(req.socket?.remoteAddress || '');
+  if (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1') return next();
+  const given = String(req.headers['x-wa-secret'] || '');
+  if (WA_API_SECRET && given.length === WA_API_SECRET.length &&
+      require('crypto').timingSafeEqual(Buffer.from(given), Buffer.from(WA_API_SECRET))) return next();
+  return res.status(401).json({ error: 'unauthorized' });
+}
+app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
   res.status(200).json({ ok: true });
   try {
     const body = req.body || {};
@@ -2643,7 +2655,7 @@ app.post("/api/whatsapp/reset-auth", async (req, res) => {
     await Promise.allSettled([
       supabase.from("whatsapp_auth").delete().neq("id", 0),
       supabase.from("sessions").delete().eq("type", "whatsapp"),
-      axios.post(WA_WEB_URL + "/reset", {}, { timeout: 30000 })
+      waWeb("/reset", {})
     ]);
     res.json({ ok: true, message: "Auth cleared — restart the service then pair at /wa" });
   } catch (e) { res.status(500).json({ error: e.message }); }

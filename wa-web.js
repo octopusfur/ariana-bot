@@ -20,6 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const axios = require("axios");
 const qrcode = require("qrcode");
 const ws = require("ws");
@@ -32,7 +33,19 @@ const PHONE_NUMBER = (process.env.PHONE_NUMBER || "").replace(/\D/g, "");
 const CLIENT_ID = process.env.WA_CLIENT_ID || "ariana";
 const DATA_PATH = path.resolve(process.env.WA_DATA_DIR || "./.wwebjs_auth");
 const BUCKET = process.env.WA_SESSION_BUCKET || "wwebjs-session";
-const UI_BASE = "/wa";
+const HOST = process.env.WA_WEB_HOST || "127.0.0.1";
+const EXPOSED = !["127.0.0.1", "localhost", "::1"].includes(HOST); // true when running standalone (e.g. Fly.io)
+const API_SECRET = process.env.WA_API_SECRET || ""; // shared with the main app (Authorization: Bearer / x-wa-secret)
+const ADMIN_KEY = process.env.WA_ADMIN_KEY || "";   // protects the linking pages (?key=)
+const UI_BASE = process.env.WA_UI_BASE !== undefined ? process.env.WA_UI_BASE : (EXPOSED ? "" : "/wa");
+if (EXPOSED && (!API_SECRET || !ADMIN_KEY)) {
+  console.error("❌ WA_API_SECRET and WA_ADMIN_KEY must both be set when WA_WEB_HOST is not localhost. Refusing to start.");
+  process.exit(1);
+}
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
 
 // ── STATE ─────────────────────────────────────────────────────
 let client = null;
@@ -126,7 +139,7 @@ const TYPE_MAP = { chat: "text", image: "image", video: "video", ptt: "audio", a
 
 async function forwardToMainApp(payload) {
   try {
-    await axios.post(`${MAIN_APP_URL}/webhook`, payload, { timeout: 30000 });
+    await axios.post(`${MAIN_APP_URL}/webhook`, payload, { timeout: 30000, headers: API_SECRET ? { "x-wa-secret": API_SECRET } : {} });
   } catch (e) {
     console.error("❌ Forward to main app failed:", e.message);
   }
@@ -208,21 +221,21 @@ async function ui(pathname, params) {
   const keyHidden = params.get("key") ? `<input type="hidden" name="key" value="${esc(params.get("key"))}"/>` : "";
 
   if (pathname === "/qr") {
-    if (isReady) return html(`<h2>Already connected 🟢</h2><a href="${UI_BASE}${keyQ}">Back</a>`);
+    if (isReady) return html(`<h2>Already connected 🟢</h2><a href="${UI_BASE || "/"}${keyQ}">Back</a>`);
     if (!currentQR) return html(`<p>QR not ready yet. Refresh in a few seconds.</p>`);
     const img = await qrcode.toDataURL(currentQR);
-    return html(`<h2>Scan QR — Ariana</h2><img src="${img}"/><p>WhatsApp → Linked Devices → Link a Device</p><p style="font-size:12px">Refresh if it expires</p><a href="${UI_BASE}${keyQ}">Back</a>`);
+    return html(`<h2>Scan QR — Ariana</h2><img src="${img}"/><p>WhatsApp → Linked Devices → Link a Device</p><p style="font-size:12px">Refresh if it expires</p><a href="${UI_BASE || "/"}${keyQ}">Back</a>`);
   }
 
   if (pathname === "/pair") {
     const phone = (params.get("phone") || PHONE_NUMBER).replace(/\D/g, "");
     if (isReady) return html(`<h2>Already connected 🟢</h2>`);
-    if (!phone) return html(`<p style="color:#ff6b6b">Enter a phone number with country code, or set PHONE_NUMBER.</p><a href="${UI_BASE}${keyQ}">Back</a>`);
+    if (!phone) return html(`<p style="color:#ff6b6b">Enter a phone number with country code, or set PHONE_NUMBER.</p><a href="${UI_BASE || "/"}${keyQ}">Back</a>`);
     try {
       const code = await requestCode(phone);
       return html(`<h2>Pairing Code</h2><div class="code">${esc(code)}</div><p>Ariana's WhatsApp → Linked Devices → Link a Device → Link with phone number instead. Enter this code.</p>`);
     } catch (e) {
-      return html(`<p style="color:#ff6b6b">Error: ${esc(e.message)}</p><a href="${UI_BASE}${keyQ}">Back</a>`);
+      return html(`<p style="color:#ff6b6b">Error: ${esc(e.message)}</p><a href="${UI_BASE || "/"}${keyQ}">Back</a>`);
     }
   }
 
@@ -251,14 +264,20 @@ const send = (res, code, type, body) => { res.writeHead(code, { "Content-Type": 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
+  const bearer = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const hasApiAuth = !!API_SECRET && safeEq(bearer, API_SECRET);
   try {
+    if (p === "/ping") return send(res, 200, "text/plain", "ok"); // health check, no auth
     if (req.method === "POST") {
+      if (API_SECRET ? !hasApiAuth : EXPOSED) return send(res, 401, "application/json", JSON.stringify({ error: "unauthorized" }));
       const body = await readJson(req);
       if (p === "/reset") { await resetSession(); return send(res, 200, "application/json", JSON.stringify({ ok: true })); }
       const out = await handleApi(p, body);
       return send(res, 200, "application/json", JSON.stringify(out));
     }
-    if (p === "/ping") return send(res, 200, "text/plain", "ok");
+    if (ADMIN_KEY && !hasApiAuth && !safeEq(url.searchParams.get("key") || "", ADMIN_KEY)) {
+      return send(res, 401, "text/html", html(`<p>Unauthorized — add ?key=&lt;WA_ADMIN_KEY&gt;</p>`));
+    }
     if (p === "/status") return send(res, 200, "application/json", JSON.stringify({ connected: isReady, hasQR: !!currentQR, mode: authMode }));
     return send(res, 200, "text/html", await ui(p, url.searchParams));
   } catch (e) {
@@ -266,7 +285,7 @@ const server = http.createServer(async (req, res) => {
     send(res, code, "application/json", JSON.stringify({ error: e.message }));
   }
 });
-server.listen(PORT, "127.0.0.1", () => console.log(`🌐 wa-web sidecar on 127.0.0.1:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`🌐 wa-web sidecar on ${HOST}:${PORT}${EXPOSED ? " (standalone, secrets required)" : ""}`));
 
 // ── WHATSAPP CLIENT ───────────────────────────────────────────
 function puppeteerConfig() {
