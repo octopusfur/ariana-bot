@@ -271,6 +271,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST") {
       if (API_SECRET ? !hasApiAuth : EXPOSED) return send(res, 401, "application/json", JSON.stringify({ error: "unauthorized" }));
       const body = await readJson(req);
+      if (p === "/pair") {
+        if (isReady) return send(res, 200, "application/json", JSON.stringify({ connected: true }));
+        const phone = String(body.phone || "").replace(/\D/g, "");
+        if (phone.length < 8) { const e = new Error("enter the full number with country code"); e.status = 400; throw e; }
+        const code = await requestCode(phone);
+        return send(res, 200, "application/json", JSON.stringify({ ok: true, code }));
+      }
       if (p === "/reset") { await resetSession(); return send(res, 200, "application/json", JSON.stringify({ ok: true })); }
       const out = await handleApi(p, body);
       return send(res, 200, "application/json", JSON.stringify(out));
@@ -278,10 +285,10 @@ const server = http.createServer(async (req, res) => {
     if (ADMIN_KEY && !hasApiAuth && !safeEq(url.searchParams.get("key") || "", ADMIN_KEY)) {
       return send(res, 401, "text/html", html(`<p>Unauthorized — add ?key=&lt;WA_ADMIN_KEY&gt;</p>`));
     }
-    if (p === "/status") return send(res, 200, "application/json", JSON.stringify({ connected: isReady, hasQR: !!currentQR, mode: authMode }));
+    if (p === "/status") return send(res, 200, "application/json", JSON.stringify({ connected: isReady, hasQR: !!currentQR, mode: authMode, number: (isReady && client && client.info && client.info.wid) ? client.info.wid.user : null }));
     return send(res, 200, "text/html", await ui(p, url.searchParams));
   } catch (e) {
-    const code = e.status || (/not connected/i.test(e.message) ? 503 : 500);
+    const code = e.status || (/not connected|still starting/i.test(e.message) ? 503 : 500);
     send(res, code, "application/json", JSON.stringify({ error: e.message }));
   }
 });

@@ -535,6 +535,21 @@ textarea.inp{resize:vertical;min-height:120px}
       </div>
     </div>
     <div class="sgroup">
+      <div class="sgroup-title">WhatsApp</div>
+      <div class="sec">
+        <div id="wa-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
+        <div id="wa-link">
+          <label class="lbl">Ariana's WhatsApp number</label>
+          <input type="tel" id="wa-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
+          <button class="btn" id="wa-btn" onclick="waPair()" style="margin-top:10px">Get pairing code</button>
+          <div id="wa-code-box" style="display:none;margin-top:16px;text-align:center">
+            <div id="wa-code" style="font-size:34px;font-weight:800;letter-spacing:6px;color:var(--acc)"></div>
+            <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has this WhatsApp account:<br>Settings &rarr; Linked devices &rarr; Link a device &rarr; <b>Link with phone number instead</b>, then type this code.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sgroup">
       <div class="sgroup-title">Access</div>
       <div class="sec"><label class="lbl">Dashboard Key</label><input type="password" id="cfg-dash-key" class="inp" placeholder="DASHBOARD_SECRET value"></div>
       <div class="sec"><label class="lbl">Your Phone (Mitra)</label><input type="tel" id="cfg-phone" class="inp" placeholder="+1234567890"></div>
@@ -662,6 +677,36 @@ const socket=io();
 const HOME_SCREENS=['home','platforms','media','profile'];
 const screenMap={home:'s-home',talk:'s-talk',platforms:'s-platforms',media:'s-media',brain:'s-brain',wardrobe:'s-wardrobe',settings:'s-settings',profile:'s-profile',social:'s-social'};
 const navMap={home:'nb-home',platforms:'nb-platforms',media:'nb-media',profile:'nb-profile'};
+let _waPoll=null;
+async function waRefresh(){
+  const st=document.getElementById('wa-status'),box=document.getElementById('wa-link');
+  if(!st)return false;
+  try{
+    const r=await fetch('/api/whatsapp/status',{headers:authH()});
+    if(r.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return false;}
+    const d=await r.json();
+    if(d.provider&&d.provider!=='wwebjs'){st.textContent='WhatsApp is using the '+d.provider+' provider (no pairing needed).';box.style.display='none';return false;}
+    if(d.unreachable){st.textContent='WhatsApp service is not reachable right now.';return false;}
+    if(d.connected){st.textContent='Connected'+(d.number?' as +'+d.number:'');box.style.display='none';return true;}
+    st.textContent='Not linked yet. Enter her number to get a pairing code.';box.style.display='';return false;
+  }catch(e){st.textContent='Could not check status.';return false;}
+}
+async function waPair(){
+  const phone=document.getElementById('wa-phone').value.replace(/\D/g,'');
+  if(phone.length<8){toast('Enter the full number with country code');return;}
+  const btn=document.getElementById('wa-btn');btn.disabled=true;btn.textContent='Requesting code...';
+  try{
+    const r=await fetch('/api/whatsapp/pair',{method:'POST',headers:authH(),body:JSON.stringify({phone})});
+    const d=await r.json();
+    if(d.connected){toast('Already connected');waRefresh();return;}
+    if(!r.ok||!d.code){toast(d.error||'Could not get a code. Try again in a few seconds.',4000);return;}
+    document.getElementById('wa-code').textContent=d.code;
+    document.getElementById('wa-code-box').style.display='';
+    clearInterval(_waPoll);let n=0;
+    _waPoll=setInterval(async()=>{n++;if(await waRefresh()){clearInterval(_waPoll);toast('WhatsApp linked');}else if(n>36)clearInterval(_waPoll);},5000);
+  }catch(e){toast('Request failed');}
+  finally{btn.disabled=false;btn.textContent='Get pairing code';}
+}
 function go(name){
   Object.values(screenMap).forEach(id=>document.getElementById(id)?.classList.remove('on'));
   document.getElementById(screenMap[name])?.classList.add('on');
@@ -672,7 +717,7 @@ function go(name){
   if(name==='media')loadMedia();
   if(name==='brain')loadBrain();
   if(name==='wardrobe')loadWardrobe();
-  if(name==='settings')loadSettingsUI();
+  if(name==='settings'){loadSettingsUI();waRefresh();}
   if(name==='social')loadSocial();
   if(name==='profile')loadProfileStats();
 }

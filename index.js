@@ -2649,7 +2649,22 @@ app.delete("/api/friends/:phone", async (req, res) => {
 
 // ── WHATSAPP AUTH RESET ───────────────────────────────────────
 // Clears the WhatsApp session — restart the service after this, then re-pair at /wa
-app.post("/api/whatsapp/reset-auth", async (req, res) => {
+// Dashboard: WhatsApp link status + pairing code (code only, no QR). Proxied to the WhatsApp service.
+app.get("/api/whatsapp/status", requireDashboardAuth, async (req, res) => {
+  if (WA_PROVIDER !== 'wwebjs') return res.json({ provider: WA_PROVIDER, connected: null });
+  try {
+    const r = await axios.get(WA_WEB_URL + "/status", { timeout: 15000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} });
+    res.json({ provider: 'wwebjs', ...r.data });
+  } catch { res.json({ provider: 'wwebjs', connected: false, unreachable: true }); }
+});
+app.post("/api/whatsapp/pair", requireDashboardAuth, async (req, res) => {
+  const phone = String(req.body?.phone || '').replace(/\D/g, '');
+  if (phone.length < 8) return res.status(400).json({ error: 'Enter the full number with country code' });
+  try { const r = await waWeb('/pair', { phone }); res.json(r.data); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/whatsapp/reset-auth", requireDashboardAuth, async (req, res) => {
   if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
   try {
     await Promise.allSettled([
