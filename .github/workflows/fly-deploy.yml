@@ -38,7 +38,9 @@ jobs:
           done
           flyctl secrets set --stage -a "$APP" "${ARGS[@]}"
       - name: Deploy
-        run: flyctl deploy --remote-only -a "$APP"
+        run: flyctl deploy --remote-only --ha=false -a "$APP"
+      - name: Keep exactly ONE machine (two would fight over the same WhatsApp login)
+        run: flyctl scale count 1 -a "$APP" --yes
       - name: Verify the service came up
         if: always()
         run: |
