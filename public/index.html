@@ -58,7 +58,7 @@ body::before{content:'';position:absolute;inset:0;background:var(--bg);z-index:-
 .nb.on{background:var(--nb-btn,rgba(255,255,255,.1));color:var(--acc)}
 .nb-center{width:54px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:36px;border:none;background:var(--acc);color:var(--bg);cursor:pointer;position:relative;z-index:1;flex-shrink:0;box-shadow:0 0 20px var(--acc-glow);transition:all .2s}
 .nb-center:active{opacity:.8;transform:scale(.95)}
-#hero{position:relative;width:100%;height:420px;overflow:hidden;flex-shrink:0}
+#hero{position:relative;width:100%;height:310px;overflow:hidden;flex-shrink:0}
 #hero-slides{display:flex;width:100%;height:100%;transition:transform .6s ease-in-out}
 .hero-slide{min-width:100%;height:100%;position:relative;overflow:hidden}
 .hero-slide img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
@@ -238,6 +238,25 @@ textarea.inp{resize:vertical;min-height:120px}
 #preloader-name{font-size:28px;font-family:'Great Vibes',cursive;color:var(--acc2);text-shadow:0 0 20px var(--acc-glow)}
 #toast{position:absolute;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--s1);border:1px solid var(--bdr2);border-radius:100px;padding:10px 18px;font-size:13px;font-weight:600;color:var(--txt);box-shadow:0 8px 32px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:all .3s;z-index:500;white-space:nowrap}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── COMMAND CENTER ─────────────────────────────────────────────── */
+.home-topbar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 26px) 16px 0;z-index:10}
+.home-glass{background:rgba(0,0,0,.42)!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff!important}
+.home-avatar{width:36px;height:36px;font-size:13px;background:rgba(0,0,0,.48);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1.5px solid rgba(255,255,255,.24);cursor:pointer;margin-right:48px}
+.home-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.home-body{padding:16px 0 calc(94px + env(safe-area-inset-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
+.home-command{width:100%;max-width:720px;margin:0 auto;padding:0 16px}
+.command-kicker{display:flex;align-items:center;gap:9px;margin:0 4px 10px;color:var(--txt);font-size:13px;font-weight:700;letter-spacing:.02em}
+.live-mark{color:var(--txt2);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em}.live-mark i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--grn);box-shadow:0 0 0 3px color-mix(in srgb,var(--grn) 15%,transparent);margin-right:4px}
+.home-ask-row{display:flex;align-items:flex-end;gap:8px;padding:7px 7px 7px 14px;background:var(--s1);border:1px solid var(--bdr2);border-radius:18px;box-shadow:0 10px 32px rgba(0,0,0,.14);margin-bottom:24px}.home-ask-row .itxt{min-height:22px}.home-ask-row .isend{width:34px;height:34px}
+.home-section{margin:0 0 24px}.home-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 2px 10px}.section-eyebrow{font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--txt2)}.section-caption{font-size:11px;color:var(--txt3);margin-top:4px;line-height:1.35}.section-action{border:0;background:none;color:var(--acc3);font:600 11px inherit;cursor:pointer;padding:4px 0}.section-action:active,.text-btn:active{opacity:.62}
+.shortcut-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.home-shortcut{min-width:0;min-height:96px;padding:11px 5px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border:1px solid var(--bdr);border-radius:15px;background:var(--s1);color:var(--txt);cursor:pointer;transition:transform .16s ease,background .16s ease,border-color .16s ease;box-shadow:0 4px 16px rgba(0,0,0,.07)}.home-shortcut:active{transform:scale(.96);background:var(--s2);border-color:var(--bdr2)}.shortcut-icon{width:35px;height:35px;display:flex;align-items:center;justify-content:center;border-radius:11px;background:rgba(128,128,128,.09);border:1px solid var(--bdr)}.shortcut-icon svg{width:19px;height:19px;fill:var(--txt2)}.channel-wa .shortcut-icon{background:rgba(37,211,102,.09)}.channel-wa .shortcut-icon svg{fill:#25d366}.channel-tg .shortcut-icon{background:rgba(34,158,217,.1)}.channel-tg .shortcut-icon svg{fill:#229ed9}.channel-sig .shortcut-icon{background:rgba(58,118,240,.1)}.channel-sig .shortcut-icon svg{fill:#3a76f0}.channel-sms .shortcut-icon{background:rgba(76,175,80,.1)}.channel-sms .shortcut-icon svg{fill:#4caf50}.tool-shortcut .shortcut-icon svg{fill:none;stroke:var(--acc2);stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}.shortcut-name{font-size:10.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.shortcut-status{font-size:9px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.shortcut-status.is-connected{color:var(--grn)}.shortcut-status.is-configured{color:var(--acc3)}.shortcut-status.is-error{color:var(--red)}.shortcut-status.is-muted{color:var(--txt3)}
+.home-social-grid{display:grid;grid-template-columns:1fr;gap:8px}.social-account-card,.autonomy-card,.home-activity{background:var(--s1);border:1px solid var(--bdr);border-radius:15px}.social-account-card{padding:12px 13px}.social-card-head{display:flex;align-items:center;gap:9px;min-width:0}.social-card-head>div{min-width:0;flex:1}.social-card-head strong{display:block;font-size:13px}.social-handle{display:block;margin-top:2px;color:var(--txt2);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.social-platform-mark{width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--s3);font-size:12px;font-weight:800}.social-platform-mark.instagram{color:#e96f7c;background:rgba(225,48,108,.12)}.social-platform-mark.twitter{color:#8ac8ff;background:rgba(29,161,242,.12)}.social-platform-mark.linkedin{color:#74b8ef;background:rgba(10,102,194,.14)}.state-pill,.memory-status{font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--bdr);border-radius:100px;padding:4px 7px;white-space:nowrap}.state-pill.ok{color:var(--grn);border-color:rgba(51,204,136,.25)}.state-pill.bad{color:var(--red);border-color:rgba(255,68,85,.28)}.state-pill.muted{color:var(--txt2)}.capability-line{margin:10px 0 0;padding-top:9px;border-top:1px solid var(--bdr);color:var(--txt2);font-size:10.5px;line-height:1.45}.home-loading,.home-state{padding:16px;color:var(--txt3);font-size:12px;background:var(--s1);border:1px dashed var(--bdr2);border-radius:15px}.error-state{color:var(--red);border-style:solid}
+.autonomy-card{padding:14px}.autonomy-main{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.autonomy-state{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:800}.autonomy-state i{width:7px;height:7px;border-radius:50%;background:var(--txt3)}.autonomy-state.on i{background:var(--grn);box-shadow:0 0 0 4px rgba(51,204,136,.1)}.autonomy-note{font-size:11px;color:var(--txt2);margin-top:5px;line-height:1.4}.autonomy-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:14px;padding-top:11px;border-top:1px solid var(--bdr);color:var(--txt2);font-size:10px}.autonomy-meta b{color:var(--txt);font-weight:600}.autonomy-actions{display:flex;align-items:center;gap:12px;margin-top:13px}.secondary-btn,.primary-btn{border:1px solid var(--bdr2);border-radius:9px;padding:8px 12px;font:600 11px inherit;cursor:pointer;transition:transform .15s,opacity .15s,background .15s}.primary-btn{background:var(--txt);color:var(--bg);border-color:var(--txt)}.secondary-btn{background:var(--s2);color:var(--txt)}.primary-btn:active,.secondary-btn:active{transform:scale(.96);opacity:.8}.text-btn,.icon-text-btn{border:0;background:none;color:var(--acc3);font:600 11px inherit;cursor:pointer;padding:5px 0}.danger-text{color:var(--red)}.home-activity{overflow:hidden}.activity-row{display:flex;align-items:flex-start;gap:9px;padding:11px 12px;border-bottom:1px solid var(--bdr)}.activity-row:last-child{border-bottom:0}.activity-dot{width:7px;height:7px;border-radius:50%;margin-top:5px;background:var(--txt3);flex-shrink:0}.activity-dot.ok{background:var(--grn)}.activity-dot.bad{background:var(--red)}.activity-copy{flex:1;min-width:0}.activity-copy strong,.activity-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.activity-copy strong{font-size:11px;font-weight:700}.activity-copy span{font-size:10px;color:var(--txt2);margin-top:3px}.activity-row time{font-size:9px;color:var(--txt3);white-space:nowrap}.quick-access{margin-bottom:0}.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.quick-grid button{display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--s1);border:1px solid var(--bdr);border-radius:12px;color:var(--txt);font:600 11px inherit;text-align:left;cursor:pointer}.quick-grid button:active{background:var(--s2);transform:scale(.98)}.quick-icon{width:27px;height:27px;border-radius:8px;background:var(--s2);display:flex;align-items:center;justify-content:center}.quick-icon svg{width:15px;height:15px;fill:none;stroke:var(--acc2);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+/* ── MEMORY WORKSPACE ────────────────────────────────────────────── */
+.brain-header{align-items:flex-start}.brain-header .hdr-title{font-size:17px}.brain-header-sub{font-size:10px;color:var(--txt3);margin-top:2px}.brain-tabs{display:flex;gap:6px;overflow-x:auto;padding:0 16px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0}.brain-tab{border:1px solid var(--bdr);border-radius:100px;background:var(--s1);color:var(--txt2);font:600 11px inherit;padding:8px 11px;white-space:nowrap;cursor:pointer}.brain-tab.on{background:var(--txt);border-color:var(--txt);color:var(--bg)}.brain-tab b{font-size:9px;margin-left:3px}.brain-body{padding:16px}.brain-panel{display:none;max-width:720px;margin:0 auto}.brain-panel.on{display:block}.brain-intro{margin:2px 2px 16px}.brain-intro p{font-size:12px;line-height:1.55;color:var(--txt2);margin-top:7px}.memory-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}.memory-stats>div{padding:13px 8px;background:var(--s1);border:1px solid var(--bdr);border-radius:13px}.memory-stats b,.memory-stats span{display:block}.memory-stats b{font-size:21px;letter-spacing:-.04em}.memory-stats span{color:var(--txt2);font-size:9px;line-height:1.25;margin-top:3px}.memory-stats .accent-stat{border-color:rgba(255,68,85,.35);background:linear-gradient(145deg,var(--s1),rgba(110,20,30,.12))}.brain-info-card{display:flex;gap:10px;padding:13px;background:var(--s1);border:1px solid var(--bdr);border-radius:13px;margin-bottom:8px}.info-mark{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--s2);color:var(--acc2);font:700 12px Georgia}.info-mark.shield{color:var(--grn)}.brain-info-card strong{font-size:12px}.brain-info-card p{font-size:11px;color:var(--txt2);margin-top:3px}.brain-info-card small{display:block;color:var(--txt3);font-size:10px;margin-top:7px}.panel-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:12px}.brain-loading{padding:36px 10px;text-align:center;color:var(--txt3);font-size:12px}.brain-error{padding:14px;background:rgba(255,68,85,.08);border:1px solid rgba(255,68,85,.22);border-radius:12px;color:var(--red);font-size:12px}.brain-empty{padding:35px 18px;text-align:center;border:1px dashed var(--bdr2);border-radius:14px;color:var(--txt3)}.brain-empty strong,.brain-empty span{display:block}.brain-empty strong{color:var(--txt2);font-size:13px}.brain-empty span{font-size:11px;margin-top:6px;line-height:1.45}.memory-card{padding:14px;background:var(--s1);border:1px solid var(--bdr);border-radius:14px;margin-bottom:9px}.memory-card.is-flagged{border-color:rgba(255,68,85,.42);background:linear-gradient(145deg,var(--s1),rgba(100,20,30,.09))}.memory-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.memory-category{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc3);font-weight:800}.memory-status{color:var(--txt2)}.memory-status.candidate{color:#dfb673}.memory-status.approved{color:var(--grn)}.memory-status.rejected,.memory-status.archived{color:var(--txt3)}.memory-content{font-size:14px;line-height:1.5;margin-top:11px;color:var(--txt)}.memory-meta{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:11px;font-size:10px;color:var(--txt3)}.memory-actions,.memory-card-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:13px;padding-top:11px;border-top:1px solid var(--bdr)}.memory-card-foot{justify-content:space-between;color:var(--txt3);font-size:10px}.memory-card-foot>div{display:flex;gap:10px}.memory-warning{display:flex;flex-direction:column;gap:3px;margin-top:11px;padding:9px 10px;border-radius:9px;background:rgba(255,68,85,.09);color:var(--red);font-size:10px;line-height:1.4}.memory-warning strong{font-size:10px}.memory-filters{display:grid;grid-template-columns:1.4fr .8fr .7fr;gap:7px;margin-bottom:12px}.memory-filters .inp{min-width:0}.identity-list{display:flex;flex-direction:column;gap:7px}.identity-row{display:flex;align-items:center;gap:10px;text-align:left;padding:12px;background:var(--s1);border:1px solid var(--bdr);border-radius:12px;color:var(--txt);cursor:pointer}.identity-row:active{background:var(--s2)}.identity-file-icon{font:700 11px monospace;color:var(--acc3);width:28px;height:28px;border-radius:8px;background:var(--s2);display:flex;align-items:center;justify-content:center}.identity-row span:nth-child(2){flex:1;min-width:0}.identity-row strong,.identity-row small{display:block}.identity-row strong{font-size:12px}.identity-row small{color:var(--txt2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}.identity-row>b{color:var(--txt3);font-size:20px;font-weight:400}.history-list{border-left:1px solid var(--bdr2);margin-left:8px}.history-row{display:flex;gap:11px;padding:0 0 16px 15px;position:relative}.history-marker{position:absolute;left:-4px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--acc3);box-shadow:0 0 0 4px var(--bg)}.history-row strong,.history-row span,.history-row small{display:block}.history-row strong{font-size:12px;text-transform:capitalize}.history-row span{font-size:10px;color:var(--txt3);margin-top:3px}.history-row small{font-size:11px;color:var(--txt2);line-height:1.4;margin-top:6px}.brain-file-note{padding:0 16px 12px;color:var(--txt2);font-size:11px;line-height:1.4}.brain-editor{flex:1;resize:none;min-height:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6}.form-error{color:var(--red);font-size:11px;line-height:1.4;padding-top:7px;min-height:20px}.memory-modal{position:absolute;inset:0;display:none;align-items:flex-end;z-index:260}.memory-modal.on{display:flex}.memory-modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}.memory-modal-card{position:relative;width:100%;max-height:88%;overflow-y:auto;background:var(--s1);border:1px solid var(--bdr2);border-radius:22px 22px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom))}.memory-modal-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:17px}.memory-modal-title{font-size:16px;font-weight:700;margin-top:4px}.memory-editor{min-height:120px;resize:vertical;line-height:1.5;margin-top:3px}.memory-modal-card .lbl{margin-top:11px}.memory-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+@media (min-width:520px){.home-social-grid{grid-template-columns:repeat(3,1fr)}.social-account-card{min-height:126px}.home-command{padding-left:20px;padding-right:20px}}
+@media (max-width:380px){.shortcut-grid{gap:6px}.home-shortcut{padding-left:3px;padding-right:3px}.shortcut-name{font-size:9.5px}.memory-stats{gap:5px}.memory-stats b{font-size:18px}.memory-filters{grid-template-columns:1fr 1fr}.memory-filters .inp:first-child{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -263,7 +282,7 @@ textarea.inp{resize:vertical;min-height:120px}
 </div>
 <div id="toast"></div>
 
-<!-- HOME -->
+<!-- HOME / INFLUENCER COMMAND CENTER -->
 <div id="s-home" class="scr on">
   <div style="position:relative;flex-shrink:0">
     <div id="hero">
@@ -275,22 +294,50 @@ textarea.inp{resize:vertical;min-height:120px}
       </div>
       <div class="hero-dots" id="hero-dots"></div>
     </div>
-    <div style="position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top)+26px) 16px 0;z-index:10">
-      <button class="ib" onclick="go('profile')" style="background:rgba(0,0,0,.4);backdrop-filter:blur(10px)">
+    <div class="home-topbar">
+      <button class="ib home-glass" onclick="go('profile')" aria-label="Open Ariana's profile">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
       </button>
-      <div class="prof-av" id="home-av" onclick="go('profile')" style="width:36px;height:36px;font-size:13px;background:rgba(0,0,0,.5);backdrop-filter:blur(10px);border:1.5px solid rgba(255,255,255,.2);margin-right:48px">
-        <img id="home-av-img" alt="" style="display:none"><span id="home-av-txt">A</span>
+      <div class="prof-av home-avatar" id="home-av" onclick="go('profile')" aria-label="Open profile">
+        <img id="home-av-img" alt=""><span id="home-av-txt">A</span>
       </div>
     </div>
   </div>
-  <div class="sbody with-nav" style="display:flex;align-items:center;justify-content:center">
-    <div style="width:100%;padding:0 20px">
-      <div class="irow">
+  <div class="sbody with-nav home-body">
+    <main class="home-command">
+      <div class="command-kicker">Command center <span class="live-mark"><i></i> live</span></div>
+      <div class="home-ask-row">
         <textarea class="itxt" id="home-ask-inp" rows="1" placeholder="Message Ariana..." oninput="autoH(this)" onkeydown="homeAskKey(event)"></textarea>
-        <button class="isend" onclick="sendFromHome()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
+        <button class="isend" onclick="sendFromHome()" aria-label="Send message"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 5"/></svg></button>
       </div>
-    </div>
+
+      <section class="home-section home-shortcuts-section" aria-labelledby="shortcut-heading">
+        <div class="home-section-head"><div><div class="section-eyebrow" id="shortcut-heading">Channels &amp; tools</div><div class="section-caption">The fastest way into Ariana's world</div></div></div>
+        <div class="shortcut-grid" id="home-shortcuts">
+          <button class="home-shortcut channel-wa" onclick="openChannel('wa')" aria-label="Open WhatsApp conversations">
+            <span class="shortcut-icon"><svg class="brand-logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M26.576 5.363C23.886 2.673 20.17 1.01 16.065 1.01 7.856 1.01 1.2 7.665 1.2 15.874c0 2.732.737 5.291 2.022 7.491l-.038-.07-2.109 7.702 7.879-2.067c2.051 1.139 4.498 1.809 7.102 1.809h.006c8.209-.003 14.862-6.659 14.862-14.868 0-4.103-1.662-7.817-4.349-10.507ZM16.062 28.228h-.005a12.3 12.3 0 0 1-6.287-1.753l.056.031-.451-.267L4.7 27.466l1.247-4.559-.294-.467a12.3 12.3 0 0 1-1.889-6.565c0-6.822 5.531-12.353 12.353-12.353s12.353 5.531 12.353 12.353c0 6.822-5.53 12.353-12.353 12.353Zm6.776-9.251c-.371-.186-2.197-1.083-2.537-1.208-.341-.124-.589-.185-.837.187-.246.371-.958 1.207-1.175 1.455-.216.249-.434.279-.805.094-1.15-.466-2.138-1.087-2.997-1.852-.799-.74-1.484-1.587-2.037-2.521l-.028-.052c-.216-.371-.023-.572.162-.757.167-.166.372-.434.557-.65.146-.179.271-.384.366-.604l.006-.017c.043-.087.068-.188.068-.296 0-.131-.037-.253-.101-.357l.002.003c-.094-.186-.836-2.014-1.145-2.758-.302-.724-.609-.625-.836-.637-.216-.01-.464-.012-.712-.012-.395.01-.746.188-.988.463l-.001.002c-.802.761-1.3 1.834-1.3 3.023v.075c.131 1.467.681 2.784 1.527 3.857l-.012-.015c1.604 2.379 3.742 4.282 6.251 5.564l.094.043c.548.248 1.25.513 1.968.74l.149.041c.442.14.951.221 1.479.221.303 0 .601-.027.889-.078l-.031.004c1.069-.223 1.956-.868 2.497-1.749l.009-.017c.165-.366.261-.793.261-1.242 0-.185-.016-.366-.047-.542l.003.019c-.092-.155-.34-.247-.712-.434Z"/></svg></span><span class="shortcut-name">WhatsApp</span><span class="shortcut-status" id="home-status-wa">Checking</span>
+          </button>
+          <button class="home-shortcut channel-tg" onclick="openChannel('tg')" aria-label="Open Telegram conversations">
+            <span class="shortcut-icon"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2s10 4.477 10 10Zm-5.365-4.985c-.8.014-5.01 1.592-9.56 3.574-2.917 1.27-2.917 1.27-3.037 1.318-.202.08-.412.165-.412.362 0 .202.24.307.61.423l1.66.525c.49.154.997.018 1.418-.272 2.48-1.672 5.125-3.34 7.422-4.443.23-.11.516-.243.689-.158.174.085.116.333.078.463-.235.8-2.604 2.95-3.62 3.934-.316.306-.56.544-.56.544-.057.06-.116.118-.175.176-.374.37-.764.754-.05 1.225.7.463 1.453.902 2.18 1.325.332.193.664.386.996.588.33.2.66.402.995.596.257.15.58.216.83.086.253-.13.38-.45.45-.83.385-2.063 1.09-5.884 1.44-7.875.148-.842.22-1.31.232-1.53.014-.276-.014-.606-.29-.64-.096-.012-.2-.01-.306-.008Z"/></svg></span><span class="shortcut-name">Telegram</span><span class="shortcut-status" id="home-status-tg">Checking</span>
+          </button>
+          <button class="home-shortcut channel-sig" onclick="openChannel('sig')" aria-label="Open Signal conversations">
+            <span class="shortcut-icon"><svg class="brand-logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.816C9.274 3.82 3.822 9.273 3.822 16c0 2.404.696 4.645 1.897 6.533l-.029-.049-1.172 4.999 4.999-1.172A12.16 12.16 0 0 0 16.01 28.185c6.729 0 12.184-5.455 12.184-12.184S22.74 3.816 16.01 3.816H16Zm-6.96 23.872-2.011.469.319 1.368 1.481-.344c1.024.57 2.211 1.044 3.46 1.36l.103.022.337-1.363c-1.394-.354-2.619-.875-3.738-1.555l.06.034ZM2.48 24.642l1.368.319.469-2.012c-.643-1.062-1.162-2.291-1.492-3.596l-.02-.093-1.362.337c.338 1.352.812 2.539 1.421 3.64l-.039-.076Z"/></svg></span><span class="shortcut-name">Signal</span><span class="shortcut-status" id="home-status-sig">Checking</span>
+          </button>
+          <button class="home-shortcut channel-sms" onclick="openChannel('sms')" aria-label="Open SMS conversations">
+            <span class="shortcut-icon"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4C2.9 2 2.01 2.9 2.01 4L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2ZM9 11H7V9h2v2Zm4 0h-2V9h2v2Zm4 0h-2V9h2v2Z"/></svg></span><span class="shortcut-name">SMS</span><span class="shortcut-status" id="home-status-sms">Checking</span>
+          </button>
+          <button class="home-shortcut tool-shortcut" onclick="go('social')" aria-label="Open Social Studio"><span class="shortcut-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 2.25A3.25 3.25 0 0 0 13.25 5.5c0 .196.017.388.05.574L8.57 9.386A3.24 3.24 0 0 0 6.5 8.75a3.25 3.25 0 1 0 2.07 5.81l4.48 3.136a3.25 3.25 0 1 0 .867-1.17L9.438 13.39c.2-.422.312-.894.312-1.39s-.112-.97-.312-1.39l4.48-3.136A3.24 3.24 0 0 0 16.5 8.75a3.25 3.25 0 0 0 0-6.5Z"/></svg></span><span class="shortcut-name">Social Studio</span><span class="shortcut-status">Accounts &amp; activity</span></button>
+          <button class="home-shortcut tool-shortcut" onclick="go('media')" aria-label="Open Media Library"><span class="shortcut-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 2H7.2a1 1 0 0 0-1 1v1.45L3.1 5.1a1 1 0 0 0-.78 1.17l3.65 15.44a1 1 0 0 0 1.18.75L18.1 20h2.4a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1ZM7.2 5h12.3v7.25l-1.37-1.4a1 1 0 0 0-1.42 0l-3.77 3.77-2.72-3.06a1 1 0 0 0-1.01-.34L7.2 12.1V5Z"/></svg></span><span class="shortcut-name">Media Library</span><span class="shortcut-status">Images &amp; video</span></button>
+          <button class="home-shortcut tool-shortcut" onclick="go('talk')" aria-label="Open Voice and Calls"><span class="shortcut-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.56 15.55 14.1 16.03s-1.08 1.14-4.04-1.97-1.87-4.25-1.87-4.25l.29-.3a2.3 2.3 0 0 0 .16-2.81L7.37 4.91a2.3 2.3 0 0 0-3.11-.3L2.69 6.26c-.46.46-.72 1.05-.69 1.7.09 1.68.81 5.29 4.82 9.51 4.25 4.47 8.23 4.65 9.86 4.49.52-.05.96-.33 1.33-.71l1.42-1.5a2.3 2.3 0 0 0-.54-3.45l-1.91-1.1a2.3 2.3 0 0 0-2.42.35Z"/><path d="M17 2a5 5 0 0 1 0 10 5 5 0 0 1-2.8-.85l-1.9.55.55-1.9A5 5 0 0 1 17 2Z"/></svg></span><span class="shortcut-name">Voice &amp; Calls</span><span class="shortcut-status">Live interface</span></button>
+          <button class="home-shortcut tool-shortcut" onclick="go('brain')" aria-label="Open Brain and Memory"><span class="shortcut-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v15A2.5 2.5 0 0 0 9.5 22h5a2.5 2.5 0 0 0 2.5-2.5v-15A2.5 2.5 0 0 0 14.5 2h-5ZM7 8H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h3m10-8h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-3"/></svg></span><span class="shortcut-name">Brain &amp; Memory</span><span class="shortcut-status" id="home-memory-status">Review learnings</span></button>
+        </div>
+      </section>
+
+      <section class="home-section" aria-labelledby="social-heading"><div class="home-section-head"><div><div class="section-eyebrow" id="social-heading">Connected social accounts</div><div class="section-caption">Only verified account states are shown</div></div><button class="section-action" onclick="go('social')">Manage</button></div><div id="home-social-accounts" class="home-social-grid"><div class="home-loading">Loading account states…</div></div></section>
+      <section class="home-section" aria-labelledby="autonomy-heading"><div class="home-section-head"><div><div class="section-eyebrow" id="autonomy-heading">Ariana's autonomy</div><div class="section-caption">Creator-controlled, capped and auditable</div></div></div><div id="home-autonomy"><div class="home-loading">Loading autonomy settings…</div></div></section>
+      <section class="home-section" aria-labelledby="activity-heading"><div class="home-section-head"><div><div class="section-eyebrow" id="activity-heading">Recent activity</div><div class="section-caption">Real actions from the social activity log</div></div><button class="section-action" onclick="go('social')">View all</button></div><div id="home-activity"><div class="home-loading">Loading activity…</div></div></section>
+      <section class="home-section quick-access" aria-labelledby="quick-heading"><div class="section-eyebrow" id="quick-heading">Quick access</div><div class="quick-grid"><button onclick="go('brain')"><span class="quick-icon"><svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v15A2.5 2.5 0 0 0 9.5 22h5a2.5 2.5 0 0 0 2.5-2.5v-15A2.5 2.5 0 0 0 14.5 2h-5ZM7 8H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h3m10-8h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-3"/></svg></span>Brain &amp; Memory</button><button onclick="go('settings')"><span class="quick-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1.51 1.6V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15 1.65 1.65 0 0 0 3 13.5H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1.5-1.6V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 16 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.6 1.5H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15Z"/></svg></span>Settings</button></div></section>
+    </main>
   </div>
 </div>
 
@@ -385,23 +432,34 @@ textarea.inp{resize:vertical;min-height:120px}
   </div>
 </div>
 
-<!-- BRAIN -->
+<!-- BRAIN & MEMORY -->
 <div id="s-brain" class="scr">
-  <div class="hdr">
-    <button class="ib" onclick="go('profile')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
-    <span class="hdr-title">Brain</span>
+  <div class="hdr brain-header">
+    <button class="ib" onclick="go('home')" aria-label="Back to command center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <div><span class="hdr-title">Brain &amp; Memory</span><div class="brain-header-sub">Review what changes Ariana</div></div>
+    <button class="ib" onclick="loadBrain(true)" aria-label="Refresh brain and memory"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8.1 8.1 0 0 0-14.9-4L3 10"/><path d="M3 4v6h6M4 13a8.1 8.1 0 0 0 14.9 4L21 14"/><path d="M21 20v-6h-6"/></svg></button>
   </div>
-  <div class="sbody no-nav" style="padding:16px"><div id="brain-keys"></div></div>
+  <div class="brain-tabs" role="tablist">
+    <button class="brain-tab on" data-brain-tab="overview" onclick="switchBrainTab('overview')">Overview</button>
+    <button class="brain-tab" data-brain-tab="candidates" onclick="switchBrainTab('candidates')">New learnings <b id="brain-candidate-count">0</b></button>
+    <button class="brain-tab" data-brain-tab="approved" onclick="switchBrainTab('approved')">Approved</button>
+    <button class="brain-tab" data-brain-tab="identity" onclick="switchBrainTab('identity')">Identity</button>
+    <button class="brain-tab" data-brain-tab="history" onclick="switchBrainTab('history')">History</button>
+  </div>
+  <div class="sbody no-nav brain-body"><div id="brain-panel-overview" class="brain-panel on"></div><div id="brain-panel-candidates" class="brain-panel"></div><div id="brain-panel-approved" class="brain-panel"></div><div id="brain-panel-identity" class="brain-panel"></div><div id="brain-panel-history" class="brain-panel"></div></div>
 </div>
 <div id="s-brain-edit" class="scr" style="z-index:50">
   <div class="hdr">
-    <button class="ib" onclick="closeBrainEdit()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
-    <span class="hdr-title" id="brain-edit-title">Edit</span>
-    <button class="ib" onclick="saveBrainKey()" style="color:var(--acc3)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+    <button class="ib" onclick="closeBrainEdit()" aria-label="Close editor"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <span class="hdr-title" id="brain-edit-title">Edit brain file</span>
+    <button class="ib" onclick="saveBrainKey()" style="color:var(--acc3)" aria-label="Save brain file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></button>
   </div>
-  <div style="flex:1;padding:16px;display:flex;flex-direction:column">
-    <textarea class="inp" id="brain-edit-val" style="flex:1;resize:none;font-family:monospace;font-size:12px;line-height:1.6;min-height:0"></textarea>
-  </div>
+  <div class="brain-file-note" id="brain-edit-note"></div>
+  <div style="flex:1;padding:0 16px 16px;display:flex;flex-direction:column"><textarea class="inp brain-editor" id="brain-edit-val" spellcheck="false"></textarea><div id="brain-edit-error" class="form-error"></div></div>
+</div>
+<div id="memory-editor" class="memory-modal" aria-hidden="true">
+  <div class="memory-modal-backdrop" onclick="closeMemoryEditor()"></div>
+  <div class="memory-modal-card"><div class="memory-modal-head"><div><div class="section-eyebrow">Memory review</div><div class="memory-modal-title" id="memory-edit-title">Edit learning</div></div><button class="ib" onclick="closeMemoryEditor()" aria-label="Close memory editor">×</button></div><label class="lbl" for="memory-edit-category">Category</label><select class="inp" id="memory-edit-category"><option value="fact">Fact</option><option value="preference">Preference</option><option value="relationship">Relationship</option><option value="experience">Experience</option><option value="skill">Skill</option><option value="behavioral_lesson">Behavioral lesson</option><option value="other">Other</option></select><label class="lbl" for="memory-edit-content">Memory</label><textarea class="inp memory-editor" id="memory-edit-content" spellcheck="true"></textarea><div id="memory-edit-warning" class="memory-warning"></div><div class="memory-modal-actions"><button class="secondary-btn" onclick="closeMemoryEditor()">Cancel</button><button class="primary-btn" onclick="saveMemoryEditor()">Save changes</button></div></div>
 </div>
 
 <!-- WARDROBE -->
@@ -494,7 +552,7 @@ textarea.inp{resize:vertical;min-height:120px}
     <div class="pmenu" style="margin:0 16px 16px">
       <div class="pmenu-item" onclick="go('brain')">
         <div class="pmenu-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="1.8" stroke-linecap="round"><path d="M9.5 2A2.5 2.5 0 007 4.5v15A2.5 2.5 0 009.5 22h5a2.5 2.5 0 002.5-2.5v-15A2.5 2.5 0 0014.5 2h-5z"/><path d="M7 8H4a2 2 0 00-2 2v4a2 2 0 002 2h3"/><path d="M17 8h3a2 2 0 012 2v4a2 2 0 01-2 2h-3"/></svg></div>
-        <div class="pmenu-body"><div class="pmenu-title">Brain</div><div class="pmenu-sub">Personality, memory &amp; insights</div></div>
+        <div class="pmenu-body"><div class="pmenu-title">Brain &amp; Memory</div><div class="pmenu-sub">Review learnings, identity &amp; history</div></div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
       <div class="pmenu-item" onclick="go('wardrobe')">
@@ -673,6 +731,7 @@ const cfg=(()=>{
 })();
 function authH(){const k=cfg.get('dash_key');return k?{'Content-Type':'application/json','X-Dashboard-Key':k}:{'Content-Type':'application/json'};}
 let conversations={},takeoverState={},talkHistory=[],activeBrainKey=null,currentPhone=null,currentCallId=null,currentPlatform='wa',heroPhotos=[],heroIndex=0,heroTimer=null,allMedia=[],wardrobeItems=[],selectedOutfit=null,genOutfitUrl=null;
+let platformStatuses={},brainState={overview:null,candidates:[],approved:[],identity:{},history:[],categories:[]},activeBrainTab='overview',activeMemoryId=null;
 const socket=io();
 const HOME_SCREENS=['home','platforms','media','profile'];
 const screenMap={home:'s-home',talk:'s-talk',platforms:'s-platforms',media:'s-media',brain:'s-brain',wardrobe:'s-wardrobe',settings:'s-settings',profile:'s-profile',social:'s-social'};
@@ -713,6 +772,7 @@ function go(name){
   document.querySelectorAll('.nb,.nb-center').forEach(b=>b.classList.remove('on'));
   if(navMap[name])document.getElementById(navMap[name])?.classList.add('on');
   document.getElementById('bnav').classList.toggle('hidden',name!=='home'&&name!=='profile'&&name!=='platforms');
+  if(name==='home')loadHomeCommandCenter();
   if(name==='platforms')loadPlatforms();
   if(name==='media')loadMedia();
   if(name==='brain')loadBrain();
@@ -724,6 +784,51 @@ function go(name){
 let _tt;
 function toast(msg,dur=2600){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('show'),dur);}
 function autoH(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
+function channelStatusClass(status){return status==='connected'?'is-connected':status==='configured'?'is-configured':status==='unreachable'?'is-error':'is-muted';}
+function channelStatusLabel(status){return status==='connected'?'Connected':status==='configured'?'Configured':status==='unreachable'?'Unavailable':status==='not_configured'?'Not configured':'Unknown';}
+function openChannel(platform){go('platforms');setPlatform(platform);}
+function homeTime(iso){return iso?socAgo(iso):'';}
+
+function renderHomeSocial(){
+  const el=document.getElementById('home-social-accounts');if(!el)return;
+  if(soc.error){el.innerHTML='<div class="home-state error-state">Could not load social account state. Try again from Social Studio.</div>';return;}
+  const manifest=(soc.caps&&soc.caps.capabilities&&soc.caps.capabilities.platforms)||[];
+  const definitions=[['instagram','Instagram'],['twitter','X'],['linkedin','LinkedIn']];
+  el.innerHTML=definitions.map(([id,label])=>{
+    const info=manifest.find(p=>p.id===id)||{};
+    const accounts=soc.accounts.filter(a=>a.platform===id);
+    const supported=(accounts[0]?.capabilities?.supported||info.supported||[]).map(x=>x.action).filter(Boolean).slice(0,4);
+    if(!accounts.length)return `<article class="social-account-card"><div class="social-card-head"><span class="social-platform-mark ${id}">${label[0]}</span><div><strong>${label}</strong><span class="social-handle">No account added</span></div><span class="state-pill muted">Not connected</span></div><div class="capability-line">Supported: ${supported.length?socEsc(supported.join(' · ')):'Unavailable until an account is connected.'}</div></article>`;
+    return `<article class="social-account-card">${accounts.map(a=>{const labelState=a.status==='online'?'Connected':a.status==='error'?'Error':a.status==='not_connected'?'Needs session':'Unknown';const cls=a.status==='online'?'ok':a.status==='error'?'bad':'muted';const acts=(a.capabilities?.supported||supported.map(action=>({action}))).map(x=>x.action).filter(Boolean).slice(0,4);return `<div class="social-card-head"><span class="social-platform-mark ${id}">${label[0]}</span><div><strong>${label}</strong><span class="social-handle">@${socEsc(a.handle||'—')}</span></div><span class="state-pill ${cls}">${labelState}</span></div><div class="capability-line">${a.status_detail?socEsc(socReasonText(a.status_detail,150))+' · ':''}Can: ${acts.length?socEsc(acts.join(' · ')):'No capabilities reported'}</div>`;}).join('')}</article>`;
+  }).join('');
+}
+function renderHomeAutonomy(){
+  const el=document.getElementById('home-autonomy');if(!el)return;
+  const c=soc.autonomy;
+  if(!c){el.innerHTML='<div class="home-state">Autonomy configuration unavailable.</div>';return;}
+  const last=c.last_run_at?`Last run ${homeTime(c.last_run_at)}`:'No run recorded';
+  el.innerHTML=`<div class="autonomy-card"><div class="autonomy-main"><div><div class="autonomy-state ${c.enabled?'on':''}"><i></i>${c.enabled?'Enabled':'Disabled'}</div><div class="autonomy-note">${c.enabled?'Ariana may act only within the configured limits.':'No autonomous social actions will run while this is off.'}</div></div><button class="tgl ${c.enabled?'on':''}" onclick="homeToggleAutonomy(${!c.enabled})" aria-label="Turn autonomy ${c.enabled?'off':'on'}"><span class="tgl-k"></span></button></div><div class="autonomy-meta"><span>Every <b>${socEsc(c.interval_minutes)} min</b></span><span>Limit <b>${socEsc(c.max_actions_per_tick)} actions</b></span><span>${socEsc(last)}</span></div><div class="autonomy-actions"><button class="secondary-btn" onclick="homeRunAutonomy()">Run now</button><button class="text-btn" onclick="go('social')">Configure</button></div></div>`;
+}
+function renderHomeActivity(){
+  const el=document.getElementById('home-activity');if(!el)return;
+  if(soc.error){el.innerHTML='<div class="home-state error-state">Activity is unavailable right now.</div>';return;}
+  if(!soc.activity.length){el.innerHTML='<div class="home-state">No social activity recorded yet.</div>';return;}
+  el.innerHTML=soc.activity.slice(0,4).map(e=>{const good=e.status==='completed', bad=e.status==='failed'||e.status==='blocked';const state=e.status_label||e.status||'Unknown';return `<div class="activity-row"><span class="activity-dot ${good?'ok':bad?'bad':'muted'}"></span><div class="activity-copy"><strong>${socEsc(e.action||'Action')} · ${socEsc(e.platform_label||e.platform||'Account')}</strong><span>${socEsc(e.summary||state)}${e.handle?' · @'+socEsc(e.handle):''}</span></div><time>${socEsc(socAgo(e.created_at)||'—')}</time></div>`;}).join('');
+}
+async function loadHomeCommandCenter(){
+  const statusEls=['wa','tg','sig','sms'];
+  statusEls.forEach(k=>{const el=document.getElementById('home-status-'+k);if(el)el.textContent='Checking';});
+  try{const r=await fetch('/api/platform-status',{headers:authH()});const data=await r.json();platformStatuses=data.platforms||{};statusEls.forEach(k=>{const p=k==='wa'?'whatsapp':k==='tg'?'telegram':k==='sig'?'signal':'sms';const item=platformStatuses[p]||{};const el=document.getElementById('home-status-'+k);if(el){el.textContent=channelStatusLabel(item.status);el.className='shortcut-status '+channelStatusClass(item.status);el.title=item.detail||'';}});}catch{statusEls.forEach(k=>{const el=document.getElementById('home-status-'+k);if(el){el.textContent='Unavailable';el.className='shortcut-status is-error';}});}
+  await loadSocial();
+  renderHomeSocial();renderHomeAutonomy();renderHomeActivity();
+  const mem=document.getElementById('home-memory-status');if(mem&&soc.error)mem.textContent='Open to review';
+}
+async function homeToggleAutonomy(enabled){
+  await socSaveAutonomy({enabled});
+  setTimeout(loadHomeCommandCenter,250);
+}
+async function homeRunAutonomy(){await socRunAutonomy();setTimeout(loadHomeCommandCenter,250);}
+
 function loadHeroPhotos(){
   try{heroPhotos=JSON.parse(cfg.get('hero_photos')||localStorage.getItem('ari_hero_photos')||'[]');}catch{heroPhotos=[];}
   renderHeroSlides();
@@ -903,10 +1008,66 @@ function selectOutfit(id,url,el){selectedOutfit=id;genOutfitUrl=url;document.que
 function loadWardrobePreview(){const el=document.getElementById('home-wd-preview');if(!el)return;el.innerHTML=wardrobeItems.slice(0,3).map(it=>`<img src="${it.url||''}" alt="" class="wd-thumb" loading="lazy">`).join('');}
 async function uploadWardrobe(input){const file=input.files[0];if(!file)return;const b64=await toB64(file);toast('Uploading...');try{const r=await fetch('/api/wardrobe/upload',{method:'POST',headers:authH(),body:JSON.stringify({name:file.name,data:b64,mimeType:file.type})});const d=await r.json();if(!d.ok)throw new Error(d.error||'Upload failed');loadWardrobe();toast('Uploaded');}catch(e){toast('Failed: '+e.message);}input.value='';}
 async function deleteWardrobe(id){if(!confirm('Delete?'))return;await fetch(`/api/wardrobe/${id}`,{method:'DELETE',headers:authH()});loadWardrobe();}
-async function loadBrain(){try{const brain=await fetch('/api/brain').then(r=>r.json());window._brain=brain;document.getElementById('brain-keys').innerHTML=Object.keys(brain).map(k=>`<div class="bkey-row" onclick="openBrainKey('${escAttr(k)}')"><div><div style="font-size:14px;font-weight:600;color:var(--txt)">${escHTML(k)}</div><div style="font-size:11px;color:var(--txt2);margin-top:2px">${escHTML(JSON.stringify(brain[k]).slice(0,60))}...</div></div><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></div>`).join('');}catch{toast('Could not load brain');}}
-function openBrainKey(k){activeBrainKey=k;document.getElementById('brain-edit-title').textContent=k;const v=window._brain?.[k];document.getElementById('brain-edit-val').value=typeof v==='object'?JSON.stringify(v,null,2):String(v||'');document.getElementById('s-brain-edit').classList.add('on');}
+function brainLoading(panel,msg='Loading…'){const el=document.getElementById(panel);if(el)el.innerHTML=`<div class="brain-loading">${msg}</div>`;}
+function switchBrainTab(tab){
+  activeBrainTab=tab;
+  document.querySelectorAll('.brain-tab').forEach(b=>b.classList.toggle('on',b.dataset.brainTab===tab));
+  document.querySelectorAll('.brain-panel').forEach(p=>p.classList.toggle('on',p.id==='brain-panel-'+tab));
+  renderBrainPanel(tab);
+}
+async function loadBrain(force){
+  ['overview','candidates','approved','identity','history'].forEach(tab=>brainLoading('brain-panel-'+tab));
+  try{
+    const h={headers:authH()};
+    const [ov,ca,ap,files,hi]=await Promise.all([
+      fetch('/api/memory/overview',h).then(r=>r.json()),
+      fetch('/api/memory/items?status=candidate&sort=newest',h).then(r=>r.json()),
+      fetch('/api/memory/items?status=approved&sort=newest',h).then(r=>r.json()),
+      fetch('/api/brain',h).then(r=>r.json()),
+      fetch('/api/memory/history?limit=100',h).then(r=>r.json())
+    ]);
+    if(!ov.ok)throw new Error(ov.error||'Memory overview unavailable');
+    brainState.overview=ov.overview||{};brainState.candidates=ca.items||[];brainState.approved=ap.items||[];brainState.identity=files.documents||{};brainState.history=hi.history||[];brainState.categories=ca.categories||[];window._brain=brainState.identity;
+    const count=document.getElementById('brain-candidate-count');if(count)count.textContent=brainState.candidates.length;
+    renderBrainPanel(activeBrainTab);
+  }catch(e){['overview','candidates','approved','identity','history'].forEach(tab=>{const el=document.getElementById('brain-panel-'+tab);if(el)el.innerHTML=`<div class="brain-error">${escHtml(e.message||'Could not load Brain & Memory.')}</div>`;});}
+}
+function formatMemoryDate(iso){if(!iso)return 'Date unavailable';const d=new Date(iso);return Number.isNaN(d.getTime())?'Date unavailable':d.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});}
+function memorySource(item){const s=item.source||{};return s.reference||s.excerpt||s.type||'Source not recorded';}
+function memoryCard(item,review){
+  const warning=item.flagged?`<div class="memory-warning"><strong>Quarantined for review</strong><span>${socEsc((item.flag_reasons||[]).join(' '))}</span></div>`:'';
+  const confidence=item.confidence==null?'':`<span>Confidence ${Math.round(Number(item.confidence)*100)}%</span>`;
+  const status=item.status==='approved'?'Active':item.status==='rejected'?'Rejected':item.status==='archived'?'Archived':'Awaiting review';
+  return `<article class="memory-card ${item.flagged?'is-flagged':''}"><div class="memory-card-top"><span class="memory-category">${socEsc(item.category||'other')}</span><span class="memory-status ${item.status}">${status}</span></div><div class="memory-content">${socEsc(item.content||'')}</div><div class="memory-meta"><span>${socEsc(memorySource(item))}</span><span>${socEsc(formatMemoryDate(item.learned_at||item.created_at))}</span>${confidence}</div>${warning}${review?`<div class="memory-actions"><button class="primary-btn" onclick="approveMemory('${escAttr(item.id)}',${item.flagged?'true':'false'})">${item.flagged?'Approve after review':'Approve'}</button><button class="secondary-btn" onclick="openMemoryEditor('${escAttr(item.id)}')">Edit</button><button class="text-btn danger-text" onclick="rejectMemory('${escAttr(item.id)}')">Reject</button><button class="icon-text-btn" onclick="deleteMemory('${escAttr(item.id)}','learning')">Delete</button></div>`:`<div class="memory-card-foot"><span>${item.used_in_retrieval?'Used by retrieval':'Not in retrieval'}</span><div><button class="text-btn" onclick="openMemoryEditor('${escAttr(item.id)}')">Edit</button><button class="text-btn" onclick="archiveMemory('${escAttr(item.id)}')">Archive</button><button class="text-btn danger-text" onclick="deleteMemory('${escAttr(item.id)}','memory')">Delete</button></div></div>`}</article>`;
+}
+function renderBrainPanel(tab){
+  if(tab==='overview'){
+    const o=brainState.overview||{};const last=o.last_update?`${socEsc(formatMemoryDate(o.last_update))} · ${socEsc(String(o.last_update_event||'updated').replace(/_/g,' '))}`:'No learning update recorded';
+    document.getElementById('brain-panel-overview').innerHTML=`<div class="brain-intro"><div class="section-eyebrow">Ariana's memory ledger</div><p>Durable learnings wait here before they can influence a reply. Quarantined items stay out of retrieval.</p></div><div class="memory-stats"><div><b>${o.total??0}</b><span>Total stored</span></div><div class="accent-stat"><b>${o.candidates??0}</b><span>Awaiting review</span></div><div><b>${o.approved??0}</b><span>Active</span></div><div><b>${(o.rejected??0)+(o.archived??0)}</b><span>Rejected / archived</span></div></div><div class="brain-info-card"><span class="info-mark">i</span><div><strong>Last update</strong><p>${last}</p><small>Storage: ${socEsc(o.backend||'unknown')} · automatic learnings are marked in History</small></div></div><div class="brain-info-card"><span class="info-mark shield">✓</span><div><strong>Safety gate</strong><p>${o.flagged??0} candidate${o.flagged===1?'':'s'} currently quarantined for review.</p><small>Identity files and creator boundaries are never changed by conversation learning.</small></div></div>`;
+  } else if(tab==='candidates'){
+    const rows=brainState.candidates||[];document.getElementById('brain-panel-candidates').innerHTML=`<div class="panel-toolbar"><div><div class="section-eyebrow">New learnings</div><div class="section-caption">Automatic extraction · nothing becomes active without review</div></div><button class="text-btn" onclick="loadBrain(true)">Refresh</button></div>${rows.length?rows.map(i=>memoryCard(i,true)).join(''):'<div class="brain-empty"><strong>No new learnings</strong><span>Durable facts extracted from conversations will appear here.</span></div>'}`;
+  } else if(tab==='approved'){
+    const rows=brainState.approved||[];document.getElementById('brain-panel-approved').innerHTML=`<div class="panel-toolbar"><div><div class="section-eyebrow">Approved memories</div><div class="section-caption">Search and manage the active retrieval set</div></div></div><div class="memory-filters"><input class="inp" id="memory-search" placeholder="Search memories…" oninput="filterApprovedMemories()"><select class="inp" id="memory-category-filter" onchange="filterApprovedMemories()"><option value="all">All categories</option>${(brainState.categories||[]).map(c=>`<option value="${escAttr(c)}">${socEsc(c)}</option>`).join('')}</select><select class="inp" id="memory-sort" onchange="filterApprovedMemories()"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="category">Category</option></select></div><div id="approved-memory-list">${rows.length?rows.map(i=>memoryCard(i,false)).join(''):'<div class="brain-empty"><strong>No approved memories</strong><span>Approve a safe learning to make it available to Ariana.</span></div>'}</div>`;
+  } else if(tab==='identity'){
+    const keys=Object.keys(brainState.identity||{});document.getElementById('brain-panel-identity').innerHTML=`<div class="brain-intro"><div class="section-eyebrow">Personality &amp; identity</div><p>Edit the actual JSON documents that define Ariana. Protected files can be edited here by you, but never by conversation-derived learning.</p></div><div class="identity-list">${keys.map(k=>{const protectedFile=['core_identity','boundaries','creator_config'].includes(k);const value=brainState.identity[k];return `<button class="identity-row" onclick="openBrainKey('${escAttr(k)}')"><span class="identity-file-icon">{ }</span><span><strong>${socEsc(k)}</strong><small>${protectedFile?'Protected from automatic learning':'Editable brain document'} · ${socEsc(JSON.stringify(value).slice(0,90))}</small></span><b>›</b></button>`;}).join('')}</div>`;
+  } else if(tab==='history'){
+    const rows=brainState.history||[];document.getElementById('brain-panel-history').innerHTML=`<div class="brain-intro"><div class="section-eyebrow">Memory history</div><p>Every review decision is recorded with its source. Secrets are redacted from this log.</p></div>${rows.length?`<div class="history-list">${rows.map(h=>`<article class="history-row"><div class="history-marker"></div><div><strong>${socEsc(String(h.event||'change').replace(/_/g,' '))}</strong><span>${socEsc(h.actor||'creator')} · ${socEsc(formatMemoryDate(h.created_at))}</span><small>${h.next?.content?socEsc(h.next.content):h.previous?.content?socEsc(h.previous.content):'Memory record updated'}</small>${h.previous?`<button class="text-btn" onclick="restoreMemoryHistory('${escAttr(h.id)}')">Restore previous version</button>`:''}</div></article>`).join('')}</div>`:'<div class="brain-empty"><strong>No history yet</strong><span>Memory changes will appear here.</span></div>'}`;
+  }
+}
+function filterApprovedMemories(){
+  const q=(document.getElementById('memory-search')?.value||'').toLowerCase();const c=document.getElementById('memory-category-filter')?.value||'all';const sort=document.getElementById('memory-sort')?.value||'newest';let rows=(brainState.approved||[]).filter(i=>(c==='all'||i.category===c)&&`${i.content} ${i.value}`.toLowerCase().includes(q));rows.sort((a,b)=>sort==='oldest'?Date.parse(a.created_at)-Date.parse(b.created_at):sort==='category'?String(a.category).localeCompare(String(b.category)):Date.parse(b.updated_at)-Date.parse(a.updated_at));const el=document.getElementById('approved-memory-list');if(el)el.innerHTML=rows.length?rows.map(i=>memoryCard(i,false)).join(''):'<div class="brain-empty"><strong>No matching memories</strong><span>Try another search or category.</span></div>';
+}
+function openMemoryEditor(id){const item=[...(brainState.candidates||[]),...(brainState.approved||[])].find(i=>i.id===id);if(!item)return;activeMemoryId=id;document.getElementById('memory-edit-title').textContent=item.status==='approved'?'Edit approved memory':'Review learning';document.getElementById('memory-edit-content').value=item.content||'';document.getElementById('memory-edit-category').value=item.category||'other';document.getElementById('memory-edit-warning').textContent=item.flagged?(item.flag_reasons||[]).join(' '):'';const modal=document.getElementById('memory-editor');modal.classList.add('on');modal.setAttribute('aria-hidden','false');}
+function closeMemoryEditor(){activeMemoryId=null;const modal=document.getElementById('memory-editor');modal.classList.remove('on');modal.setAttribute('aria-hidden','true');}
+async function saveMemoryEditor(){if(!activeMemoryId)return;const item=[...(brainState.candidates||[]),...(brainState.approved||[])].find(i=>i.id===activeMemoryId);const body={content:document.getElementById('memory-edit-content').value.trim(),category:document.getElementById('memory-edit-category').value};const endpoint=item?.status==='approved'?`/api/memory/approved/${activeMemoryId}`:`/api/memory/candidates/${activeMemoryId}`;const r=await fetch(endpoint,{method:'PATCH',headers:authH(),body:JSON.stringify(body)});const data=await r.json();if(!r.ok||!data.ok){document.getElementById('memory-edit-warning').textContent=data.error||'Could not save this memory.';return;}closeMemoryEditor();toast('Memory updated');loadBrain(true);}
+async function approveMemory(id,flagged){const body=flagged?{allow_flagged:true}:{};const r=await fetch(`/api/memory/candidates/${id}/approve`,{method:'POST',headers:authH(),body:JSON.stringify(body)});const d=await r.json();if(!r.ok||!d.ok)return toast(d.error||'Approval blocked',4000);toast('Memory approved');loadBrain(true);}
+async function rejectMemory(id){if(!confirm('Reject this learning? It will remain out of Ariana’s active memory.'))return;const r=await fetch(`/api/memory/candidates/${id}/reject`,{method:'POST',headers:authH()});const d=await r.json();if(!d.ok)return toast(d.error||'Could not reject');toast('Learning rejected');loadBrain(true);}
+async function archiveMemory(id){if(!confirm('Archive this approved memory? Ariana will stop retrieving it.'))return;const r=await fetch(`/api/memory/approved/${id}/archive`,{method:'POST',headers:authH()});const d=await r.json();if(!d.ok)return toast(d.error||'Could not archive');toast('Memory archived');loadBrain(true);}
+async function deleteMemory(id,label){if(!confirm(`Permanently delete this ${label||'memory'}? This cannot be undone.`))return;const url=label==='learning'?`/api/memory/candidates/${id}`:`/api/memory/approved/${id}`;const r=await fetch(url,{method:'DELETE',headers:authH()});const d=await r.json();if(!d.ok)return toast(d.error||'Could not delete');toast('Deleted');loadBrain(true);}
+async function restoreMemoryHistory(id){if(!confirm('Restore the previous version of this memory?'))return;const r=await fetch(`/api/memory/history/${id}/restore`,{method:'POST',headers:authH()});const d=await r.json();if(!r.ok||!d.ok)return toast(d.error||'Could not restore');toast('Previous version restored');loadBrain(true);}
+function openBrainKey(k){activeBrainKey=k;document.getElementById('brain-edit-title').textContent=k;document.getElementById('brain-edit-note').textContent=['core_identity','boundaries','creator_config'].includes(k)?'Protected from automatic conversation learning. Manual edits are still allowed.':'JSON is validated before it is saved.';const v=brainState.identity?.[k];document.getElementById('brain-edit-val').value=JSON.stringify(v??{},null,2);document.getElementById('brain-edit-error').textContent='';document.getElementById('s-brain-edit').classList.add('on');}
 function closeBrainEdit(){document.getElementById('s-brain-edit').classList.remove('on');}
-async function saveBrainKey(){if(!activeBrainKey)return;let v=document.getElementById('brain-edit-val').value;try{v=JSON.parse(v);}catch(e){}try{await fetch(`/api/brain/${activeBrainKey}`,{method:'POST',headers:authH(),body:JSON.stringify({data:v})});toast('Saved');closeBrainEdit();loadBrain();}catch{toast('Save failed');}}
+async function saveBrainKey(){if(!activeBrainKey)return;const error=document.getElementById('brain-edit-error');let value;try{value=JSON.parse(document.getElementById('brain-edit-val').value);}catch(e){error.textContent='Invalid JSON: '+e.message;return;}const r=await fetch(`/api/brain/${encodeURIComponent(activeBrainKey)}`,{method:'POST',headers:authH(),body:JSON.stringify({data:value})});const d=await r.json();if(!r.ok||!d.ok){error.textContent=d.error||'Save failed';return;}toast('Brain file saved');closeBrainEdit();loadBrain(true);}
 function loadSettingsUI(){
   const map={'cfg-dash-key':'dash_key','cfg-phone':'phone','cfg-name':'name','cfg-groq':'groq','cfg-gemini':'gemini','cfg-kapso':'kapso','cfg-supa-url':'supa_url','cfg-supa-key':'supa_key'};
   Object.entries(map).forEach(([id,k])=>{const el=document.getElementById(id);if(el)el.value=cfg.get(k);});
@@ -953,7 +1114,9 @@ function applyTheme(){
     loadSettingsUI();loadHeroPhotos();
     const av2=cfg.get('avatar');if(av2)applyAvatar(av2);
     const cover2=cfg.get('cover');if(cover2){const el=document.getElementById('prof-cover-img');el.src=cover2;el.style.display='block';}
+    loadHomeCommandCenter();
   });
+  loadHomeCommandCenter();
   setTimeout(()=>{const p=document.getElementById('preloader');if(p){p.classList.add('hide');setTimeout(()=>p.remove(),400);}},5000);
 })();
 

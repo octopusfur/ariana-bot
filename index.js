@@ -253,6 +253,7 @@ try {
 // explicitly enabled. Without a deployed engine it reports "not connected" and
 // everything else carries on exactly as before.
 const social = require('./social');
+const memoryManager = require('./memory_manager');
 
 let mediaLib = { ariana_photos: [], triggers: {
   selfie: [
@@ -1268,7 +1269,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
     }));
 
   // ── Inject brain memories so she actually remembers things ──
-  const memoryKeys = ['core_identity','appearance','personality','lifestyle','miami_environment','learned_memories','people','facts'];
+  const memoryKeys = ['core_identity','appearance','personality','lifestyle','miami_environment','people','facts'];
   const memLines = [];
   for (const k of memoryKeys) {
     const val = brainCache[k];
@@ -2009,7 +2010,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     // ── SELF-LEARNING: extract facts from every social conversation ──
     // Runs in background — never blocks the reply or the sender
     setImmediate(async () => {
-      if (!getGeminiKey() || !supabase) return;
+      if (!getGeminiKey()) return;
       // Only learn from real user messages — skip media stubs, voice notes, and very short texts
       if (!finalText || finalText.startsWith('[') || finalText.trim().length < 8) return;
       // Only learn occasionally (30% of messages) to avoid API overuse
@@ -2036,19 +2037,14 @@ Ariana replied: "${reply.slice(0, 200)}"`;
         const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
         const learned = parsed.learned || {};
         if (Object.keys(learned).length > 0) {
-          // Namespace by contact so facts from different people don't collide
-          const memKey  = `contact_${rawPhone}`;
-          const existing = (brainCache[memKey] || {});
-          const merged   = { ...existing, ...learned, _source: platform, _updated: new Date().toISOString() };
-          brainCache[memKey] = merged;
-          // Also merge into global learned_memories
-          const global  = brainCache['learned_memories'] || {};
-          brainCache['learned_memories'] = { ...global, [memKey]: merged };
-          await supabase.from('ariana_brain').upsert([
-            { key: memKey, data: merged, updated_at: new Date().toISOString() },
-            { key: 'learned_memories', data: brainCache['learned_memories'], updated_at: new Date().toISOString() }
-          ], { onConflict: 'key' }).catch(() => {});
-          console.log(`🧠 [social-learn] ${convo.name||id}: saved ${Object.keys(learned).join(', ')}`);
+          const results = await memoryManager.createCandidatesFromObject({
+            userId: id,
+            learned,
+            source: { type: 'conversation', reference: id, platform, excerpt: finalText.slice(0, 300) },
+            sourceType: 'automatic',
+          });
+          const created = results.filter(result => result.ok && !result.duplicate).length;
+          if (created) console.log(`🧠 [social-learn] ${convo.name||id}: queued ${created} learning candidate(s)`);
         }
       } catch { /* silent — never interrupt social chat */ }
     });
@@ -2792,8 +2788,58 @@ app.post("/api/test", async (req, res) => {
 });
 
 // ── TELEGRAM STATUS CHECK ─────────────────────────────────────
-app.get("/api/telegram-status", (req, res) => {
+app.get("/api/telegram-status", requireDashboardAuth, (req, res) => {
   res.json({ connected: !!tgClient, hasSession: !!TG_SESSION });
+});
+
+// One truthful snapshot for the dashboard shortcut row. "configured" is
+// intentionally different from "connected": credentials alone never render a
+// green connected badge.
+app.get('/api/platform-status', requireDashboardAuth, async (_req, res) => {
+  const result = {
+    whatsapp: { status: 'not_configured', label: 'Not configured', detail: 'WhatsApp is not configured.' },
+    telegram: { status: 'not_configured', label: 'Not configured', detail: 'Telegram session is not configured.' },
+    signal: { status: 'not_configured', label: 'Not configured', detail: 'Signal is not configured.' },
+    sms: { status: 'not_configured', label: 'Not configured', detail: 'Twilio SMS is not configured.' },
+  };
+
+  if (WA_PROVIDER === 'wwebjs') {
+    try {
+      const r = await axios.get(WA_WEB_URL + '/status', { timeout: 5000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} });
+      const connected = r.data?.connected === true;
+      result.whatsapp = connected
+        ? { status: 'connected', label: 'Connected', detail: r.data?.number ? `+${r.data.number}` : 'WhatsApp session verified.' }
+        : { status: 'configured', label: 'Not linked', detail: 'WhatsApp is configured but the session is not linked.' };
+    } catch {
+      result.whatsapp = { status: 'unreachable', label: 'Unavailable', detail: 'WhatsApp service could not be reached.' };
+    }
+  } else if (WA_PROVIDER === 'kapso') {
+    result.whatsapp = getKapsoKey() && KAPSO_PHONE_ID
+      ? { status: 'configured', label: 'Configured', detail: 'Kapso credentials are present; live connection is not verified by this dashboard.' }
+      : { status: 'not_configured', label: 'Not configured', detail: 'Kapso credentials are incomplete.' };
+  }
+
+  const telegramConfigured = !!(TG_API_ID && TG_API_HASH && TG_SESSION);
+  result.telegram = tgClient?.connected
+    ? { status: 'connected', label: 'Connected', detail: 'Telegram session is live.' }
+    : telegramConfigured
+      ? { status: 'configured', label: 'Offline', detail: 'Telegram credentials exist but the session is not connected.' }
+      : result.telegram;
+
+  if (SIGNAL_CLI_URL && SIGNAL_NUMBER) {
+    try {
+      await axios.get(`${SIGNAL_CLI_URL}/v1/about`, { timeout: 5000 });
+      result.signal = { status: 'connected', label: 'Connected', detail: `Signal service is reachable for ${SIGNAL_NUMBER}.` };
+    } catch {
+      result.signal = { status: 'unreachable', label: 'Unavailable', detail: 'Signal service could not be reached.' };
+    }
+  }
+
+  const smsConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_NUMBER);
+  result.sms = smsConfigured
+    ? { status: 'configured', label: 'Configured', detail: 'Twilio credentials are present; no test message was sent.' }
+    : result.sms;
+  res.json({ ok: true, platforms: result });
 });
 
 // ── BRAIN API ─────────────────────────────────────────────────
@@ -2817,7 +2863,87 @@ async function loadBrain() {
   } catch (e) { console.error('Brain load error:', e.message); }
 }
 
-app.get('/api/brain', (_req, res) => res.json(brainCache));
+const BRAIN_ROOT_FILES = ['boundaries', 'creator_config', 'wants'];
+const BRAIN_PROTECTED_FILES = new Set(['core_identity', 'boundaries', 'creator_config']);
+
+function readBrainDocument(key) {
+  const file = BRAIN_ROOT_FILES.includes(key)
+    ? path.join(__dirname, `${key}.json`)
+    : path.join(BRAIN_DIR, `${key}.json`);
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+function availableBrainDocuments() {
+  const keys = [];
+  try {
+    fs.readdirSync(BRAIN_DIR).filter(file => file.endsWith('.json')).forEach(file => keys.push(file.replace(/\.json$/, '')));
+  } catch {}
+  BRAIN_ROOT_FILES.forEach(key => { if (readBrainDocument(key) !== null) keys.push(key); });
+  return [...new Set(keys)].sort();
+}
+
+app.get('/api/brain', requireDashboardAuth, (_req, res) => {
+  const documents = {};
+  for (const key of availableBrainDocuments()) documents[key] = brainCache[key] ?? readBrainDocument(key);
+  res.json({ ok: true, documents, protected: [...BRAIN_PROTECTED_FILES] });
+});
+
+// Reviewable durable memory API. Every route is server-authenticated; the
+// browser never receives the Supabase service-role key.
+app.get('/api/memory/overview', requireDashboardAuth, async (_req, res) => {
+  try { res.json({ ok: true, overview: await memoryManager.overview() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/memory/items', requireDashboardAuth, async (req, res) => {
+  try {
+    const items = await memoryManager.list({ status: req.query.status || null, search: req.query.search || '', category: req.query.category || null, sort: req.query.sort || 'newest' });
+    res.json({ ok: true, items, categories: memoryManager.getCategories() });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/memory/history', requireDashboardAuth, async (req, res) => {
+  try { res.json({ ok: true, history: await memoryManager.history({ itemId: req.query.item_id || null, limit: Math.min(200, parseInt(req.query.limit, 10) || 100) }) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/memory/history/:id/restore', requireDashboardAuth, async (req, res) => {
+  try { const result = await memoryManager.restoreHistory(req.params.id, 'creator'); res.status(result.ok ? 200 : 409).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.patch('/api/memory/candidates/:id', requireDashboardAuth, async (req, res) => {
+  const content = req.body?.content;
+  const category = req.body?.category;
+  if (content === undefined && category === undefined) return res.status(400).json({ ok: false, error: 'content or category is required' });
+  try {
+    const result = await memoryManager.updateCandidate(req.params.id, { content, category }, 'creator');
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/memory/candidates/:id/approve', requireDashboardAuth, async (req, res) => {
+  try {
+    const result = await memoryManager.approve(req.params.id, { content: req.body?.content, category: req.body?.category, allow_flagged: req.body?.allow_flagged === true }, 'creator');
+    res.status(result.ok ? 200 : 409).json(result);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/memory/candidates/:id/reject', requireDashboardAuth, async (req, res) => {
+  try { const result = await memoryManager.setStatus(req.params.id, 'rejected', 'creator'); res.status(result.ok ? 200 : 400).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.delete('/api/memory/candidates/:id', requireDashboardAuth, async (req, res) => {
+  try { const result = await memoryManager.remove(req.params.id, 'creator'); res.status(result.ok ? 200 : 404).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.patch('/api/memory/approved/:id', requireDashboardAuth, async (req, res) => {
+  if (req.body?.content === undefined && req.body?.category === undefined) return res.status(400).json({ ok: false, error: 'content or category is required' });
+  try { const result = await memoryManager.editApproved(req.params.id, req.body || {}, 'creator'); res.status(result.ok ? 200 : 409).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/memory/approved/:id/archive', requireDashboardAuth, async (req, res) => {
+  try { const result = await memoryManager.setStatus(req.params.id, 'archived', 'creator'); res.status(result.ok ? 200 : 400).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.delete('/api/memory/approved/:id', requireDashboardAuth, async (req, res) => {
+  try { const result = await memoryManager.remove(req.params.id, 'creator'); res.status(result.ok ? 200 : 404).json(result); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 
 // ── TTS diagnostic endpoint — visit /api/debug/tts in browser to test ──
 app.get('/api/debug/tts', async (req, res) => {
@@ -2865,20 +2991,27 @@ app.get('/api/debug/tts', async (req, res) => {
   }
 });
 
-app.post('/api/brain/:key', async (req, res) => {
+app.post('/api/brain/:key', requireDashboardAuth, async (req, res) => {
   const { key } = req.params;
-  const { data } = req.body;
-  if (!data) return res.status(400).json({ ok:false, error:'No data' });
-  brainCache[key] = data;
-  if (supabase) {
-    try {
-      await supabase.from('ariana_brain').upsert(
+  const { data } = req.body || {};
+  if (!availableBrainDocuments().includes(key)) return res.status(404).json({ ok: false, error: 'Unknown brain document.' });
+  if (data === undefined) return res.status(400).json({ ok: false, error: 'No data' });
+  try { JSON.stringify(data); } catch { return res.status(400).json({ ok: false, error: 'Data must be valid JSON.' }); }
+  const file = BRAIN_ROOT_FILES.includes(key) ? path.join(__dirname, `${key}.json`) : path.join(BRAIN_DIR, `${key}.json`);
+  try {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    brainCache[key] = data;
+    if (supabase) {
+      const { error } = await supabase.from('ariana_brain').upsert(
         { key, data, updated_at: new Date().toISOString() },
         { onConflict:'key' }
       );
-    } catch (e) { return res.status(500).json({ ok:false, error:e.message }); }
-  }
-  res.json({ ok:true });
+      if (error) return res.status(500).json({ ok: false, error: error.message });
+    }
+    res.json({ ok: true, protected: BRAIN_PROTECTED_FILES.has(key) });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── MEDIA API ─────────────────────────────────────────────────
@@ -3468,7 +3601,7 @@ app.post("/api/talk", requireDashboardAuth, async (req, res) => {
     // Use the EXACT same base prompt as social messaging so she's identical everywhere.
     // Then layer in: mood, camera feed, learned memories, and live-talk–specific additions.
     const bc = brainCache || {};
-    const learnedMem   = bc.learned_memories   ? JSON.stringify(bc.learned_memories)   : null;
+    const learnedMem   = memoryManager.getApprovedContextSync('owner_live_talk') || null;
     const miamiMem     = bc.miami_environment  ? JSON.stringify(bc.miami_environment)  : null;
     const lifestyleMem = bc.lifestyle          ? JSON.stringify(bc.lifestyle)          : null;
     const moodLine   = extrasMood ? `\n\nYour current mood: ${extrasMood}. Let this subtly colour your energy.` : "";
@@ -3594,13 +3727,14 @@ Ariana replied: "${reply}"`;
         const parsed = JSON.parse(clean);
         const learned = parsed.learned || {};
         if (Object.keys(learned).length > 0) {
-          const existing = brainCache['learned_memories'] || {};
-          const merged = { ...existing, ...learned, _lastUpdated: new Date().toISOString() };
-          brainCache['learned_memories'] = merged;
-          if (supabase) {
-            await supabase.from('ariana_brain').upsert({ key: 'learned_memories', data: merged }, { onConflict: 'key' }).catch(() => {});
-          }
-          console.log(`🧠 Self-learned: ${Object.keys(learned).join(', ')}`);
+          const results = await memoryManager.createCandidatesFromObject({
+            userId: 'owner_live_talk',
+            learned,
+            source: { type: 'conversation', reference: 'owner_live_talk', platform: 'live_talk', excerpt: message.slice(0, 300) },
+            sourceType: 'automatic',
+          });
+          const created = results.filter(result => result.ok && !result.duplicate).length;
+          if (created) console.log(`🧠 Self-learned: queued ${created} candidate(s)`);
         }
       } catch (e) { /* silent — never block the response */ }
     });
@@ -4389,13 +4523,14 @@ Ariana replied: "${arianaReply.slice(0, 300)}"`;
       const parsed = JSON.parse(clean);
       const learned = parsed.learned || {};
       if (Object.keys(learned).length > 0) {
-        const existing = brainCache['learned_memories'] || {};
-        const merged   = { ...existing, ...learned, _lastUpdated: new Date().toISOString() };
-        brainCache['learned_memories'] = merged;
-        if (supabase) {
-          await supabase.from('ariana_brain').upsert({ key: 'learned_memories', data: merged }, { onConflict: 'key' }).catch(() => {});
-        }
-        console.log(`🧠 [talk-learn] Saved: ${Object.keys(learned).join(', ')}`);
+        const results = await memoryManager.createCandidatesFromObject({
+          userId: 'owner_live_talk',
+          learned,
+          source: { type: 'conversation', reference: 'owner_live_talk', platform: 'live_talk', excerpt: userMessage.slice(0, 300) },
+          sourceType: 'automatic',
+        });
+        const created = results.filter(result => result.ok && !result.duplicate).length;
+        if (created) console.log(`🧠 [talk-learn] Queued ${created} learning candidate(s)`);
       }
     } catch (e) { console.warn('[talk-learn] failed:', e.message); }
   });
@@ -4571,6 +4706,9 @@ server.listen(PORT, async () => {
   }
   await loadConversations();
   await loadBrain();
+  await memoryManager.configure({ client: supabase, cache: brainCache });
+  await memoryManager.migrateLegacyLearned(brainCache.learned_memories).catch(e => console.warn('[memory] legacy migration skipped:', e.message));
+  if (engineV2?.memEngine?.configureReviewStore) engineV2.memEngine.configureReviewStore(memoryManager);
   await loadPushSubs();
   await ensureMediaBucket();
   await loadExtras();

@@ -85,6 +85,44 @@ create table if not exists ariana_skills (
 );
 create index if not exists ariana_skills_trigger_idx on ariana_skills using gin (to_tsvector('english', trigger_text));
 
+-- Durable memories are reviewed separately from the brain documents above.
+-- Conversation-derived items remain candidates (and, when flagged, quarantined)
+-- until the creator explicitly approves them.
+create table if not exists ariana_memory_items (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            text not null,
+  memory_key         text,
+  content            text not null,
+  value              text,
+  category           text not null default 'other',
+  confidence         numeric,
+  status             text not null default 'candidate',
+  source             jsonb not null default '{}'::jsonb,
+  source_type        text not null default 'automatic',
+  flagged            boolean not null default false,
+  quarantine         boolean not null default false,
+  flag_reasons       jsonb not null default '[]'::jsonb,
+  fingerprint        text not null unique,
+  learned_at         timestamptz default now(),
+  created_at         timestamptz default now(),
+  updated_at         timestamptz default now(),
+  last_retrieved_at  timestamptz
+);
+create index if not exists ariana_memory_items_status_idx on ariana_memory_items (status, updated_at desc);
+create index if not exists ariana_memory_items_user_idx on ariana_memory_items (user_id, status);
+
+create table if not exists ariana_memory_history (
+  id          uuid primary key default gen_random_uuid(),
+  item_id     uuid,
+  event       text not null,
+  previous    jsonb,
+  next        jsonb,
+  source      text not null default 'manual',
+  actor       text not null default 'creator',
+  created_at  timestamptz default now()
+);
+create index if not exists ariana_memory_history_item_idx on ariana_memory_history (item_id, created_at desc);
+
 -- Influencer / social layer (documented in SOCIAL.md)
 create table if not exists ariana_social_accounts (
   account_id      text primary key,
@@ -151,6 +189,8 @@ alter table ariana_media           enable row level security;
 alter table wardrobe_items         enable row level security;
 alter table facelock_images        enable row level security;
 alter table ariana_skills          enable row level security;
+alter table ariana_memory_items    enable row level security;
+alter table ariana_memory_history  enable row level security;
 alter table ariana_social_accounts enable row level security;
 alter table ariana_social_activity enable row level security;
 alter table ariana_social_config   enable row level security;

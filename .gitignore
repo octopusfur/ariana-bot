@@ -5,6 +5,8 @@ node_modules/
 
 # Social layer state (account registry, activity log) — never commit
 social_data/
+brain/memory_registry.json
+brain/memory_registry.json.tmp
 sessions/
 browser-data/
 *.json.enc
