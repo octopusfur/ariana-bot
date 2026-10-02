@@ -2197,6 +2197,9 @@ function requireWaWebhookAuth(req, res, next) {
   const given = String(req.headers['x-wa-secret'] || '');
   if (WA_API_SECRET && given.length === WA_API_SECRET.length &&
       require('crypto').timingSafeEqual(Buffer.from(given), Buffer.from(WA_API_SECRET))) return next();
+  // Say WHY (never the secret itself) — a silent 401 here looks exactly like "she ignored my message".
+  const _why = !WA_API_SECRET ? 'WA_API_SECRET is not set on this server' : (!given ? 'sidecar sent no x-wa-secret' : 'x-wa-secret does not match WA_API_SECRET');
+  console.warn(`[webhook] ❌ WhatsApp message rejected (401): ${_why}`);
   return res.status(401).json({ error: 'unauthorized' });
 }
 app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
