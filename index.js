@@ -2101,9 +2101,14 @@ Ariana replied: "${reply.slice(0, 200)}"`;
     });
 
   } catch (e) {
-    console.error("handleMessage error:", e.message);
+    console.error("handleMessage error:", e.stack || e.message);
     if (typingInterval)   clearInterval(typingInterval);
     if (tgTypingInterval) clearInterval(tgTypingInterval);
+    // Never go silent on an exception: send the same filler used when the brain is down.
+    try {
+      const fb = ['lol give me a sec', 'one sec', 'hold on', 'k one moment'];
+      await sendReply(id, platform, fb[Math.floor(Math.random() * fb.length)], null, null, chatId, from, phoneNumberId);
+    } catch (e2) { console.error("handleMessage fallback send failed:", e2.message); }
   }
 }
 
