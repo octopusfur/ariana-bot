@@ -10,6 +10,14 @@ const path = require('path');
 
 const BRAIN_DIR   = path.join(__dirname);
 const MEMORY_FILE = path.join(BRAIN_DIR, 'universal_memory.json');
+let reviewStore = null;
+
+// The review store is injected by index.js after its server-side persistence
+// client is ready. Keeping this optional preserves the legacy engine for small
+// standalone scripts while production conversations use candidate review.
+function configureReviewStore(store) {
+  reviewStore = store || null;
+}
 
 // ─── FILE I/O ────────────────────────────────────────────────────────────────
 
@@ -217,68 +225,54 @@ function clearUserMemory(userId) {
 
 // ─── AUTO-EXTRACT MEMORIES FROM MESSAGE ─────────────────────────────────────
 
-function extractAndStoreMemories(userId, message) {
-  const extracted = [];
+async function extractAndStoreMemories(userId, message, source = {}) {
+  const learned = {};
+  const text = String(message || '');
 
-  // Name
-  const nameMatch = message.match(/(?:my name is|i'm|i am|call me)\s+([A-Z][a-z]+)/i);
-  if (nameMatch) {
-    storeMemory(userId, 'high', 'name', nameMatch[1]);
-    extracted.push(`name: ${nameMatch[1]}`);
+  // These are the existing extraction rules. The important change is that
+  // production sends their output to reviewStore rather than activating it.
+  const nameMatch = text.match(/(?:my name is|i'm|i am|call me)\s+([A-Z][a-z]+)/i);
+  if (nameMatch) learned.name = nameMatch[1];
+
+  const bday = text.match(/(?:my birthday|born on|birth date)[^.]*?(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}|\d{1,2}[\/\-]\d{1,2})/i);
+  if (bday) learned.birthday = bday[1];
+
+  if (/\bi'm single\b|\bi am single\b/i.test(text)) learned.relationship_status = 'single';
+  else if (/i have a girlfriend/i.test(text)) learned.relationship_status = 'has girlfriend';
+  else if (/i have a boyfriend/i.test(text)) learned.relationship_status = 'has boyfriend';
+  else if (/i('m| am) married/i.test(text)) learned.relationship_status = 'married';
+
+  const loc = text.match(/(?:i(?:'m| am) from|i(?:'m| am) in|i live in|based in|i(?:'m| am) based in)\s+([A-Z][a-zA-Z\s]{2,25}?)(?:\.|,|$)/i);
+  if (loc) learned.location = loc[1].trim();
+
+  const job = text.match(/(?:i(?:'m| am) a|i work (?:as|at))\s+([a-zA-Z\s]{3,35}?)(?:\.|,|$)/i);
+  if (job && job[1].trim().split(' ').length <= 5) learned.work_mentions = job[1].trim();
+
+  const travel = text.match(/(?:travelling to|traveling to|going to|visiting|flying to)\s+([A-Z][a-zA-Z\s]{2,20}?)(?:\.|,|$| tomorrow| next| this)/i);
+  if (travel) learned.travel_plans = travel[0].trim();
+
+  const hobbies = text.match(/(?:i love|i enjoy|i like|i'm into|i play)\s+([a-zA-Z\s]{3,25}?)(?:\.|,|$)/i);
+  if (hobbies) learned.hobbies = hobbies[1].trim();
+
+  const entries = Object.entries(learned);
+  if (!entries.length) return [];
+  if (reviewStore) {
+    const results = await reviewStore.createCandidatesFromObject({
+      userId,
+      learned,
+      source: { type: 'conversation', reference: userId, ...source },
+      sourceType: 'automatic',
+    });
+    return results.filter(result => result && result.ok && !result.duplicate).map(result => result.item?.content).filter(Boolean);
   }
 
-  // Birthday
-  const bday = message.match(/(?:my birthday|born on|birth date)[^.]*?(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}|\d{1,2}[\/\-]\d{1,2})/i);
-  if (bday) {
-    storeMemory(userId, 'high', 'birthday', bday[1]);
-    extracted.push(`birthday: ${bday[1]}`);
+  // Compatibility fallback for scripts that use memory_engine without the
+  // dashboard server. The actual app always configures reviewStore at boot.
+  for (const [key, value] of entries) {
+    const priority = ['name', 'birthday', 'relationship_status', 'location'].includes(key) ? 'high' : 'medium';
+    storeMemory(userId, priority, key, value);
   }
-
-  // Relationship status
-  if (/\bi'm single\b|\bi am single\b/i.test(message)) {
-    storeMemory(userId, 'high', 'relationship_status', 'single');
-    extracted.push('relationship_status: single');
-  } else if (/i have a girlfriend/i.test(message)) {
-    storeMemory(userId, 'high', 'relationship_status', 'has girlfriend');
-    extracted.push('relationship_status: has girlfriend');
-  } else if (/i have a boyfriend/i.test(message)) {
-    storeMemory(userId, 'high', 'relationship_status', 'has boyfriend');
-    extracted.push('relationship_status: has boyfriend');
-  } else if (/i('m| am) married/i.test(message)) {
-    storeMemory(userId, 'high', 'relationship_status', 'married');
-    extracted.push('relationship_status: married');
-  }
-
-  // Location
-  const loc = message.match(/(?:i(?:'m| am) from|i(?:'m| am) in|i live in|based in|i(?:'m| am) based in)\s+([A-Z][a-zA-Z\s]{2,25}?)(?:\.|,|$)/i);
-  if (loc) {
-    storeMemory(userId, 'high', 'location', loc[1].trim());
-    extracted.push(`location: ${loc[1].trim()}`);
-  }
-
-  // Job
-  const job = message.match(/(?:i(?:'m| am) a|i work (?:as|at))\s+([a-zA-Z\s]{3,35}?)(?:\.|,|$)/i);
-  if (job && job[1].trim().split(' ').length <= 5) {
-    storeMemory(userId, 'medium', 'work_mentions', job[1].trim());
-    extracted.push(`job: ${job[1].trim()}`);
-  }
-
-  // Travel plans
-  const travel = message.match(/(?:travelling to|traveling to|going to|visiting|flying to)\s+([A-Z][a-zA-Z\s]{2,20}?)(?:\.|,|$| tomorrow| next| this)/i);
-  if (travel) {
-    const entry = `${travel[0].trim()} — mentioned ${new Date().toDateString()}`;
-    storeMemory(userId, 'medium', 'travel_plans', entry);
-    extracted.push(`travel: ${travel[0].trim()}`);
-  }
-
-  // Hobbies
-  const hobbies = message.match(/(?:i love|i enjoy|i like|i'm into|i play)\s+([a-zA-Z\s]{3,25}?)(?:\.|,|$)/i);
-  if (hobbies) {
-    storeMemory(userId, 'medium', 'hobbies', hobbies[1].trim());
-    extracted.push(`hobby: ${hobbies[1].trim()}`);
-  }
-
-  return extracted;
+  return entries.map(([key, value]) => `${key}: ${value}`);
 }
 
 // ─── MEMORY CONTEXT BUILDER ──────────────────────────────────────────────────
@@ -339,6 +333,14 @@ function getMemoryContext(userId) {
     lines.push(`[Creator note]: ${user.creator_notes.slice(-1)[0].note}`);
   }
 
+  // Only reviewed, active items enter the response pipeline. Candidates,
+  // rejected items, archived items, and quarantined items never get here.
+  if (reviewStore && typeof reviewStore.getApprovedContextSync === 'function') {
+    const reviewed = reviewStore.getApprovedContextSync(userId);
+    if (reviewed) lines.push(`Reviewed memories:\n${reviewed}`);
+    if (typeof reviewStore.markRetrieved === 'function') reviewStore.markRetrieved(userId);
+  }
+
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -355,5 +357,6 @@ module.exports = {
   addCreatorNote,
   clearUserMemory,
   extractAndStoreMemories,
+  configureReviewStore,
   getMemoryContext
 };

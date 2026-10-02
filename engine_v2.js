@@ -152,9 +152,9 @@ async function processMessageUpdates(userId, message, analysis, profile, recentH
   }
 
   // Auto-extract facts from message
-  const extracted = memEngine.extractAndStoreMemories(userId, message);
+  const extracted = await memEngine.extractAndStoreMemories(userId, message, { platform: channel });
   if (extracted.length) {
-    console.log(`[engine_v2] 🧠 Extracted from ${userId}: ${extracted.join(', ')}`);
+    console.log(`[engine_v2] 🧠 Learning candidate from ${userId}: ${extracted.join(', ')}`);
   }
 
   // Infer attraction signals
