@@ -598,6 +598,47 @@ textarea.inp{resize:vertical;min-height:120px}
       </div>
     </div>
     <div class="sgroup">
+      <div class="sgroup-title">Telegram</div>
+      <div class="sec">
+        <div id="tg-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
+        <div id="tg-link">
+          <label class="lbl">Ariana's Telegram number</label>
+          <input type="tel" id="tg-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
+          <button class="btn" id="tg-btn" onclick="tgSendCode()" style="margin-top:10px">Send code</button>
+          <div id="tg-code-box" style="display:none;margin-top:14px">
+            <label class="lbl">Code Telegram sent to that account</label>
+            <input type="text" id="tg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+            <div id="tg-pw-box" style="display:none;margin-top:10px"><label class="lbl">Two-step verification password</label><input type="password" id="tg-pw" class="inp" placeholder="Your Telegram 2FA password"></div>
+            <button class="btn" id="tg-verify-btn" onclick="tgVerify()" style="margin-top:10px">Link Telegram</button>
+          </div>
+        </div>
+        <button class="btn-ghost" id="tg-unlink" onclick="tgUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Unlink Telegram</button>
+      </div>
+    </div>
+    <div class="sgroup">
+      <div class="sgroup-title">Signal</div>
+      <div class="sec">
+        <div id="sg-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
+        <div id="sg-accounts"></div>
+        <label class="lbl">Link to the Signal account on your phone</label>
+        <button class="btn" id="sg-link-btn" onclick="sgLink()">Link as a device</button>
+        <div id="sg-link-box" style="display:none;margin-top:12px;text-align:center">
+          <a id="sg-link-a" class="btn" href="#" style="display:none;text-decoration:none">Open in Signal</a>
+          <img id="sg-qr" alt="Signal link QR code" style="display:none;width:220px;height:220px;background:#fff;padding:8px;border-radius:12px;margin:12px auto 0">
+          <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has Signal, tap <b>Open in Signal</b> (or scan the QR from another screen) and approve. Then come back here and tap the number to use it.</div>
+          <button class="btn-ghost" onclick="sgRefresh()" style="margin-top:10px">I've approved it — refresh</button>
+        </div>
+      </div>
+      <div class="sec">
+        <label class="lbl">Or register a new number</label>
+        <input type="tel" id="sg-num" class="inp" inputmode="tel" placeholder="+1 430 362 9477">
+        <input type="text" id="sg-captcha" class="inp" placeholder="Captcha token (signalcaptcha://...) — only if asked" style="margin-top:8px">
+        <button class="btn" id="sg-reg-btn" onclick="sgRegister()" style="margin-top:10px">Send verification code</button>
+        <input type="text" id="sg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="Code you received" style="margin-top:12px">
+        <button class="btn" id="sg-ver-btn" onclick="sgVerify()" style="margin-top:10px">Verify and use this number</button>
+      </div>
+    </div>
+    <div class="sgroup">
       <div class="sgroup-title">Access</div>
       <div class="sec"><label class="lbl">Dashboard Key</label><input type="password" id="cfg-dash-key" class="inp" placeholder="DASHBOARD_SECRET value"></div>
       <div class="sec"><label class="lbl">Your Phone (Mitra)</label><input type="tel" id="cfg-phone" class="inp" placeholder="+1234567890"></div>
@@ -747,6 +788,90 @@ async function waPair(){
   }catch(e){toast('Request failed');}
   finally{btn.disabled=false;btn.textContent='Get pairing code';}
 }
+// ── TELEGRAM + SIGNAL LINKING (Settings) ──
+async function jpost(url,body){const r=await fetch(url,{method:'POST',headers:authH(),body:JSON.stringify(body||{})});let d={};try{d=await r.json();}catch{}return {ok:r.ok,status:r.status,d};}
+async function tgRefresh(){
+  const st=document.getElementById('tg-status');if(!st)return;
+  try{
+    const r=await fetch('/api/telegram/status',{headers:authH()});
+    if(r.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return;}
+    const d=await r.json();
+    document.getElementById('tg-unlink').style.display=d.connected?'':'none';
+    document.getElementById('tg-link').style.display=d.connected?'none':'';
+    if(!d.credentials){st.textContent='TELEGRAM_API_ID / TELEGRAM_API_HASH are missing on the server.';return;}
+    st.textContent=d.connected?('Connected'+(d.user?' as '+d.user:'')):'Not linked yet. Enter her number to get a code.';
+  }catch{st.textContent='Could not check status.';}
+}
+async function tgSendCode(){
+  const phone=document.getElementById('tg-phone').value.replace(/[^\d]/g,'');
+  if(phone.length<8){toast('Enter the full number with country code');return;}
+  const b=document.getElementById('tg-btn');b.disabled=true;b.textContent='Sending...';
+  const {ok,d}=await jpost('/api/telegram/send-code',{phone});
+  b.disabled=false;b.textContent='Send code';
+  if(!ok){toast(d.error||'Could not send the code',4000);return;}
+  document.getElementById('tg-code-box').style.display='';
+  toast(d.viaApp?'Code sent — check the Telegram app':'Code sent');
+}
+async function tgVerify(){
+  const code=document.getElementById('tg-code').value.trim(),password=document.getElementById('tg-pw').value;
+  const b=document.getElementById('tg-verify-btn');b.disabled=true;b.textContent='Linking...';
+  const {ok,d}=await jpost('/api/telegram/verify',{code,password});
+  b.disabled=false;b.textContent='Link Telegram';
+  if(ok&&d.needPassword){document.getElementById('tg-pw-box').style.display='';toast('This account has two-step verification — enter the password');return;}
+  if(!ok){toast(d.error||'Could not link',4000);return;}
+  document.getElementById('tg-code').value='';document.getElementById('tg-pw').value='';
+  document.getElementById('tg-code-box').style.display='none';document.getElementById('tg-pw-box').style.display='none';
+  toast(d.persisted?'Telegram linked':'Linked, but could not save it — it will drop on restart',5000);
+  tgRefresh();
+}
+async function tgUnlink(){
+  if(!confirm('Unlink Telegram? Ariana will stop replying there.'))return;
+  await jpost('/api/telegram/unlink');tgRefresh();
+}
+async function sgRefresh(){
+  const st=document.getElementById('sg-status'),box=document.getElementById('sg-accounts');if(!st)return;
+  try{
+    const r=await fetch('/api/signal/status',{headers:authH()});
+    if(r.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return;}
+    const d=await r.json();
+    box.textContent='';
+    if(!d.reachable){st.textContent='Signal server is not reachable'+(d.error?': '+d.error:'')+'.';return;}
+    st.textContent=d.linked?('Connected as '+d.number):(d.accounts.length?'Linked on the server. Tap the number Ariana should use:':'No Signal account linked yet.');
+    if(!d.linked)d.accounts.forEach(n=>{
+      const b=document.createElement('button');b.className='btn-ghost';b.style.marginBottom='8px';b.textContent='Use '+n;
+      b.onclick=async()=>{const x=await jpost('/api/signal/use-number',{number:n});toast(x.ok?'Signal number set':(x.d.error||'Failed'),4000);sgRefresh();};
+      box.appendChild(b);
+    });
+  }catch{st.textContent='Could not check status.';}
+}
+async function sgLink(){
+  const b=document.getElementById('sg-link-btn');b.disabled=true;b.textContent='Getting link...';
+  try{
+    const r=await fetch('/api/signal/link',{headers:authH()});const d=await r.json();
+    if(!r.ok){toast(d.error||'Could not get a link',4000);return;}
+    document.getElementById('sg-link-box').style.display='';
+    const a=document.getElementById('sg-link-a'),img=document.getElementById('sg-qr');
+    a.style.display=d.uri?'':'none';if(d.uri)a.href=d.uri;
+    img.style.display=d.qr?'':'none';if(d.qr)img.src=d.qr;
+  }catch{toast('Request failed');}
+  finally{b.disabled=false;b.textContent='Link as a device';}
+}
+async function sgRegister(){
+  const number=document.getElementById('sg-num').value.replace(/[^\d]/g,'');
+  if(number.length<8){toast('Enter the full number with country code');return;}
+  const b=document.getElementById('sg-reg-btn');b.disabled=true;b.textContent='Sending...';
+  const {ok,d}=await jpost('/api/signal/register',{number,captcha:document.getElementById('sg-captcha').value});
+  b.disabled=false;b.textContent='Send verification code';
+  if(!ok){toast(d.needCaptcha?'Signal wants a captcha — get one at signalcaptchas.org/registration/generate.html and paste it above':(d.error||'Failed'),6000);return;}
+  toast('Code sent — enter it below');
+}
+async function sgVerify(){
+  const number=document.getElementById('sg-num').value.replace(/[^\d]/g,''),code=document.getElementById('sg-code').value.trim();
+  const b=document.getElementById('sg-ver-btn');b.disabled=true;b.textContent='Verifying...';
+  const {ok,d}=await jpost('/api/signal/verify',{number,code});
+  b.disabled=false;b.textContent='Verify and use this number';
+  toast(ok?'Signal linked':(d.error||'Failed'),4000);sgRefresh();
+}
 function go(name){
   if(name==='profile'){openProfile();return;}
   closeOverlays();
@@ -759,7 +884,7 @@ function go(name){
   if(name==='media')loadMedia();
   if(name==='brain')loadBrain();
   if(name==='wardrobe')loadWardrobe();
-  if(name==='settings'){loadSettingsUI();waRefresh();}
+  if(name==='settings'){loadSettingsUI();waRefresh();tgRefresh();sgRefresh();}
   if(name==='social')loadSocial();
   if(name==='profile')loadProfileStats();
 }

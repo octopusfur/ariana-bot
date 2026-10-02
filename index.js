@@ -3,6 +3,9 @@ const express    = require("express");
 const http       = require("http");
 const { Server } = require("socket.io");
 const axios      = require("axios");
+const naija      = require("./naija_lang");
+const wazobia    = require("./wazobia_tts");
+const linkRoutes = require("./link_routes");
 const Groq       = require("groq-sdk");
 const path       = require("path");
 const fs         = require("fs");
@@ -43,15 +46,12 @@ async function waCalls(route, body) {
 const PORT            = process.env.PORT || 3000;
 const OWNER_PHONE     = process.env.OWNER_PHONE || "";
 const SIGNAL_CLI_URL  = process.env.SIGNAL_CLI_URL || "https://signal-cli-rest-api-y65f.onrender.com";
-const SIGNAL_NUMBER   = process.env.SIGNAL_NUMBER  || "+19832058251";
+let   SIGNAL_NUMBER   = process.env.SIGNAL_NUMBER  || "+19832058251"; // dashboard-linked number (Settings → Signal) overrides this at startup
 const VAPID_PUBLIC    = process.env.VAPID_PUBLIC   || "";
 const VAPID_PRIVATE   = process.env.VAPID_PRIVATE  || "";
 const VAPID_EMAIL     = process.env.VAPID_EMAIL    || "mailto:ayodeleart1@gmail.com";
 
-// Telegram GramJS config
-const TG_API_ID   = parseInt(process.env.TELEGRAM_API_ID  || "0");
-const TG_API_HASH =           process.env.TELEGRAM_API_HASH || "";
-const TG_SESSION  =           process.env.TELEGRAM_SESSION  || "";
+// Telegram GramJS config is read from process.env at use time (see initTelegram / link_routes.js)
 
 if (webpush && VAPID_PUBLIC && VAPID_PRIVATE) {
   try { webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE); }
@@ -867,6 +867,19 @@ async function uploadToCloudinary(buffer) {
 async function generateVoiceNote(text) {
   if (!text?.trim()) return null;
 
+  // ── NIGERIAN LANGUAGES: WazobiaVoice for Pidgin + Yoruba ────
+  // English TTS mangles both, so these go to the Wazobia service when it is configured.
+  const _lang = naija.detectNaijaLanguage(text);
+  if (_lang && wazobia.isEnabled()) {
+    const audio = await wazobia.synthesize(text, _lang);
+    if (audio) {
+      const url = await uploadToCloudinary(audio.buffer);
+      if (url) { console.log(`[voice] ✅ WazobiaVoice (${_lang})`); return url; }
+    }
+    // Yoruba read by an English voice is worse than no voice — send text only. Pidgin can fall back.
+    if (_lang === 'yo') { console.warn('[voice] WazobiaVoice unavailable for Yoruba — sending text only'); return null; }
+  }
+
   // ── PRIMARY: Cartesia TTS ──────────────────────────────────
   const cartesiaKey     = process.env.CARTESIA_API_KEY;
   const cartesiaVoiceId = process.env.CARTESIA_VOICE_ID;
@@ -1230,7 +1243,12 @@ async function getReply(id, userMsg, systemOverride, imageBase64 = null) {
   }
 
   // Language lock — detect the conversation language and enforce it
-  if (!systemOverride) {
+  // Nigerian languages first: if they write Pidgin/Yoruba she answers in kind — for everyone, owner included.
+  const _recentUser = convo.messages.filter(m => m.role === 'user').slice(-5, -1).map(m => m.text || '');
+  const _naija = naija.detectNaijaLanguage(userMsg, _recentUser);
+  if (_naija) {
+    sys += naija.naijaInstruction(_naija);
+  } else if (!systemOverride) {
     const convoLang = detectConvoLanguage(convo.messages);
     const langInst  = langInstruction(convoLang);
     if (langInst) sys += langInst;
@@ -1533,10 +1551,17 @@ async function sendTelegramVoice(chatId, audioUrl) {
 }
 
 // ── TELEGRAM INIT (GramJS) ────────────────────────────────────
+let tgReconnectTimer = null;
 async function initTelegram() {
+  // Restartable: the dashboard re-runs this after linking/unlinking, so always read env fresh
+  // and drop any previous client first.
+  if (tgClient) { try { await tgClient.disconnect(); } catch (_) {} tgClient = null; }
+  const TG_API_ID   = parseInt(process.env.TELEGRAM_API_ID || "0");
+  const TG_API_HASH = process.env.TELEGRAM_API_HASH || "";
+  const TG_SESSION  = process.env.TELEGRAM_SESSION  || "";
   if (!TG_API_ID || !TG_API_HASH || !TG_SESSION) {
     console.log("⚠️  Telegram: TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION not set");
-    console.log("    → Run gen-session.js locally to generate your session string");
+    console.log("    → Link Telegram from the dashboard: Settings → Telegram");
     return;
   }
 
@@ -1631,7 +1656,8 @@ async function initTelegram() {
     }, new NewMessage({ incoming: true }));
 
     // Reconnect on disconnect — poll every 30s (avoids gramjs Raw instanceof bug)
-    setInterval(async () => {
+    if (tgReconnectTimer) clearInterval(tgReconnectTimer);
+    tgReconnectTimer = setInterval(async () => {
       if (tgClient && !tgClient.connected) {
         console.log("⚠️  Telegram disconnected — reconnecting...");
         tgClient.connect().catch(console.error);
@@ -2320,95 +2346,10 @@ app.get("/signal-verify", async (req, res) => {
   }
 });
 
-// ── TELEGRAM SESSION GENERATOR (mobile-friendly, one-time use) ──
-let _tgSetupClient = null;
-let _tgSetupResolvers = {};
-
-app.get("/telegram-setup", (req, res) => {
-  const secret = process.env.DASHBOARD_SECRET;
-  if (secret && req.query.key !== secret) return res.status(401).send(html("❌ Unauthorized", "Pass ?key=YOUR_DASHBOARD_SECRET"));
-  res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Telegram Setup</title>
-<style>*{box-sizing:border-box}body{background:#0d0d0d;color:#fff;font-family:sans-serif;padding:24px;max-width:480px;margin:0 auto}h2{color:#a78bfa;margin-bottom:8px}p{color:#aaa;font-size:14px;margin-bottom:20px}input{width:100%;padding:12px;background:#1a1a1a;border:1px solid #333;border-radius:8px;color:#fff;font-size:16px;margin-bottom:12px}button{width:100%;padding:14px;background:#7c3aed;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:600;cursor:pointer}button:active{opacity:.8}.box{background:#1a1a1a;border-radius:10px;padding:16px;margin-top:16px;display:none}.note{font-size:12px;color:#666;margin-top:8px}</style></head>
-<body>
-<h2>Telegram Setup</h2>
-<p>Generate your TELEGRAM_SESSION string without a PC.</p>
-<div id="step1">
-  <input id="phone" type="tel" placeholder="Phone number e.g. +2348012345678">
-  <button onclick="sendPhone()">Send Code</button>
-</div>
-<div id="step2" class="box">
-  <input id="code" type="number" placeholder="Code Telegram sent you">
-  <input id="pass" type="password" placeholder="2FA password (leave blank if none)">
-  <button onclick="sendCode()">Get Session</button>
-</div>
-<div id="step3" class="box">
-  <p style="color:#4ade80;font-weight:600">✅ Session generated! Copy it below and add to Railway as TELEGRAM_SESSION</p>
-  <textarea id="session" rows="6" style="width:100%;background:#111;color:#4ade80;border:1px solid #333;border-radius:8px;padding:12px;font-size:12px;font-family:monospace"></textarea>
-  <button onclick="copySession()" style="background:#16a34a;margin-top:8px">Copy to Clipboard</button>
-  <p class="note">After adding to Railway, redeploy. You can ignore this page.</p>
-</div>
-<div id="err" style="color:#f87171;margin-top:12px"></div>
-<script>
-const qs='${req.query.key ? "?key="+req.query.key : ""}';
-async function sendPhone(){
-  const phone=document.getElementById('phone').value.trim();
-  if(!phone)return;
-  document.querySelector('#step1 button').textContent='Sending...';
-  const r=await fetch('/telegram-setup/phone'+qs,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})});
-  const d=await r.json();
-  if(d.ok){document.getElementById('step2').style.display='block';document.querySelector('#step1 button').textContent='Code Sent ✅';}
-  else{document.getElementById('err').textContent=d.error;}
-}
-async function sendCode(){
-  const code=document.getElementById('code').value.trim();
-  const pass=document.getElementById('pass').value.trim();
-  document.querySelector('#step2 button').textContent='Verifying...';
-  const r=await fetch('/telegram-setup/code'+qs,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,password:pass})});
-  const d=await r.json();
-  if(d.session){document.getElementById('step3').style.display='block';document.getElementById('session').value=d.session;document.querySelector('#step2 button').textContent='Done ✅';}
-  else{document.getElementById('err').textContent=d.error;document.querySelector('#step2 button').textContent='Get Session';}
-}
-function copySession(){navigator.clipboard.writeText(document.getElementById('session').value).then(()=>alert('Copied!'));}
-</script></body></html>`);
-});
-
-app.post("/telegram-setup/phone", async (req, res) => {
-  const secret = process.env.DASHBOARD_SECRET;
-  if (secret && req.query.key !== secret) return res.status(401).json({ error: "Unauthorized" });
-  try {
-    const { TelegramClient } = require("telegram");
-    const { StringSession }  = require("telegram/sessions");
-    if (_tgSetupClient) { try { await _tgSetupClient.disconnect(); } catch {} }
-    _tgSetupClient = new TelegramClient(new StringSession(""), TG_API_ID, TG_API_HASH, { connectionRetries: 5 });
-    await _tgSetupClient.connect();
-    const { phone } = req.body;
-    await _tgSetupClient.sendCode({ apiId: TG_API_ID, apiHash: TG_API_HASH }, phone);
-    _tgSetupResolvers.phone = phone;
-    res.json({ ok: true });
-  } catch (e) {
-    res.json({ error: e.message });
-  }
-});
-
-app.post("/telegram-setup/code", async (req, res) => {
-  const secret = process.env.DASHBOARD_SECRET;
-  if (secret && req.query.key !== secret) return res.status(401).json({ error: "Unauthorized" });
-  try {
-    const { phone } = _tgSetupResolvers;
-    const { code, password } = req.body;
-    await _tgSetupClient.signIn(
-      { apiId: TG_API_ID, apiHash: TG_API_HASH },
-      { phoneNumber: phone, phoneCode: code, password: password || undefined }
-    );
-    const session = _tgSetupClient.session.save();
-    await _tgSetupClient.disconnect();
-    _tgSetupClient = null;
-    res.json({ session });
-  } catch (e) {
-    res.json({ error: e.message });
-  }
-});
+// ── TELEGRAM LINKING ──────────────────────────────────────────
+// The old /telegram-setup page called client.signIn(), which does not exist in gramjs, so it
+// could never finish. Linking now lives in the dashboard: Settings → Telegram (see link_routes.js).
+app.get("/telegram-setup", (_req, res) => res.send(html("Telegram setup moved", "Open the dashboard → Settings → Telegram to link the account.")));
 
 function html(title, msg) {
   return `<html><body style="background:#111;color:white;padding:30px"><h2>${title}</h2><p>${msg}</p></body></html>`;
@@ -2814,8 +2755,29 @@ app.post("/api/test", async (req, res) => {
 
 // ── TELEGRAM STATUS CHECK ─────────────────────────────────────
 app.get("/api/telegram-status", requireDashboardAuth, (req, res) => {
-  res.json({ connected: !!tgClient, hasSession: !!TG_SESSION });
+  res.json({ connected: !!tgClient, hasSession: !!process.env.TELEGRAM_SESSION });
 });
+
+// Dashboard account linking: Telegram (phone → code) and Signal (link/register) — see link_routes.js
+linkRoutes.register(app, {
+  requireAuth: requireDashboardAuth,
+  getSupabase: () => supabase,
+  http: axios,
+  telegram: { getClient: () => tgClient, reinit: () => initTelegram() },
+  signal: {
+    getUrl: () => SIGNAL_CLI_URL,
+    getNumber: () => SIGNAL_NUMBER,
+    setNumber: async (n) => { SIGNAL_NUMBER = n; },
+    setupWebhook: () => setupSignalWebhook(),
+  },
+});
+
+// Dashboard-linked Telegram session / Signal number win over env, so a redeploy never undoes a link.
+async function applyLinkedSessions() {
+  const linked = await linkRoutes.loadLinkedSessions(supabase);
+  if (linked.telegramSession) process.env.TELEGRAM_SESSION = linked.telegramSession;
+  if (linked.signalNumber) { SIGNAL_NUMBER = linked.signalNumber; process.env.SIGNAL_NUMBER = linked.signalNumber; }
+}
 
 // One truthful snapshot for the dashboard shortcut row. "configured" is
 // intentionally different from "connected": credentials alone never render a
@@ -2844,7 +2806,7 @@ app.get('/api/platform-status', requireDashboardAuth, async (_req, res) => {
       : { status: 'not_configured', label: 'Not configured', detail: 'Kapso credentials are incomplete.' };
   }
 
-  const telegramConfigured = !!(TG_API_ID && TG_API_HASH && TG_SESSION);
+  const telegramConfigured = !!(process.env.TELEGRAM_API_ID && process.env.TELEGRAM_API_HASH && process.env.TELEGRAM_SESSION);
   result.telegram = tgClient?.connected
     ? { status: 'connected', label: 'Connected', detail: 'Telegram session is live.' }
     : telegramConfigured
@@ -4720,6 +4682,7 @@ function startKeepAlive() {
 server.listen(PORT, async () => {
   // Load API keys from Supabase FIRST — before any AI calls happen
   await loadKeysFromSupabase();
+  await applyLinkedSessions();
   // Re-init Groq with loaded key if it wasn't set from env
   if (process.env.GROQ_API_KEY && (!groq || groq.apiKey === 'missing')) {
     const GroqSDK = require('groq-sdk');
@@ -4788,7 +4751,7 @@ server.listen(PORT, async () => {
   console.log(`🔍 Serper:      ${process.env.SERPER_API_KEY      ? "✅" : "—"}`);
   const twilioOk = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_NUMBER;
   console.log(`📟 Twilio SMS:  ${twilioOk ? '✅ webhook URL → ' + RENDER_URL + '/sms' : '❌ missing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_NUMBER'}`);
-  console.log(`💬 Telegram:    ${TG_SESSION                      ? "✅ session found" : "❌ run gen-session.js"}`);
+  console.log(`💬 Telegram:    ${process.env.TELEGRAM_SESSION    ? "✅ session found" : "❌ link it: dashboard → Settings → Telegram"}`);
   console.log(`📶 Signal:      ${SIGNAL_NUMBER                   ? "✅ " + SIGNAL_NUMBER : "❌"}`);
   await initTelegram();
   await setupSignalWebhook();
