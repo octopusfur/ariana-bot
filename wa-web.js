@@ -204,7 +204,15 @@ async function handleApi(pathname, body) {
   if (pathname === "/send-media") {
     if (!body.url) throw new Error("missing 'url'");
     const media = await MessageMedia.fromUrl(body.url, { unsafeMime: true });
-    await client.sendMessage(jid, media, { caption: body.caption || undefined, sendAudioAsVoice: !!body.voice });
+    try {
+      await client.sendMessage(jid, media, { caption: body.caption || undefined, sendAudioAsVoice: !!body.voice });
+    } catch (e) {
+      // Sending as a push-to-talk voice note can be rejected by WhatsApp Web ("Data passed to getter must
+      // include an id property"). Retry once as a normal audio attachment so she still gets heard.
+      if (!body.voice) throw e;
+      console.warn(`⚠️ voice-note send failed (${e.message}) — retrying as plain audio`);
+      await client.sendMessage(jid, media, { caption: body.caption || undefined });
+    }
     console.log(`✅ wwebjs media → ${jid}`);
     return { ok: true };
   }

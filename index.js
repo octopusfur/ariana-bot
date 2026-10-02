@@ -889,7 +889,8 @@ async function generateVoiceNote(text) {
       const res = await axios.post(
         'https://api.cartesia.ai/tts/bytes',
         {
-          model_id:      'sonic-english',
+          model_id:      process.env.CARTESIA_MODEL || 'sonic-3',
+          language:      'en',
           transcript:    text,
           voice:         { mode: 'id', id: cartesiaVoiceId },
           output_format: { container: 'mp3', encoding: 'mp3', bit_rate: 128000, sample_rate: 44100 },
@@ -897,7 +898,7 @@ async function generateVoiceNote(text) {
         {
           headers: {
             'X-API-Key':        cartesiaKey,
-            'Cartesia-Version': '2024-06-10',
+            'Cartesia-Version': process.env.CARTESIA_VERSION || '2025-04-16',
             'Content-Type':     'application/json',
           },
           responseType: 'arraybuffer',
@@ -906,7 +907,11 @@ async function generateVoiceNote(text) {
       );
       const url = await uploadToCloudinary(Buffer.from(res.data), 'mp3');
       if (url) { console.log('[voice] ✅ Cartesia'); return url; }
-    } catch (e) { console.warn('[voice] Cartesia failed:', e.message); }
+    } catch (e) {
+      let why = '';
+      try { why = Buffer.from(e.response?.data || '').toString('utf8').slice(0, 300); } catch (_) {}
+      console.warn('[voice] Cartesia failed:', e.message, why);
+    }
   }
 
   // ── FALLBACK: ElevenLabs ───────────────────────────────────
@@ -1746,10 +1751,17 @@ async function sendMMS(to, message, mediaUrl) {
 // ── UNIFIED SEND ──────────────────────────────────────────────
 async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, phoneNumberId, caption) {
   if (voiceUrl) {
-    if (platform === "whatsapp")      await sendWhatsAppVoiceNote(from, voiceUrl, phoneNumberId);
-    else if (platform === "telegram") await sendTelegramVoice(chatId, voiceUrl);
-    else if (platform === "signal")   await sendSignal(from, reply);
-    else if (platform === "sms")      await sendSMS(from, reply);
+    try {
+      if (platform === "whatsapp")      await sendWhatsAppVoiceNote(from, voiceUrl, phoneNumberId);
+      else if (platform === "telegram") await sendTelegramVoice(chatId, voiceUrl);
+      else if (platform === "signal")   await sendSignal(from, reply);
+      else if (platform === "sms")      await sendSMS(from, reply);
+    } catch (e) {
+      // The voice note failed to deliver (e.g. WhatsApp Web rejected the upload). Don't go silent —
+      // send what she was going to say as text instead.
+      console.warn(`[voice] delivery failed on ${platform} (${e.message}) — sending text instead`);
+      return sendReply(id, platform, reply, null, null, chatId, from, phoneNumberId, caption);
+    }
   } else if (imageUrl) {
     if (platform === "whatsapp")      await sendWhatsAppImage(from, imageUrl, caption || "", phoneNumberId);
     else if (platform === "telegram") await sendTelegramPhoto(chatId, imageUrl);
@@ -2053,7 +2065,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
       voiceUrl = await generateVoiceNote(reply);
     }
 
-    addMessage(id, "ariana", voiceUrl ? "[voice note]" : reply);
+    addMessage(id, "ariana", reply);
     if (typingInterval)   clearInterval(typingInterval);
     if (tgTypingInterval) clearInterval(tgTypingInterval);
     await sendReply(id, platform, reply, voiceUrl, null, chatId, from, phoneNumberId);
@@ -3120,13 +3132,14 @@ async function ttsBase64(text) {
       const res = await axios.post(
         'https://api.cartesia.ai/tts/bytes',
         {
-          model_id: 'sonic-english',
+          model_id: process.env.CARTESIA_MODEL || 'sonic-3',
+          language: 'en',
           transcript: text,
           voice: { mode: 'id', id: cartesiaVoiceId },
           output_format: { container: 'mp3', encoding: 'mp3', bit_rate: 128000, sample_rate: 44100 },
         },
         {
-          headers: { 'X-API-Key': cartesiaKey, 'Cartesia-Version': '2024-06-10', 'Content-Type': 'application/json' },
+          headers: { 'X-API-Key': cartesiaKey, 'Cartesia-Version': process.env.CARTESIA_VERSION || '2025-04-16', 'Content-Type': 'application/json' },
           responseType: 'arraybuffer',
           timeout: 12000,
         }
