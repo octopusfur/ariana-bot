@@ -1,4 +1,4 @@
-const CACHE = "ariana-v3";
+const CACHE = "ariana-v4";
 const ASSETS = ["/manifest.json", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 // ── INSTALL ───────────────────────────────────────────────────

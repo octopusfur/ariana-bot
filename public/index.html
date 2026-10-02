@@ -249,22 +249,74 @@ textarea.inp{resize:vertical;min-height:120px}
 @media (min-width:520px){.home-social-grid{grid-template-columns:repeat(3,1fr)}.social-account-card{min-height:126px}.home-command{padding-left:20px;padding-right:20px}}
 @media (max-width:380px){.shortcut-grid{gap:6px}.home-shortcut{padding-left:3px;padding-right:3px}.shortcut-name{font-size:9.5px}.memory-stats{gap:5px}.memory-stats b{font-size:18px}.memory-filters{grid-template-columns:1fr 1fr}.memory-filters .inp:first-child{grid-column:1/-1}}
 
-/* ── HOME (black, icon grid) ───────────────────────────────────── */
-#s-home.hm{background:#000;overflow:hidden}
-.hm-top{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 12px) 20px 12px;flex-shrink:0}
-.hm-title{font-size:17px;font-weight:600;color:#fff}
-.hm .home-avatar{margin-right:0;width:36px;height:36px;border:1.5px solid rgba(255,255,255,.3)}
-.hm-main{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;padding:0 20px calc(env(safe-area-inset-bottom) + 40px);width:100%;max-width:520px;margin:0 auto}
-.hm-h{font-size:34px;font-weight:500;line-height:1.2;text-align:center;color:#fff;margin:0 0 30px;letter-spacing:-.01em}
-.hm-bar{padding:16px 22px;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:36px;margin-bottom:56px}
-.hm-bar .itxt{font-family:inherit;display:block;width:100%;font-size:16px;line-height:1.4;color:#fff;min-height:22px;max-height:96px}
-.hm-bar .itxt::placeholder{color:#777}
+/* ── HOME (icon grid, theme aware) ─────────────────────────────── */
+#s-home.hm{--hm-bg:#000;--hm-fg:#fff;--hm-mute:#7a7a7a;--hm-bar:#0d0d0d;--hm-line:#262626;background:var(--hm-bg);overflow:hidden}
+[data-theme="light"] #s-home.hm{--hm-bg:#f5f5f5;--hm-fg:#111;--hm-mute:#777;--hm-bar:#fff;--hm-line:#dcdcdc}
+.hm-top{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 12px) 16px 12px 14px;flex-shrink:0}
+.hm-sp{width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--hm-fg);cursor:pointer;flex-shrink:0}
+.hm-sp svg{width:26px;height:26px;display:block}
+.hm-sp svg,.hm-sp svg *{stroke:currentColor!important}
+.hm-title{flex:1;font-size:17px;font-weight:600;color:var(--hm-fg)}
+.hm .home-avatar img:not([src]){display:none}
+.hm .home-avatar{margin:0;width:44px;height:44px;padding:3px;background:transparent;border:2px solid var(--hm-fg);flex-shrink:0;backdrop-filter:none;-webkit-backdrop-filter:none}
+.hm-main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;padding:0 20px}
+.hm-in{width:100%;max-width:520px;margin:auto;padding:24px 0 calc(env(safe-area-inset-bottom) + 40px)}
+.hm-h{font-size:34px;font-weight:500;line-height:1.2;text-align:center;color:var(--hm-fg);margin:0 0 30px;letter-spacing:-.01em}
+.hm-bar{padding:16px 22px;background:var(--hm-bar);border:1px solid var(--hm-line);border-radius:36px;margin-bottom:56px}
+.hm-bar .itxt{font-family:inherit;display:block;width:100%;font-size:16px;line-height:1.4;color:var(--hm-fg);min-height:22px;max-height:96px}
+.hm-bar .itxt::placeholder{color:var(--hm-mute)}
 .hm-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));row-gap:30px;column-gap:4px}
-.hm-i{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;background:none;border:none;padding:0;color:#fff;font:inherit;cursor:pointer;min-width:0}
+.hm-i{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;background:none;border:none;padding:0;color:var(--hm-fg);font:inherit;cursor:pointer;min-width:0}
 .hm-i:active{opacity:.55}
 .hm-i svg{display:block;width:34px;height:34px;flex-shrink:0}
-.hm-i svg path{fill:#fff!important}
-.hm-i span{font-size:13px;line-height:1.25;text-align:center;color:#fff}
+.hm-i svg path{fill:var(--hm-fg)!important}
+.hm-i span{font-size:13px;line-height:1.25;text-align:center;color:var(--hm-fg)}
+.hm-feed{margin-top:52px}
+.hm-feed-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:15px;font-weight:600;color:var(--hm-fg)}
+.hm-feed-h button{background:none;border:none;color:var(--hm-mute);font:inherit;font-size:13px;font-weight:400;cursor:pointer}
+.tl-i{position:relative;display:flex;gap:14px;padding-bottom:24px}
+.tl-i::before{content:'';position:absolute;left:4px;top:16px;bottom:0;width:1px;background:var(--hm-line)}
+.tl-i:last-child::before{display:none}
+.tl-dot{width:9px;height:9px;border-radius:50%;background:var(--hm-mute);margin-top:5px;flex-shrink:0;position:relative;z-index:1}
+.tl-dot.ok{background:var(--grn)}.tl-dot.bad{background:var(--red)}
+.tl-b{flex:1;min-width:0}
+.tl-top{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--hm-mute)}
+.tl-t{margin-top:4px;font-size:15px;line-height:1.4;color:var(--hm-fg)}
+.tl-img{display:block;width:100%;max-height:260px;object-fit:cover;border-radius:14px;margin-top:10px}
+.tl-empty{font-size:13px;line-height:1.5;color:var(--hm-mute)}
+/* overlays */
+#ov{position:absolute;inset:0;z-index:140;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s}
+#ov.on{opacity:1;pointer-events:auto}
+#pm{position:absolute;z-index:150;top:calc(env(safe-area-inset-top) + 64px);right:14px;width:min(320px,calc(100% - 28px));max-height:calc(100% - env(safe-area-inset-top) - 84px);overflow-y:auto;border-radius:22px;background:#242424;color:#f2f2f2;padding:8px;box-shadow:0 18px 50px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.07);transform-origin:top right;transform:scale(.96) translateY(-6px);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s}
+#pm.on{opacity:1;transform:none;pointer-events:auto}
+[data-theme="light"] #pm{background:#fff;color:#111;border-color:rgba(0,0,0,.08);box-shadow:0 18px 50px rgba(0,0,0,.18)}
+.pm-card{background:rgba(128,128,128,.14);border-radius:16px;padding:14px;margin-bottom:8px}
+.pm-who{display:flex;align-items:center;gap:12px}
+.pm-who .prof-av{width:44px;height:44px;font-size:16px;border:none;flex-shrink:0}
+.pm-name{font-size:17px;font-weight:600}.pm-sub{font-size:13px;opacity:.6;margin-top:2px}
+.pm-stats{display:grid;grid-template-columns:repeat(3,1fr);text-align:center}
+.pm-stats b{display:block;font-size:20px;font-weight:600}.pm-stats small{display:block;font-size:11px;opacity:.6;margin-top:2px}
+.pm-list{border-top:1px solid rgba(128,128,128,.25);margin:4px 4px 0;padding-top:6px}
+.pm-row{display:flex;align-items:center;gap:12px;width:100%;padding:13px 10px;background:none;border:none;color:inherit;font:inherit;font-size:16px;text-align:left;cursor:pointer;border-radius:12px}
+.pm-row:active{background:rgba(128,128,128,.18)}
+.pm-ic{width:22px;height:22px;display:flex;flex-shrink:0}.pm-ic svg{width:100%;height:100%}.pm-ic svg path{fill:currentColor}
+.pm-sw{margin-left:auto;width:42px;height:24px;border-radius:12px;background:rgba(128,128,128,.45);position:relative;transition:background .2s;flex-shrink:0}
+.pm-sw i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s}
+.pm-sw.on{background:var(--grn)}.pm-sw.on i{left:21px}
+#sp{position:absolute;z-index:150;top:0;bottom:0;left:0;width:min(300px,82%);background:#0b0b0b;color:#fff;padding:calc(env(safe-area-inset-top) + 20px) 8px calc(env(safe-area-inset-bottom) + 20px);transform:translateX(-102%);transition:transform .22s ease;overflow-y:auto;border-right:1px solid #1f1f1f}
+#sp.on{transform:none}
+[data-theme="light"] #sp{background:#fff;color:#111;border-color:#e2e2e2}
+.sp-h{font-size:20px;font-weight:600;padding:6px 14px 16px}
+.sp-i{display:block;width:100%;text-align:left;background:none;border:none;color:inherit;font:inherit;font-size:16px;padding:13px 14px;border-radius:12px;cursor:pointer}
+.sp-i:active{background:rgba(128,128,128,.18)}
+.sp-sep{height:1px;background:rgba(128,128,128,.22);margin:8px 14px}
+/* chat wallpaper */
+#wp-menu{position:absolute;z-index:60;top:calc(env(safe-area-inset-top) + 54px);right:12px;background:var(--s2);border:1px solid var(--bdr2);border-radius:14px;padding:6px;display:none;min-width:200px;box-shadow:0 12px 36px rgba(0,0,0,.5)}
+#wp-menu.on{display:block}
+#wp-menu button{display:block;width:100%;text-align:left;padding:12px;background:none;border:none;color:var(--txt);font:inherit;font-size:14px;border-radius:10px;cursor:pointer}
+#convo-msgs.has-wp{background-size:cover;background-position:center;background-repeat:no-repeat}
+.mg.wav{flex-direction:row;align-items:flex-end;gap:6px}
+.mg-av{width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -293,12 +345,13 @@ textarea.inp{resize:vertical;min-height:120px}
 <!-- HOME -->
 <div id="s-home" class="scr on hm">
   <div class="hm-top">
+    <button class="hm-sp" onclick="openSide()" aria-label="Open side panel"><svg viewBox="0 0 21.00 21.00" xmlns="http://www.w3.org/2000/svg" fill="#000000" stroke="#000000" stroke-width="0.9450000000000001"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <g fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" transform="translate(3 3)"> <path d="m2.5.5h10c1.1045695 0 2 .8954305 2 2v10c0 1.1045695-.8954305 2-2 2h-10c-1.1045695 0-2-.8954305-2-2v-10c0-1.1045695.8954305-2 2-2z"></path> <path d="m12.5 11.5v-8"></path> </g> </g></svg></button>
     <span class="hm-title">Home</span>
-    <div class="prof-av home-avatar" id="home-av" onclick="go('profile')" aria-label="Open profile">
+    <div class="prof-av home-avatar" id="home-av" onclick="toggleProfile()" aria-label="Open profile">
       <img id="home-av-img" alt=""><span id="home-av-txt">A</span>
     </div>
   </div>
-  <main class="hm-main">
+  <main class="hm-main"><div class="hm-in">
     <h1 class="hm-h">What would you like<br>to do?</h1>
     <div class="hm-bar">
       <textarea class="itxt" id="home-ask-inp" rows="1" enterkeyhint="send" placeholder="Message Ariana..." oninput="autoH(this)" onkeydown="homeAskKey(event)"></textarea>
@@ -337,7 +390,61 @@ textarea.inp{resize:vertical;min-height:120px}
         <span>Brain</span>
       </button>
     </div>
-  </main>
+    <section class="hm-feed" aria-label="Recent activity">
+      <div class="hm-feed-h"><span>Recent activity</span><button onclick="go('social')">See all</button></div>
+      <div id="home-activity"><div class="tl-empty">Loading…</div></div>
+    </section>
+  </div></main>
+</div>
+
+<!-- HIDDEN FILE INPUTS -->
+<input type="file" id="cover-file" accept="image/*" hidden onchange="uploadCover(this)">
+<input type="file" id="avatar-file" accept="image/*" hidden onchange="uploadAvatar(this)">
+<input type="file" id="wp-file" accept="image/*" hidden onchange="uploadWallpaper(this)">
+
+<!-- SIDE PANEL + PROFILE DROPDOWN -->
+<div id="ov" onclick="closeOverlays()"></div>
+<nav id="sp" aria-label="Menu">
+  <div class="sp-h">Ariana</div>
+  <button class="sp-i" onclick="spGo('home')">Home</button>
+  <div class="sp-sep"></div>
+  <button class="sp-i" onclick="spGo('wa')">WhatsApp</button>
+  <button class="sp-i" onclick="spGo('tg')">Telegram</button>
+  <button class="sp-i" onclick="spGo('sig')">Signal</button>
+  <button class="sp-i" onclick="spGo('sms')">Sms</button>
+  <div class="sp-sep"></div>
+  <button class="sp-i" onclick="spGo('social')">Socials studio</button>
+  <button class="sp-i" onclick="spGo('media')">Media library</button>
+  <button class="sp-i" onclick="spGo('talk')">Voice &amp; calls</button>
+  <button class="sp-i" onclick="spGo('brain')">Brain</button>
+  <div class="sp-sep"></div>
+  <button class="sp-i" onclick="spGo('wardrobe')">Wardrobe</button>
+  <button class="sp-i" onclick="spGo('settings')">Settings</button>
+</nav>
+<div id="pm" role="dialog" aria-label="Profile">
+  <div class="pm-card">
+    <div class="pm-who">
+      <div class="prof-av"><img id="prof-av-img" alt="" style="display:none"><span id="prof-av-txt">A</span></div>
+      <div><div class="pm-name" id="prof-name-display">Ariana</div><div class="pm-sub">AI Influencer &amp; Assistant</div></div>
+    </div>
+  </div>
+  <div class="pm-card pm-stats">
+    <div><b id="stat-convos">—</b><small>Conversations</small></div>
+    <div><b id="stat-calls">—</b><small>Calls today</small></div>
+    <div><b id="stat-media">—</b><small>Media files</small></div>
+  </div>
+  <div class="pm-list">
+    <button class="pm-row" onclick="pmGo('settings')">Settings</button>
+    <button class="pm-row" onclick="pmGo('brain')">Brain &amp; Memory</button>
+    <button class="pm-row" onclick="pmGo('wardrobe')">Wardrobe</button>
+    <button class="pm-row" onclick="closeOverlays();document.getElementById('avatar-file').click()">Change profile picture</button>
+    <button class="pm-row" onclick="closeOverlays();document.getElementById('cover-file').click()">Change cover</button>
+    <button class="pm-row" onclick="toggleTheme()">
+      <span class="pm-ic"><svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="#000000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <title>dark-mode</title> <g id="Layer_2" data-name="Layer 2"> <g id="Icons"> <g> <rect width="48" height="48" fill="none"></rect> <g> <path d="M14,24A10,10,0,0,0,24,34V14A10,10,0,0,0,14,24Z"></path> <path d="M24,2A22,22,0,1,0,46,24,21.9,21.9,0,0,0,24,2ZM6,24A18.1,18.1,0,0,1,24,6v8a10,10,0,0,1,0,20v8A18.1,18.1,0,0,1,6,24Z"></path> </g> </g> </g> </g> </g></svg></span>
+      <span>Dark mode</span>
+      <span class="pm-sw" id="pm-sw"><i></i></span>
+    </button>
+  </div>
 </div>
 
 <!-- TALK -->
@@ -364,25 +471,7 @@ textarea.inp{resize:vertical;min-height:120px}
 <div id="s-platforms" class="scr">
   <div class="hdr">
     <button class="ib" onclick="go('home')" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
-    <span class="hdr-title">Platforms</span>
-  </div>
-  <div class="ptabs">
-    <button class="ptab on" id="ptab-wa" onclick="setPlatform('wa')">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-      WhatsApp <span class="ptab-badge" id="badge-wa" style="display:none">0</span>
-    </button>
-    <button class="ptab" id="ptab-tg" onclick="setPlatform('tg')">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="#229ED9"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0a12 12 0 00-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-      Telegram <span class="ptab-badge" id="badge-tg" style="display:none">0</span>
-    </button>
-    <button class="ptab" id="ptab-sig" onclick="setPlatform('sig')">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="#3A76F0"><path d="M12 0q-.934 0-1.83.139l.17 1.111a11 11 0 0 1 3.32 0l.172-1.111A12 12 0 0 0 12 0M9.152.34A12 12 0 0 0 5.77 1.742l.584.961a10.8 10.8 0 0 1 3.066-1.27zm5.696 0-.268 1.094a10.8 10.8 0 0 1 3.066 1.27l.584-.962A12 12 0 0 0 14.848.34M12 2.25a9.75 9.75 0 0 0-8.539 14.459c.074.134.1.292.064.441l-1.013 4.338 4.338-1.013a.62.62 0 0 1 .441.064A9.7 9.7 0 0 0 12 21.75c5.385 0 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25m-7.092.068a12 12 0 0 0-2.59 2.59l.909.664a11 11 0 0 1 2.345-2.345zm14.184 0-.664.909a11 11 0 0 1 2.345 2.345l.909-.664a12 12 0 0 0-2.59-2.59M1.742 5.77A12 12 0 0 0 .34 9.152l1.094.268a10.8 10.8 0 0 1 1.269-3.066zm20.516 0-.961.584a10.8 10.8 0 0 1 1.27 3.066l1.093-.268a12 12 0 0 0-1.402-3.383M.138 10.168A12 12 0 0 0 0 12q0 .934.139 1.83l1.111-.17A11 11 0 0 1 1.125 12q0-.848.125-1.66zm23.723.002-1.111.17q.125.812.125 1.66c0 .848-.042 1.12-.125 1.66l1.111.172a12.1 12.1 0 0 0 0-3.662M1.434 14.58l-1.094.268a12 12 0 0 0 .96 2.591l-.265 1.14 1.096.255.36-1.539-.188-.365a10.8 10.8 0 0 1-.87-2.35m21.133 0a10.8 10.8 0 0 1-1.27 3.067l.962.584a12 12 0 0 0 1.402-3.383zm-1.793 3.848a11 11 0 0 1-2.345 2.345l.664.909a12 12 0 0 0 2.59-2.59zm-19.959 1.1L.357 21.48a1.8 1.8 0 0 0 2.162 2.161l1.954-.455-.256-1.095-1.953.455a.675.675 0 0 1-.81-.81l.454-1.954zm16.832 1.769a10.8 10.8 0 0 1-3.066 1.27l.268 1.093a12 12 0 0 0 3.382-1.402zm-10.94.213-1.54.36.256 1.095 1.139-.266c.814.415 1.683.74 2.591.961l.268-1.094a10.8 10.8 0 0 1-2.35-.869zm3.634 1.24-.172 1.111a12.1 12.1 0 0 0 3.662 0l-.17-1.111q-.812.125-1.66.125a11 11 0 0 1-1.66-.125"/></svg>
-      Signal <span class="ptab-badge" id="badge-sig" style="display:none">0</span>
-    </button>
-    <button class="ptab" id="ptab-sms" onclick="setPlatform('sms')">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      SMS <span class="ptab-badge" id="badge-sms" style="display:none">0</span>
-    </button>
+    <span class="hdr-title" id="plat-title">WhatsApp</span>
   </div>
   <div style="padding:0 16px;margin-bottom:8px;font-size:12px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.08em;display:flex;justify-content:space-between;flex-shrink:0">
     <span>Active conversations</span><span style="color:var(--acc3)">View all</span>
@@ -400,9 +489,11 @@ textarea.inp{resize:vertical;min-height:120px}
       <div class="row-av" id="convo-av" style="width:34px;height:34px;font-size:12px;flex-shrink:0"></div>
       <div class="hdr-title" id="convo-name">Chat</div>
     </div>
+    <button class="ib" id="wp-btn" onclick="toggleWpMenu()" aria-label="Chat wallpaper"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
     <span style="font-size:11px;color:var(--txt2);flex-shrink:0">Takeover</span>
     <button id="takeover-btn" class="tog" onclick="toggleTakeover()"><span id="takeover-knob" class="tog-k"></span></button>
   </div>
+  <div id="wp-menu"><button onclick="document.getElementById('wp-file').click();toggleWpMenu()">Upload wallpaper</button><button onclick="resetWallpaper();toggleWpMenu()">Use profile cover</button></div>
   <div class="chat-body" id="convo-msgs"></div>
   <div class="ibar" id="convo-ibar" style="display:none">
     <div class="irow">
@@ -465,7 +556,7 @@ textarea.inp{resize:vertical;min-height:120px}
 <!-- WARDROBE -->
 <div id="s-wardrobe" class="scr">
   <div class="hdr">
-    <button class="ib" onclick="go('profile')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <button class="ib" onclick="go('home')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
     <span class="hdr-title">Wardrobe</span>
     <button class="ib" onclick="document.getElementById('wardrobe-file').click()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
   </div>
@@ -473,111 +564,10 @@ textarea.inp{resize:vertical;min-height:120px}
   <div class="sbody no-nav"><div class="wgrid" id="wardrobe-grid"></div><div id="wardrobe-empty" style="padding:48px 24px;text-align:center;color:var(--txt3);font-size:13px;display:none">No outfits yet</div></div>
 </div>
 
-<!-- PROFILE -->
-<div id="s-profile" class="scr">
-  <!-- Hidden file inputs — label-based triggering for iOS compatibility -->
-  <input type="file" id="cover-file" accept="image/*" hidden onchange="uploadCover(this)">
-  <input type="file" id="avatar-file" accept="image/*" hidden onchange="uploadAvatar(this)">
-  <input type="file" id="hero-file" accept="image/*" hidden multiple onchange="uploadHeroPhoto(this)">
-
-  <div class="sbody with-nav">
-    <!-- FULL BLEED COVER: from notch top to stats bar, details overlaid with glass blur -->
-    <div style="position:relative;min-height:calc(env(safe-area-inset-top) + 360px);overflow:hidden;flex-shrink:0">
-      <!-- Cover background -->
-      <div id="prof-cover-bg" style="position:absolute;inset:0;background:linear-gradient(135deg,#1a1a1a 0%,#2a2a2a 50%,#111 100%)">
-        <img id="prof-cover-img" alt="" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0">
-      </div>
-      <!-- Gradient overlay — darkens bottom for readability -->
-      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(8,8,8,.05) 0%,rgba(8,8,8,.0) 30%,rgba(8,8,8,.55) 70%,rgba(8,8,8,.85) 100%);pointer-events:none"></div>
-
-      <!-- Back button only at top — clear of status bar -->
-      <button class="ib" onclick="go('home')" style="position:absolute;top:calc(env(safe-area-inset-top)+8px);left:14px;background:rgba(0,0,0,.45);backdrop-filter:blur(12px);z-index:10">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      </button>
-      <!-- Edit cover — bottom-left, clear of avatar -->
-      <label for="cover-file" style="position:absolute;bottom:96px;left:14px;background:rgba(0,0,0,.55);backdrop-filter:blur(12px);border:none;border-radius:8px;padding:7px 12px;color:#fff;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit;z-index:10">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        Edit cover
-      </label>
-
-      <!-- Avatar + details overlaid on cover — glass blur panel -->
-      <div style="position:absolute;bottom:0;left:0;right:0;z-index:5">
-        <!-- Glass blur detail section -->
-        <div style="padding:20px 20px 0;display:flex;align-items:flex-end;gap:14px">
-          <!-- Avatar — label trigger -->
-          <label for="avatar-file" style="cursor:pointer;display:block;flex-shrink:0">
-            <div class="prof-av" style="width:76px;height:76px;font-size:26px;border:3px solid rgba(255,255,255,.3);position:relative">
-              <img id="prof-av-img" alt="" style="display:none"><span id="prof-av-txt">A</span>
-              <div style="position:absolute;inset:0;background:rgba(0,0,0,.35);border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </div>
-            </div>
-          </label>
-          <!-- Name + title -->
-          <div style="flex:1;padding-bottom:4px">
-            <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">
-              <div class="prof-name" id="prof-name-display" style="color:#fff;font-size:22px;text-shadow:0 1px 8px rgba(0,0,0,.5)">Ariana</div>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.5283 1.5999C11.7686 1.29437 12.2314 1.29437 12.4717 1.5999L14.2805 3.90051C14.4309 4.09173 14.6818 4.17325 14.9158 4.10693L17.7314 3.3089C18.1054 3.20292 18.4799 3.475 18.4946 3.86338L18.6057 6.78783C18.615 7.03089 18.77 7.24433 18.9984 7.32823L21.7453 8.33761C22.1101 8.47166 22.2532 8.91189 22.0368 9.23478L20.4078 11.666C20.2724 11.8681 20.2724 12.1319 20.4078 12.334L22.0368 14.7652C22.2532 15.0881 22.1101 15.5283 21.7453 15.6624L18.9984 16.6718C18.77 16.7557 18.615 16.9691 18.6057 17.2122L18.4946 20.1366C18.4799 20.525 18.1054 20.7971 17.7314 20.6911L14.9158 19.8931C14.6818 19.8267 14.4309 19.9083 14.2805 20.0995L12.4717 22.4001C12.2314 22.7056 11.7686 22.7056 11.5283 22.4001L9.71949 20.0995C9.56915 19.9083 9.31823 19.8267 9.08421 19.8931L6.26856 20.6911C5.89463 20.7971 5.52014 20.525 5.50539 20.1366L5.39427 17.2122C5.38503 16.9691 5.22996 16.7557 5.00164 16.6718L2.25467 15.6624C1.88986 15.5283 1.74682 15.0881 1.96317 14.7652L3.59221 12.334C3.72761 12.1319 3.72761 11.8681 3.59221 11.666L1.96317 9.23478C1.74682 8.91189 1.88986 8.47166 2.25467 8.33761L5.00165 7.32823C5.22996 7.24433 5.38503 7.03089 5.39427 6.78783L5.50539 3.86338C5.52014 3.475 5.89463 3.20292 6.26857 3.3089L9.08421 4.10693C9.31823 4.17325 9.56915 4.09173 9.71949 3.90051L11.5283 1.5999Z" stroke="var(--acc3)" stroke-width="1.5"/><path d="M9 12L11 14L15 10" stroke="var(--acc3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div style="font-size:12px;color:rgba(255,255,255,.65)">AI Influencer &amp; Assistant</div>
-            <div style="display:flex;align-items:center;gap:5px;margin-top:5px">
-              <span style="width:6px;height:6px;border-radius:50%;background:var(--grn);flex-shrink:0"></span>
-              <span style="font-size:11px;color:rgba(255,255,255,.6)">Online — always here to chat</span>
-            </div>
-          </div>
-          <!-- Update hero -->
-          
-        </div>
-
-        <!-- Stats bar with glass blur background -->
-        <div style="margin:14px 0 0;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);background:rgba(8,8,8,.5);border-top:1px solid rgba(255,255,255,.1)">
-          <div class="prof-stats" style="padding:0">
-            <div class="pstat" style="border:none;border-radius:0;background:transparent"><div class="pstat-val" id="stat-convos">—</div><div class="pstat-lbl">Conversations</div></div>
-            <div class="pstat" style="border:none;border-left:1px solid rgba(255,255,255,.1);border-radius:0;background:transparent"><div class="pstat-val" id="stat-calls">—</div><div class="pstat-lbl">Calls today</div></div>
-            <div class="pstat" style="border:none;border-left:1px solid rgba(255,255,255,.1);border-radius:0;background:transparent"><div class="pstat-val" id="stat-media">—</div><div class="pstat-lbl">Media files</div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Rest of profile content -->
-    <!-- Hero photos row — separate from cover -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--s1);border:1px solid var(--bdr);border-radius:14px;margin:0 16px 12px;cursor:pointer" onclick="document.getElementById('hero-file').click()">
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--txt)">Hero photos</div>
-        <div style="font-size:11px;color:var(--txt2);margin-top:2px">Photos shown on home screen slideshow</div>
-      </div>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="2" stroke-linecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-    </div>
-    <div class="pmenu" style="margin:0 16px 16px">
-      <div class="pmenu-item" onclick="go('brain')">
-        <div class="pmenu-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="1.8" stroke-linecap="round"><path d="M9.5 2A2.5 2.5 0 007 4.5v15A2.5 2.5 0 009.5 22h5a2.5 2.5 0 002.5-2.5v-15A2.5 2.5 0 0014.5 2h-5z"/><path d="M7 8H4a2 2 0 00-2 2v4a2 2 0 002 2h3"/><path d="M17 8h3a2 2 0 012 2v4a2 2 0 01-2 2h-3"/></svg></div>
-        <div class="pmenu-body"><div class="pmenu-title">Brain &amp; Memory</div><div class="pmenu-sub">Review learnings, identity &amp; history</div></div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div class="pmenu-item" onclick="go('wardrobe')">
-        <div class="pmenu-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="1.8" stroke-linecap="round"><path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.34-2.23z"/></svg></div>
-        <div class="pmenu-body"><div class="pmenu-title">Wardrobe</div><div class="pmenu-sub">Outfits &amp; style library</div></div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div class="pmenu-item" onclick="go('social')">
-        <div class="pmenu-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="1.8" stroke-linecap="round"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg></div>
-        <div class="pmenu-body"><div class="pmenu-title">Social</div><div class="pmenu-sub">Connected accounts &amp; activity</div></div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div class="pmenu-item" onclick="go('settings')">
-        <div class="pmenu-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--acc2)" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
-        <div class="pmenu-body"><div class="pmenu-title">Settings</div><div class="pmenu-sub">API keys &amp; preferences</div></div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- SETTINGS -->
 <div id="s-settings" class="scr">
   <div class="hdr">
-    <button class="ib" onclick="go('profile')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <button class="ib" onclick="go('home')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
     <span class="hdr-title">Settings</span>
   </div>
   <div class="sbody no-nav" style="padding:0 16px;display:flex;flex-direction:column">
@@ -640,7 +630,7 @@ textarea.inp{resize:vertical;min-height:120px}
 <!-- SOCIAL — connected accounts, what they can really do, and what Ariana did -->
 <div id="s-social" class="scr">
   <div class="hdr">
-    <button class="ib" onclick="go('profile')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <button class="ib" onclick="go('home')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
     <span class="hdr-title">Social</span>
     <button class="ib" onclick="loadSocial(true)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>
   </div>
@@ -758,6 +748,8 @@ async function waPair(){
   finally{btn.disabled=false;btn.textContent='Get pairing code';}
 }
 function go(name){
+  if(name==='profile'){openProfile();return;}
+  closeOverlays();
   Object.values(screenMap).forEach(id=>document.getElementById(id)?.classList.remove('on'));
   document.getElementById(screenMap[name])?.classList.add('on');
   document.querySelectorAll('.nb,.nb-center').forEach(b=>b.classList.remove('on'));
@@ -801,9 +793,14 @@ function renderHomeAutonomy(){
 }
 function renderHomeActivity(){
   const el=document.getElementById('home-activity');if(!el)return;
-  if(soc.error){el.innerHTML='<div class="home-state error-state">Activity is unavailable right now.</div>';return;}
-  if(!soc.activity.length){el.innerHTML='<div class="home-state">No social activity recorded yet.</div>';return;}
-  el.innerHTML=soc.activity.slice(0,4).map(e=>{const good=e.status==='completed', bad=e.status==='failed'||e.status==='blocked';const state=e.status_label||e.status||'Unknown';return `<div class="activity-row"><span class="activity-dot ${good?'ok':bad?'bad':'muted'}"></span><div class="activity-copy"><strong>${socEsc(e.action||'Action')} · ${socEsc(e.platform_label||e.platform||'Account')}</strong><span>${socEsc(e.summary||state)}${e.handle?' · @'+socEsc(e.handle):''}</span></div><time>${socEsc(socAgo(e.created_at)||'—')}</time></div>`;}).join('');
+  if(soc.error){el.innerHTML='<div class="tl-empty">Activity is unavailable right now.</div>';return;}
+  if(!soc.activity.length){el.innerHTML='<div class="tl-empty">Nothing yet. When Ariana likes, comments, follows or posts, it shows up here.</div>';return;}
+  el.innerHTML=soc.activity.slice(0,8).map(e=>{
+    const good=e.status==='completed',bad=e.status==='failed'||e.status==='blocked';
+    const img=e.image||e.media_url||e.thumbnail||(e.detail&&(e.detail.image||e.detail.media_url))||'';
+    const imgOk=/^https?:\/\//i.test(img)||/^data:image\//.test(img);
+    return `<article class="tl-i"><span class="tl-dot ${good?'ok':bad?'bad':''}"></span><div class="tl-b"><div class="tl-top"><span>${socEsc(e.platform_label||e.platform||'Account')}${e.handle?' · @'+socEsc(e.handle):''}</span><time>${socEsc(socAgo(e.created_at)||'')}</time></div><div class="tl-t">${socEsc(e.summary||e.status_label||e.status||'')}</div>${imgOk?`<img class="tl-img" loading="lazy" src="${socEsc(img)}" alt="">`:''}</div></article>`;
+  }).join('');
 }
 async function loadHomeCommandCenter(){
   const statusEls=['wa','tg','sig','sms'];
@@ -876,22 +873,14 @@ async function uploadAvatar(input){
   cfg.set('avatar',url);applyAvatar(url);input.value='';toast('Avatar updated');
 }
 function applyAvatar(src){['prof-av-img','home-av-img','talk-av-img'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.src=src;el.style.display='block';const t=el.nextElementSibling;if(t)t.style.display='none';});}
-async function uploadCover(input){
-  const file=input.files[0];if(!file)return;
-  toast('Uploading...');
-  let url=await _uploadToSupabase(file,'cover');
-  if(!url){const b64=await toB64(file);url=b64;}
-  cfg.set('cover',url);
-  const el=document.getElementById('prof-cover-img');el.src=url;el.style.display='block';
-  input.value='';toast('Cover updated');
-}
+async function uploadCover(input){const file=input.files[0];if(!file)return;toast('Uploading...');let url=await _uploadToSupabase(file,'cover').catch(()=>null);if(!url)url=await shrinkImg(file,1280);cfg.set('cover',url);input.value='';toast('Cover updated');}
 function loadProfileStats(){document.getElementById('stat-convos').textContent=Object.keys(conversations).length||'—';document.getElementById('stat-media').textContent=allMedia.length||'—';document.getElementById('stat-calls').textContent='—';const n=cfg.get('name');if(n)document.getElementById('prof-name-display').textContent=n;}
 function computeBadges(){
   const cnt={wa:0,tg:0,sig:0,sms:0};
   Object.values(conversations).forEach(c=>{const p=c.platform||'whatsapp';const k=p==='telegram'?'tg':p==='signal'?'sig':p==='sms'?'sms':'wa';cnt[k]+=(c.unread||0);});
   ['wa','tg','sig','sms'].forEach(k=>{const el=document.getElementById('badge-'+k);if(el){el.textContent=cnt[k];el.style.display=cnt[k]?'flex':'none';}});
 }
-function setPlatform(p){currentPlatform=p;['wa','tg','sig','sms'].forEach(x=>document.getElementById('ptab-'+x).classList.toggle('on',x===p));renderPlatformList();}
+function setPlatform(p){currentPlatform=p;const t=document.getElementById('plat-title');if(t)t.textContent={wa:'WhatsApp',tg:'Telegram',sig:'Signal',sms:'Sms'}[p]||'WhatsApp';renderPlatformList();}
 function loadPlatforms(){computeBadges();renderPlatformList();}
 function platKey(p){return{wa:'whatsapp',tg:'telegram',sig:'signal',sms:'sms'}[p]||'whatsapp';}
 function getPlatIcon(p){
@@ -903,7 +892,7 @@ function getPlatIcon(p){
 function renderPlatformList(){
   const el=document.getElementById('platform-convos');
   const pk=platKey(currentPlatform);
-  const list=Object.values(conversations).filter(c=>!c.platform||c.platform===pk||c.platform===currentPlatform).sort((a,b)=>{const ta=a.messages?.[a.messages.length-1]?.ts||0,tb=b.messages?.[b.messages.length-1]?.ts||0;return tb-ta;});
+  const list=Object.values(conversations).filter(c=>(c.platform||'whatsapp')===pk||c.platform===currentPlatform).sort((a,b)=>{const ta=a.messages?.[a.messages.length-1]?.ts||0,tb=b.messages?.[b.messages.length-1]?.ts||0;return tb-ta;});
   if(!list.length){el.innerHTML='<div style="padding:32px 20px;text-align:center;color:var(--txt3);font-size:13px">No conversations</div>';return;}
   el.innerHTML=list.map(c=>{
     const last=c.messages?.[c.messages.length-1];
@@ -919,9 +908,9 @@ function renderPlatformList(){
       </div></div>`;
   }).join('');
 }
-function openConvoById(id){const c=conversations[id];if(!c)return;currentPhone=id;document.getElementById('convo-name').textContent=c.name||id;const av=document.getElementById('convo-av');av.innerHTML=c.avatar?`<img src="${c.avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`<span>${(c.name||id||'?')[0]}</span>`;const on=takeoverState[id]||false;setTakeoverUI(on);document.getElementById('convo-ibar').style.display=on?'block':'none';renderConvoMsgs(c);document.getElementById('s-convo').classList.add('on');}
+function openConvoById(id){const c=conversations[id];if(!c)return;currentPhone=id;document.getElementById('convo-name').textContent=c.name||id;const av=document.getElementById('convo-av');av.innerHTML=c.avatar?`<img src="${c.avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`<span>${(c.name||id||'?')[0]}</span>`;const on=takeoverState[id]||false;setTakeoverUI(on);document.getElementById('convo-ibar').style.display=on?'block':'none';renderConvoMsgs(c);applyWallpaper();document.getElementById('s-convo').classList.add('on');}
 function closeConvo(){document.getElementById('s-convo').classList.remove('on');}
-function renderConvoMsgs(c){const el=document.getElementById('convo-msgs');el.innerHTML=(c.messages||[]).slice(-60).map(m=>{const isAri=m.role==='assistant'||m.role==='ariana'||m.fromMe;return`<div class="mg ${isAri?'a':'u'}"><div class="bbl">${escHTML(m.text||m.content||'')}</div></div>`;}).join('');el.scrollTop=el.scrollHeight;}
+function renderConvoMsgs(c){const el=document.getElementById('convo-msgs');const av=(cfg.get('avatar')||'').replace(/"/g,'%22');el.innerHTML=(c.messages||[]).slice(-60).map(m=>{const isAri=m.role==='assistant'||m.role==='ariana'||m.fromMe;return`<div class="mg ${isAri?'a':'u'}${isAri&&av?' wav':''}">${isAri&&av?`<img class="mg-av" src="${av}" alt="">`:''}<div class="bbl">${escHTML(m.text||m.content||'')}</div></div>`;}).join('');el.scrollTop=el.scrollHeight;}
 function setTakeoverUI(on){document.getElementById('takeover-btn').style.background=on?'var(--grn)':'var(--s3)';document.getElementById('takeover-knob').style.left=on?'21px':'3px';}
 async function toggleTakeover(){if(!currentPhone)return;const next=!(takeoverState[currentPhone]||false);try{await fetch(`/api/takeover/${currentPhone}`,{method:'POST',headers:authH(),body:JSON.stringify({active:next})});takeoverState[currentPhone]=next;setTakeoverUI(next);document.getElementById('convo-ibar').style.display=next?'block':'none';toast(next?'Takeover on':'Takeover off');}catch{toast('Error');}}
 function convoKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendConvo();}}
@@ -1089,22 +1078,37 @@ function toggleTheme(){
   const cur=document.documentElement.getAttribute('data-theme')||'dark';
   const next=cur==='dark'?'light':'dark';
   document.documentElement.setAttribute('data-theme',next);
+  syncThemeUI();
   cfg.set('theme',next);
   toast('Switched to '+next+' mode');
 }
 function applyTheme(){
   const t=cfg.get('theme')||'dark';
   document.documentElement.setAttribute('data-theme',t);
+  syncThemeUI();
 }
+// ── OVERLAYS, THEME UI, WALLPAPER ──────────────────────────────────────────
+function closeOverlays(){['pm','sp','ov'].forEach(id=>document.getElementById(id)?.classList.remove('on'));}
+function openProfile(){closeOverlays();loadProfileStats();syncThemeUI();document.getElementById('pm').classList.add('on');document.getElementById('ov').classList.add('on');}
+function toggleProfile(){document.getElementById('pm').classList.contains('on')?closeOverlays():openProfile();}
+function openSide(){closeOverlays();document.getElementById('sp').classList.add('on');document.getElementById('ov').classList.add('on');}
+function pmGo(n){closeOverlays();go(n);}
+function spGo(n){closeOverlays();if(['wa','tg','sig','sms'].includes(n))openChannel(n);else go(n);}
+function syncThemeUI(){const sw=document.getElementById('pm-sw');if(sw)sw.classList.toggle('on',(document.documentElement.getAttribute('data-theme')||'dark')==='dark');}
+function shrinkImg(file,max){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const k=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.82));};img.onerror=rej;img.src=u;});}
+function wpKey(){const c=conversations[currentPhone];return 'wallpaper_'+((c&&c.platform)||'whatsapp');}
+function applyWallpaper(){const el=document.getElementById('convo-msgs');if(!el)return;const url=(cfg.get(wpKey())||cfg.get('cover')||'').replace(/"/g,'%22');if(url){el.style.backgroundImage=`linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url("${url}")`;el.classList.add('has-wp');}else{el.style.backgroundImage='';el.classList.remove('has-wp');}}
+async function uploadWallpaper(input){const file=input.files[0];if(!file)return;toast('Uploading...');let url=await _uploadToSupabase(file,'wallpaper').catch(()=>null);if(!url)url=await shrinkImg(file,1080);cfg.set(wpKey(),url);applyWallpaper();input.value='';toast('Wallpaper updated');}
+function resetWallpaper(){cfg.set(wpKey(),'');applyWallpaper();toast('Using profile cover');}
+function toggleWpMenu(){document.getElementById('wp-menu').classList.toggle('on');}
+document.addEventListener('click',e=>{if(!e.target.closest('#wp-menu,#wp-btn'))document.getElementById('wp-menu')?.classList.remove('on');});
 (function init(){
   applyTheme();
   loadSettingsUI();loadHeroPhotos();
   const av=cfg.get('avatar');if(av)applyAvatar(av);
-  const cover=cfg.get('cover');if(cover){const el=document.getElementById('prof-cover-img');el.src=cover;el.style.display='block';}
   cfg.load().then(()=>{
     loadSettingsUI();loadHeroPhotos();
     const av2=cfg.get('avatar');if(av2)applyAvatar(av2);
-    const cover2=cfg.get('cover');if(cover2){const el=document.getElementById('prof-cover-img');el.src=cover2;el.style.display='block';}
     loadHomeCommandCenter();
   });
   loadHomeCommandCenter();
