@@ -13,4 +13,4 @@ jobs:
         run: |
           APP=$(grep -m1 '^app *=' fly.toml | cut -d'"' -f2)
           echo "::notice title=status::$(curl -s "https://$APP.fly.dev/status?key=$WA_ADMIN_KEY" | head -c 300)"
-          echo "::notice title=logs::$(flyctl logs -a "$APP" --no-tail 2>&1 | tail -45 | cut -c1-230 | tr '\n' '|' | head -c 6000)"
+          echo "::notice title=logs::$(flyctl logs -a "$APP" --no-tail 2>&1 | grep -v "QR ready" | tail -40 | cut -c1-230 | tr '\n' '|' | head -c 6000)"
