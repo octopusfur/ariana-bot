@@ -58,6 +58,8 @@ let authMode = "unknown";
 let sessionStore = null; // Supabase-backed store (remote mode only)
 const jidByNumber = new Map(); // digits -> chat id we last saw (keeps @lid chats replyable)
 
+try { fs.mkdirSync(DATA_PATH, { recursive: true }); } catch {}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ── SESSION STORE (Supabase Storage) ──────────────────────────
@@ -77,6 +79,7 @@ function makeSupabaseStore(sb) {
     async extract({ session, path: outPath }) {
       const { data, error } = await sb.storage.from(BUCKET).download(file(session));
       if (error) throw error;
+      await fs.promises.mkdir(path.dirname(outPath), { recursive: true }); // fresh machines have no session folder yet
       await fs.promises.writeFile(outPath, Buffer.from(await data.arrayBuffer()));
     },
     async delete({ session }) {
