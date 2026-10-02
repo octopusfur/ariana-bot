@@ -1009,20 +1009,45 @@ function looksLikeNarration(t) {
   return /\*[^*]+\*/.test(t) || /^[A-Z][a-z]+ (smirk|smile|laugh|lean|roll|chuckle|sigh|grin|wink|bite|tilt|stare|glance|shrug|nod|pause|sip)s?\b/i.test(t.trim());
 }
 
+const openaiBrain = require('./llm_openai');
+const groqModels  = require('./groq_models');
+const OPENAI_CHAIN = openaiBrain.modelChain();
+const GROQ_CHAIN   = groqModels.modelChain();
+let groqModelIdx   = 0;
+
 // Raw completion — returns the SDK's message object untouched (tool_calls
 // and all), unlike callGroq() below which coerces down to a plain string.
 // generateBrainReply needs the raw shape to tell "wants to browse" apart
 // from "ready to answer".
 async function rawCompletion(history, sys, backup, tools, toolChoice) {
+  // Primary brain: OpenAI GPT-6 (Responses API). Groq is only an emergency fallback.
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      return await openaiBrain.complete({
+        apiKey: process.env.OPENAI_API_KEY, history, sys, tools, toolChoice,
+        effort: process.env.OPENAI_REASONING || 'low', temperature: 0.92, models: OPENAI_CHAIN,
+      });
+    } catch (e) {
+      console.warn(`[brain] OpenAI failed: ${e.message}`);
+      if (!GROQ_API_KEY && !groq2) throw e;
+    }
+  }
   const client = (backup && groq2) ? groq2 : groq;
-  const params = {
-    model: "llama-3.3-70b-versatile",
-    messages: [{ role: "system", content: sys }, ...history],
-    max_tokens: 350, temperature: 0.92
-  };
-  if (tools) { params.tools = tools; params.tool_choice = toolChoice; }
-  const completion = await client.chat.completions.create(params);
-  return completion.choices[0].message;
+  const base = { messages: [{ role: "system", content: sys }, ...history], max_tokens: 350, temperature: 0.92 };
+  if (tools) { base.tools = tools; base.tool_choice = toolChoice; }
+  let lastErr;
+  for (let i = groqModelIdx; i < GROQ_CHAIN.length; i++) {
+    try {
+      const completion = await client.chat.completions.create(groqModels.paramsFor(GROQ_CHAIN[i], base));
+      if (i !== groqModelIdx) { groqModelIdx = i; console.warn(`[brain] Groq model now ${GROQ_CHAIN[i]}`); }
+      return completion.choices[0].message;
+    } catch (e) {
+      lastErr = e;
+      if (!groqModels.isModelGone(e)) throw e;
+      console.warn(`[brain] Groq model ${GROQ_CHAIN[i]} unavailable -- trying next`);
+    }
+  }
+  throw lastErr;
 }
 
 async function callGroq(history, sys, backup, { asCharacter = false } = {}) {
@@ -4744,6 +4769,11 @@ server.listen(PORT, async () => {
   }
 
   console.log(`\n🌸 Ariana LIVE on port ${PORT}`);
+  if (process.env.OPENAI_API_KEY) {
+    openaiBrain.probe(process.env.OPENAI_API_KEY).then(r => console.log(r.ok
+      ? `[brain] OpenAI ready -- GPT-6 models on this key: ${r.models.join(', ') || '(none listed)'} | using: ${OPENAI_CHAIN.join(' > ')}`
+      : `[brain] OpenAI check FAILED: ${r.error}`));
+  } else console.warn('[brain] OPENAI_API_KEY not set -- using Groq only');
   console.log(`📱 WhatsApp:    ${WA_PROVIDER === 'wwebjs' ? 'whatsapp-web.js sidecar (link at /wa)' : (getKapsoKey() ? '✅ Kapso' : '❌ Kapso key missing')}`);
   if (WA_PROVIDER === 'wwebjs' && !WA_ADMIN_KEY) console.warn('⚠️  WA_ADMIN_KEY not set — /wa linking pages are open to anyone with the URL');
   console.log(`🧠 Groq (BRAIN, sole reply generator): ${GROQ_API_KEY ? "✅" : "❌ — Ariana cannot reply without this"}`);

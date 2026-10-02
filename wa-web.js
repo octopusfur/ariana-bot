@@ -153,7 +153,17 @@ async function onMessage(msg) {
 
     let contact = null;
     try { contact = await msg.getContact(); } catch {}
-    const number = (contact && contact.number) || String(msg.from).split("@")[0];
+    // WhatsApp now identifies many people by an internal "@lid" id instead of their phone number.
+    // Resolve the real number so owner detection and conversation ids stay stable.
+    let number = (contact && contact.number) || "";
+    if (!number && String(msg.from).endsWith("@lid")) {
+      try {
+        const r = await client.getContactLidAndPhone([msg.from]);
+        const pn = r && r[0] && r[0].pn;
+        if (pn) number = String(pn).split("@")[0];
+      } catch {}
+    }
+    if (!number) number = String(msg.from).split("@")[0];
     const name = (contact && (contact.pushname || contact.name)) || (msg._data && msg._data.notifyName) || null;
     jidByNumber.set(number, msg.from);
 
