@@ -2916,6 +2916,13 @@ app.post("/api/memory/:id/layer", requireDashboardAuth, async (req, res) => {
   try { const r = await memoryManager.setLayer(req.params.id, String(req.body?.layer || ''), 'creator'); res.status(r.ok ? 200 : 400).json(r); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+app.get("/api/skills", requireDashboardAuth, async (req, res) => {
+  try { res.json(await require('./skills_engine').listSkills({ status: req.query.status || null })); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/skills/:id/status", requireDashboardAuth, async (req, res) => {
+  try { const r = await require('./skills_engine').setSkillStatus(req.params.id, String(req.body?.status || '')); res.status(r.ok ? 200 : 400).json(r); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get("/api/harmes/status", requireDashboardAuth, (req, res) => { res.json({ ok: true, harmes: harmes.status() }); });
 app.get('/api/memory/overview', requireDashboardAuth, async (_req, res) => {
   try { res.json({ ok: true, overview: await memoryManager.overview() }); }

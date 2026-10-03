@@ -37,7 +37,15 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
+const memoryManager = require('./memory_manager');
+
+// Lifecycle: candidate -> proposed (reused enough times) -> confirmed (creator approved) -> retired.
+// Only 'confirmed' skills ever reach a prompt. A skill is text guidance; it cannot call tools
+// or widen any permission.
+const STATUSES = ['candidate', 'proposed', 'confirmed', 'retired'];
+
 let supabase = null;
+function _setClientForTest(c) { supabase = c; }
 function client() {
   if (supabase) return supabase;
   const { createClient } = require('@supabase/supabase-js');
@@ -84,6 +92,13 @@ async function maybeLearnSkill(userId, message, history = [], platform = null) {
   // not "hey" -> "hey babe". This is the cheapest possible novelty filter.
   if (priorAsk.content.length < 25 && priorReply.content.length < 60) return;
 
+  // Untrusted input: never keep credentials, and never keep text that looks like an
+  // attempt to override rules or identity. Nothing here is stored in a quarantined form.
+  const scan = memoryManager.scanContent(`${priorAsk.content}\n${priorReply.content}`);
+  if (scan.flagged) { console.warn('[skills] exchange rejected by safety scan; not saved'); return; }
+  const trigger = memoryManager.redactSecrets(priorAsk.content).slice(0, 500);
+  const procedure = memoryManager.redactSecrets(priorReply.content).slice(0, 1000);
+
   try {
     // If a near-identical trigger already exists for this exact ask, treat
     // this positive follow-up as reuse instead of minting a duplicate.
@@ -96,8 +111,8 @@ async function maybeLearnSkill(userId, message, history = [], platform = null) {
     await db.from('ariana_skills').insert({
       user_id: userId,
       platform,
-      trigger_text: priorAsk.content.slice(0, 500),
-      procedure: priorReply.content.slice(0, 1000),
+      trigger_text: trigger,
+      procedure,
       status: 'candidate',
       uses: 1
     });
@@ -116,6 +131,7 @@ async function findRelevantSkills(query, limit = 2) {
   try {
     const { data, error } = await db.from('ariana_skills')
       .select('*')
+      .eq('status', 'confirmed')
       .textSearch('trigger_text', query.split(/\s+/).slice(0, 8).join(' & '), { type: 'plain' })
       .order('status', { ascending: false }) // confirmed skills first
       .order('uses', { ascending: false })
@@ -128,6 +144,7 @@ async function findRelevantSkills(query, limit = 2) {
       if (!words.length) return [];
       const { data } = await db.from('ariana_skills')
         .select('*')
+        .eq('status', 'confirmed')
         .or(words.map(w => `trigger_text.ilike.%${w}%`).join(','))
         .limit(limit);
       return data || [];
@@ -145,7 +162,8 @@ async function recordSkillReuse(skillId) {
     const { data } = await db.from('ariana_skills').select('uses,status').eq('id', skillId).single();
     if (!data) return;
     const uses = (data.uses || 1) + 1;
-    const status = uses >= PROMOTE_AFTER_USES ? 'confirmed' : data.status;
+    // Reuse can only propose a skill; the creator decides whether it becomes active.
+    const status = (uses >= PROMOTE_AFTER_USES && data.status === 'candidate') ? 'proposed' : data.status;
     await db.from('ariana_skills').update({ uses, status, last_used_at: new Date().toISOString() }).eq('id', skillId);
   } catch (e) {
     console.warn('[skills] failed to record reuse:', e.message);
@@ -162,19 +180,41 @@ async function pruneUnusedCandidates() {
   const cutoff = new Date(Date.now() - PRUNE_CANDIDATE_AFTER_DAYS * 86400000).toISOString();
   try {
     const { data, error } = await db.from('ariana_skills')
-      .delete()
+      .update({ status: 'retired' })
       .eq('status', 'candidate')
       .eq('uses', 1)
       .lt('created_at', cutoff)
       .select('id');
     if (error) throw error;
-    if (data && data.length) console.log(`[skills] curator pruned ${data.length} unused candidate(s)`);
+    if (data && data.length) console.log(`[skills] curator retired ${data.length} unused candidate(s)`);
   } catch (e) {
     console.warn('[skills] curator pass failed:', e.message);
   }
 }
 
+// Creator review surface.
+async function listSkills({ status = null, limit = 200 } = {}) {
+  const db = client();
+  if (!db) return { ok: false, error: 'Supabase is not configured.', skills: [] };
+  let q = db.from('ariana_skills').select('*').order('last_used_at', { ascending: false }).limit(limit);
+  if (status && STATUSES.includes(status)) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) return { ok: false, error: error.message, skills: [] };
+  return { ok: true, skills: data || [] };
+}
+
+async function setSkillStatus(id, status) {
+  if (!STATUSES.includes(status)) return { ok: false, error: 'Unknown status.' };
+  const db = client();
+  if (!db) return { ok: false, error: 'Supabase is not configured.' };
+  const { data, error } = await db.from('ariana_skills').update({ status }).eq('id', id).select('*');
+  if (error) return { ok: false, error: error.message };
+  if (!data || !data.length) return { ok: false, error: 'Skill not found.' };
+  return { ok: true, skill: data[0] };
+}
+
 module.exports = {
+  listSkills, setSkillStatus, STATUSES, _setClientForTest,
   maybeLearnSkill,
   findRelevantSkills,
   recordSkillReuse,
