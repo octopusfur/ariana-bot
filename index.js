@@ -95,7 +95,13 @@ try {
   if (process.env.SUPABASE_URL && SUPA_KEY) {
     supabase = createClient(process.env.SUPABASE_URL, SUPA_KEY, {
       auth: { persistSession: false },
-      realtime: { transport: ws }
+      realtime: { transport: ws },
+      // A hung database must never freeze her replies: fail fast instead of waiting forever.
+      // File uploads (storage) are exempt because big images legitimately take longer.
+      global: { fetch: (url, opts = {}) => {
+        if (typeof fetch !== 'function' || opts.signal || String(url).includes('/storage/')) return fetch(url, opts);
+        return fetch(url, { ...opts, signal: AbortSignal.timeout(10000) });
+      } }
     });
     console.log("✅ Supabase ready");
   } else {
@@ -1444,7 +1450,7 @@ async function sendWhatsApp(to, message, phoneNumberId) {
 
 async function sendWhatsAppTyping(to, phoneNumberId) {
   if (phoneNumberId === WACALLS_TOKEN) return; // WaCalls has no typing API
-  if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to }); } catch { /* silent */ } return; }
+  if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to }); } catch (e) { console.warn('[wa typing] failed:', e.message); } return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   try {
     await axios.post(

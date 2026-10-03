@@ -143,9 +143,27 @@ const TYPE_MAP = { chat: "text", image: "image", video: "video", ptt: "audio", a
 async function forwardToMainApp(payload) {
   try {
     await axios.post(`${MAIN_APP_URL}/webhook`, payload, { timeout: 30000, headers: API_SECRET ? { "x-wa-secret": API_SECRET } : {} });
+    return true;
   } catch (e) {
     console.error("❌ Forward to main app failed:", e.message);
+    return false;
   }
+}
+
+// Deliver a message to the main app, retrying while it is down or slow. The chat is only marked
+// as read once the main app has actually accepted the message, so she never leaves someone on
+// "read" with nothing coming back because a server hiccuped.
+async function deliverWithRetry(payload, msg) {
+  const waits = [0, 5000, 20000, 60000, 180000];
+  for (const wait of waits) {
+    if (wait) await new Promise(r => setTimeout(r, wait));
+    if (await forwardToMainApp(payload)) {
+      try { const chat = await msg.getChat(); await chat.sendSeen(); } catch {}
+      return true;
+    }
+  }
+  console.error("❌ Gave up delivering message after retries:", payload.message && payload.message.id);
+  return false;
 }
 
 async function onMessage(msg) {
@@ -179,8 +197,7 @@ async function onMessage(msg) {
     }
 
     console.log(`📱 WA [wwebjs] ${name || number}: ${kind === "text" ? JSON.stringify(msg.body) : `[${kind}]`}`);
-    try { const chat = await msg.getChat(); await chat.sendSeen(); } catch {}
-    await forwardToMainApp({ message, _source: "wwebjs" });
+    deliverWithRetry({ message, _source: "wwebjs" }, msg).catch(e => console.error("❌ deliver:", e.message));
   } catch (e) {
     console.error("❌ onMessage:", e.message);
   }
@@ -197,8 +214,13 @@ async function handleApi(pathname, body) {
     return { ok: true };
   }
   if (pathname === "/typing") {
-    const chat = await client.getChatById(jid);
-    await chat.sendStateTyping();
+    try {
+      const chat = await client.getChatById(jid);
+      await chat.sendStateTyping();
+    } catch (e) {
+      console.warn(`⚠️ typing failed for ${jid}: ${e.message}`);
+      throw e;
+    }
     return { ok: true };
   }
   if (pathname === "/send-media") {
