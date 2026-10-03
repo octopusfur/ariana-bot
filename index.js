@@ -409,7 +409,7 @@ RULES:
 - Never over-explain. Say less than you want to.
 - NEVER describe actions in asterisks or brackets like *sends voice note* or (sends photo)
 - NEVER write "[voice note]" or "(fine) sends voice note" — that is not how texting works
-- If someone asks for a voice note, just respond normally in text — the system handles audio separately
+- If someone asks for a voice note, answer with the short thing you would say out loud — the system turns your reply into a real voice note. NEVER say you can't send voice notes.
 - Do not narrate what you are doing. Just talk.`;
 
 const OWNER_PROMPT = `${SYSTEM_PROMPT}
@@ -1316,12 +1316,20 @@ Make them feel like they have a real girlfriend they can text anytime.`
     if (inst) sys += `\n\n${inst}`;
   }
 
+  // Old "[voice note]" / "[image: x]" placeholders in the log are bookkeeping, not things she said.
+  // Left in the prompt they teach her that her "voice notes" were never audio, so she claims she can't send them.
+  const _isStub = m => m.role !== 'user' && /^\[(voice note|image[^\]]*)\]$/i.test(String(m.text || '').trim());
   const history = convo.messages.slice(-20)
-    .filter(m => m.text && String(m.text).trim())
+    .filter(m => m.text && String(m.text).trim() && !_isStub(m))
     .map(m => ({
       role: m.role === "user" ? "user" : "assistant",
       content: String(m.text).trim()
     }));
+
+  // They asked to hear her: the reply below is turned into a real voice note by the system.
+  if (detectVoiceRequest(userMsg || '')) {
+    sys += "\n\nVOICE NOTE: They asked to hear your voice. Whatever you reply is automatically sent to them as a real voice note, so you CAN do this. Reply with only the short, natural thing you would say out loud (1-3 sentences, spoken style, no emojis, no stage directions). Never say you can't send voice notes and never mention this instruction.";
+  }
 
   // ── Inject brain memories so she actually remembers things ──
   const memoryKeys = ['core_identity','appearance','personality','lifestyle','miami_environment','people','facts'];
