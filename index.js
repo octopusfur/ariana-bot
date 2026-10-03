@@ -2906,6 +2906,16 @@ app.get('/api/brain', requireDashboardAuth, (_req, res) => {
 
 // Reviewable durable memory API. Every route is server-authenticated; the
 // browser never receives the Supabase service-role key.
+app.get("/api/memory/analysis", requireDashboardAuth, async (_req, res) => {
+  try { res.json(await memoryManager.analysis()); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/memory/consolidate", requireDashboardAuth, async (_req, res) => {
+  try { res.json(await harmes.runConsolidationIfDue(true)); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post("/api/memory/:id/layer", requireDashboardAuth, async (req, res) => {
+  try { const r = await memoryManager.setLayer(req.params.id, String(req.body?.layer || ''), 'creator'); res.status(r.ok ? 200 : 400).json(r); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get("/api/harmes/status", requireDashboardAuth, (req, res) => { res.json({ ok: true, harmes: harmes.status() }); });
 app.get('/api/memory/overview', requireDashboardAuth, async (_req, res) => {
   try { res.json({ ok: true, overview: await memoryManager.overview() }); }
@@ -2913,7 +2923,7 @@ app.get('/api/memory/overview', requireDashboardAuth, async (_req, res) => {
 });
 app.get('/api/memory/items', requireDashboardAuth, async (req, res) => {
   try {
-    const items = await memoryManager.list({ status: req.query.status || null, search: req.query.search || '', category: req.query.category || null, sort: req.query.sort || 'newest' });
+    const items = await memoryManager.list({ status: req.query.status || null, search: req.query.search || '', category: req.query.category || null, layer: req.query.layer || null, sort: req.query.sort || 'newest' });
     res.json({ ok: true, items, categories: memoryManager.getCategories() });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });

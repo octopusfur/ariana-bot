@@ -12,6 +12,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const B = require('./brain_core');
 
 const REGISTRY_FILE = path.join(__dirname, 'brain', 'memory_registry.json');
 let registryFile = REGISTRY_FILE;
@@ -340,12 +341,25 @@ async function createCandidate({ userId, key, value, content, category, confiden
   const existing = state.items.find(item => item.fingerprint === fingerprint && item.status !== 'archived');
   if (existing) return { ok: true, duplicate: true, item: publicItem(existing) };
   const scan = scanContent(`${cleanContent}\n${cleanValue}`);
+  const owner = String(userId || 'unknown');
+  const peers = state.items.filter(i => i.user_id === owner && (i.status === 'candidate' || i.status === 'approved'));
+  const near = peers.find(i => B.similarity(i.content, cleanContent) >= 0.85);
+  if (near) return { ok: true, duplicate: true, near_duplicate: true, item: publicItem(near) };
+  const keyText = String(key || '').slice(0, 160);
+  const contradicted = keyText ? peers.find(i => i.status === 'approved' && i.memory_key === keyText && normalise(i.value) !== normalise(cleanValue)) : null;
+  const chosenCategory = safeCategory(category || categoryForKey(key));
+  const brain = {
+    layer: B.layerFor(chosenCategory, owner), importance: B.importanceFor(chosenCategory, confidence),
+    access_count: 0, last_confirmed_at: null, dormant: false, pinned: false,
+    contradicts: contradicted ? contradicted.id : null,
+  };
   const item = {
     id: id(), user_id: String(userId || 'unknown'), memory_key: String(key || '').slice(0, 160),
-    content: cleanContent, value: cleanValue, category: safeCategory(category || categoryForKey(key)),
+    content: cleanContent, value: cleanValue, category: chosenCategory,
     confidence: confidence == null || confidence === '' ? null : (Number.isFinite(Number(confidence)) ? Math.max(0, Math.min(1, Number(confidence))) : null),
-    status: 'candidate', source: auditSafe(source), source_type: sourceType === 'manual' ? 'manual' : 'automatic',
-    flagged: scan.flagged, quarantine: scan.flagged, flag_reasons: scan.reasons,
+    status: 'candidate', source: { ...auditSafe(source), brain }, source_type: sourceType === 'manual' ? 'manual' : 'automatic',
+    flagged: scan.flagged || !!contradicted, quarantine: scan.flagged,
+    flag_reasons: contradicted ? [...scan.reasons, `Contradicts an approved memory: "${String(contradicted.content).slice(0, 120)}". Approving will archive the older one.`] : scan.reasons,
     fingerprint, learned_at: now(), created_at: now(), updated_at: now(),
     last_retrieved_at: null,
   };
@@ -390,7 +404,16 @@ async function approve(itemId, patch = {}, actor = 'creator') {
   const scan = scanContent(current.content);
   if (scan.critical) return { ok: false, error: 'This learning is still quarantined: ' + scan.reasons.join(' ') + '.', flagged: true, reasons: scan.reasons };
   if (scan.flagged && !patch.allow_flagged) return { ok: false, error: 'Review the warning before approving this learning.', flagged: true, reasons: scan.reasons };
-  const next = { ...current, status: 'approved', flagged: scan.flagged, quarantine: false, flag_reasons: scan.reasons, updated_at: now() };
+  const contradictedId = current.source && current.source.brain && current.source.brain.contradicts;
+  const older = contradictedId ? findItem(contradictedId) : null;
+  const supersede = older && older.status === 'approved';
+  if (supersede && !patch.allow_flagged) return { ok: false, error: 'This contradicts an approved memory. Confirm to replace the older one.', flagged: true, reasons: current.flag_reasons || [] };
+  const confirmed = { ...(current.source || {}), brain: { ...((current.source || {}).brain || {}), last_confirmed_at: now() } };
+  const next = { ...current, source: confirmed, status: 'approved', flagged: scan.flagged, quarantine: false, flag_reasons: scan.reasons, updated_at: now() };
+  if (supersede) {
+    const archived = { ...older, status: 'archived', updated_at: now() };
+    await persistItem(archived, historyEntry(older.id, 'superseded', older, archived, 'manual', actor));
+  }
   await persistItem(next, historyEntry(itemId, 'approved', current, next, 'manual', actor));
   return { ok: true, item: publicItem(next) };
 }
@@ -428,11 +451,12 @@ async function editApproved(itemId, patch = {}, actor = 'creator') {
   return { ok: true, item: publicItem(next) };
 }
 
-async function list({ status = null, search = '', category = null, sort = 'newest' } = {}) {
+async function list({ status = null, search = '', category = null, layer = null, sort = 'newest' } = {}) {
   await refresh();
   let items = state.items.slice();
   if (status) items = items.filter(item => item.status === status);
   if (category && category !== 'all') items = items.filter(item => item.category === category);
+  if (layer && layer !== 'all') items = items.filter(item => ((item.source || {}).brain || {}).layer === layer);
   const needle = normalise(search);
   if (needle) items = items.filter(item => normalise(`${item.content} ${item.value} ${item.memory_key} ${JSON.stringify(item.source)}`).includes(needle));
   items.sort((a, b) => {
@@ -455,7 +479,14 @@ async function overview() {
   }
   const changes = state.history.slice().sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
   const last = changes.find(entry => ['candidate_created', 'approved', 'edited', 'rejected', 'archived', 'deleted'].includes(entry.event));
-  return { ...counts, last_update: last ? last.created_at : null, last_update_event: last ? last.event : null, backend, categories: CATEGORIES };
+  const by_layer = {};
+  let dormant = 0, contradictions = 0;
+  for (const item of state.items) {
+    const b = (item.source || {}).brain || {};
+    if (item.status === 'approved') { by_layer[b.layer || 'unassigned'] = (by_layer[b.layer || 'unassigned'] || 0) + 1; if (b.dormant) dormant++; }
+    if (item.status === 'candidate' && b.contradicts) contradictions++;
+  }
+  return { ...counts, by_layer, dormant, contradictions, last_update: last ? last.created_at : null, last_update_event: last ? last.event : null, backend, categories: CATEGORIES, layers: B.LAYERS };
 }
 
 async function history({ itemId = null, limit = 100 } = {}) {
@@ -487,7 +518,8 @@ function getApprovedContextSync(userId, { maxChars = 0 } = {}) {
   const scored = eligible.map(item => {
     const ageDays = Math.max(0, (nowMs - new Date(item.updated_at || item.created_at || nowMs).getTime()) / 86400000);
     const used = item.last_retrieved_at ? 0.5 : 0;
-    return { item, score: (weight[item.category] || 1) + 2 / (1 + ageDays / 30) + used + (Number(item.confidence) || 0) * 0.5 };
+    const b = (item.source || {}).brain || {};
+    return { item, score: (weight[item.category] || 1) + 2 / (1 + ageDays / 30) + used + (Number(item.confidence) || 0) * 0.5 + (b.importance || 0) + (b.pinned || b.layer === 'core' ? 5 : 0) - (b.dormant ? 4 : 0) };
   }).sort((a, b) => b.score - a.score);
   const lines = [];
   let used = 0;
@@ -504,7 +536,10 @@ function markRetrieved(userId) {
   // item and does not write the content into a second memory file.
   if (!loaded) return;
   const stamp = now();
-  for (const item of state.items) if (item.status === 'approved' && (item.user_id === userId || item.user_id === 'global')) item.last_retrieved_at = stamp;
+  for (const item of state.items) if (item.status === 'approved' && (item.user_id === userId || item.user_id === 'global')) {
+    item.last_retrieved_at = stamp;
+    item.source = { ...(item.source || {}), brain: { ...((item.source || {}).brain || {}), access_count: (((item.source || {}).brain || {}).access_count || 0) + 1 } };
+  }
 }
 
 async function migrateLegacyLearned(legacy) {
@@ -525,6 +560,60 @@ async function migrateLegacyLearned(legacy) {
   }
 }
 
+
+function brainOf(item) { return (item.source && item.source.brain) || {}; }
+
+async function patchBrain(item, patch, event, actor) {
+  const next = { ...item, source: { ...(item.source || {}), brain: { ...brainOf(item), ...patch } }, updated_at: now() };
+  await persistItem(next, historyEntry(item.id, event, item, next, 'consolidation', actor));
+  return next;
+}
+
+// Creator action: move an approved item to another layer (e.g. pin as core). Core items never go dormant.
+async function setLayer(itemId, layer, actor = 'creator') {
+  await ensureLoaded();
+  const item = findItem(itemId);
+  if (!item) return { ok: false, error: 'Learning not found.' };
+  if (!B.LAYERS.includes(layer)) return { ok: false, error: 'Unknown layer.' };
+  const next = await patchBrain(item, { layer, pinned: layer === 'core', dormant: false }, 'layer_changed', actor);
+  return { ok: true, item: publicItem(next) };
+}
+
+// Restart-safe, idempotent maintenance pass. It only changes prominence (dormant flag);
+// it never deletes, archives or rewrites content, and core/pinned/important items are exempt.
+async function consolidate({ nowMs = Date.now(), actor = 'consolidation' } = {}) {
+  await ensureLoaded();
+  const report = { checked: 0, made_dormant: 0, revived: 0, skipped_protected: 0 };
+  for (const item of state.items.slice()) {
+    if (item.status !== 'approved' || item.quarantine) continue;
+    report.checked++;
+    const b = brainOf(item);
+    const importance = b.importance != null ? b.importance : B.importanceFor(item.category, item.confidence);
+    const touched = Math.max(...[item.last_retrieved_at, b.last_confirmed_at, item.updated_at, item.created_at].map(v => (v ? Date.parse(v) : 0)));
+    const retentionValue = B.retention({ importance, accessCount: b.access_count || 0, lastTouchedMs: touched || nowMs, nowMs });
+    const layer = b.layer || B.layerFor(item.category, item.user_id);
+    const goDormant = B.shouldGoDormant({ layer, importance, pinned: !!b.pinned, retentionValue });
+    if (!goDormant && (importance >= B.PROTECTED_IMPORTANCE || layer === 'core' || b.pinned)) report.skipped_protected++;
+    if (goDormant && !b.dormant) { await patchBrain(item, { layer, importance, dormant: true }, 'dormant', actor); report.made_dormant++; }
+    else if (!goDormant && b.dormant) { await patchBrain(item, { layer, importance, dormant: false }, 'revived', actor); report.revived++; }
+    else if (b.layer == null || b.importance == null) { await patchBrain(item, { layer, importance }, 'brain_metadata', actor); }
+  }
+  return { ok: true, ...report };
+}
+
+// Read-only health report: near-duplicates, stale items and unresolved contradictions.
+async function analysis() {
+  await ensureLoaded();
+  const live = state.items.filter(i => i.status === 'approved' && !i.quarantine);
+  const duplicates = [];
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    if (live[i].user_id === live[j].user_id && B.similarity(live[i].content, live[j].content) >= 0.7) duplicates.push([live[i].id, live[j].id]);
+  }
+  const stale = live.filter(i => brainOf(i).dormant).map(i => i.id);
+  const contradictions = state.items.filter(i => i.status === 'candidate' && brainOf(i).contradicts).map(i => ({ candidate: i.id, contradicts: brainOf(i).contradicts }));
+  return { ok: true, duplicates, stale, contradictions };
+}
+
 function getBackend() { return backend; }
 function getCategories() { return CATEGORIES.slice(); }
 
@@ -532,5 +621,5 @@ module.exports = {
   configure, refresh, getBackend, getCategories, overview, list, history, restoreHistory,
   createCandidate, createCandidatesFromObject, updateCandidate, approve, setStatus, remove,
   editApproved, getApprovedContextSync, markRetrieved, migrateLegacyLearned,
-  scanContent, redactSecrets, syncPending, reconnect, getStatus,
+  scanContent, redactSecrets, syncPending, reconnect, getStatus, setLayer, consolidate, analysis,
 };

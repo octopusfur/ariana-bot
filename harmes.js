@@ -18,12 +18,16 @@
  */
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const memory = require('./memory_manager');
 
 const NUDGE_EVERY = Math.max(1, parseInt(process.env.HARMES_NUDGE_EVERY || '4', 10) || 4);
 const MEMORY_BUDGET = Math.max(500, parseInt(process.env.HARMES_MEMORY_BUDGET || '3000', 10) || 3000);
 const RECONNECT_MS = Math.max(10000, parseInt(process.env.HARMES_RECONNECT_MS || '60000', 10) || 60000);
 const MAX_TRACKED = 5000;
+const CONSOLIDATE_EVERY_MS = 24 * 3600 * 1000;
+const JOBS_FILE = path.join(__dirname, 'brain', 'harmes_jobs.json');
 
 const turns = new Map();
 let timer = null;
@@ -69,6 +73,20 @@ function getContext(userId, maxChars = MEMORY_BUDGET) {
   return memory.getApprovedContextSync(userId, { maxChars });
 }
 
+// Restart-safe daily maintenance: the last run time is kept on disk, and the pass is
+// idempotent, so a restart can at worst repeat it.
+async function runConsolidationIfDue(force = false) {
+  let last = 0;
+  try { last = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8')).last_consolidation || 0; } catch (_) { /* first run */ }
+  if (!force && Date.now() - last < CONSOLIDATE_EVERY_MS) return null;
+  const report = await memory.consolidate();
+  try {
+    fs.mkdirSync(path.dirname(JOBS_FILE), { recursive: true });
+    fs.writeFileSync(JOBS_FILE, JSON.stringify({ last_consolidation: Date.now(), last_report: report }));
+  } catch (_) { /* best effort */ }
+  return report;
+}
+
 function start() {
   if (timer) return timer;
   timer = setInterval(() => {
@@ -77,6 +95,7 @@ function start() {
         console.warn(`[harmes] Supabase still unavailable (${result.pending ?? 0} write(s) queued): ${result.reason}`);
       }
     }).catch(error => console.warn('[harmes] reconnect failed:', error.message));
+    runConsolidationIfDue().catch(error => console.warn('[harmes] consolidation failed:', error.message));
   }, RECONNECT_MS);
   if (timer.unref) timer.unref();
   return timer;
@@ -88,4 +107,4 @@ function status() {
   return { ...memory.getStatus(), nudge_every: NUDGE_EVERY, memory_budget: MEMORY_BUDGET, reconnect_ms: RECONNECT_MS };
 }
 
-module.exports = { shouldNudge, classifyFeedback, captureFeedback, getContext, start, stop, status, MEMORY_BUDGET };
+module.exports = { runConsolidationIfDue, shouldNudge, classifyFeedback, captureFeedback, getContext, start, stop, status, MEMORY_BUDGET };
