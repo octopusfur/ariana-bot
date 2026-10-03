@@ -260,6 +260,7 @@ try {
 // everything else carries on exactly as before.
 const social = require('./social');
 const memoryManager = require('./memory_manager');
+const harmes = require('./harmes');
 
 let mediaLib = { ariana_photos: [], triggers: {
   selfie: [
@@ -2079,11 +2080,13 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     // ── SELF-LEARNING: extract facts from every social conversation ──
     // Runs in background — never blocks the reply or the sender
     setImmediate(async () => {
+      // HARMES reflexion: explicit feedback becomes a reviewable lesson (never auto-active)
+      if (finalText && !finalText.startsWith('[')) harmes.captureFeedback({ userId: id, text: finalText, platform }).catch(() => {});
       if (!getGeminiKey()) return;
       // Only learn from real user messages — skip media stubs, voice notes, and very short texts
       if (!finalText || finalText.startsWith('[') || finalText.trim().length < 8) return;
-      // Only learn occasionally (30% of messages) to avoid API overuse
-      if (Math.random() > 0.30) return;
+      // HARMES nudge: learn on a fixed cadence per contact instead of a random 30%
+      if (!harmes.shouldNudge(id)) return;
       try {
         const learnPrompt = `Memory extraction system for AI persona Ariana.
 Extract ONLY new durable facts worth remembering long-term about this person.
@@ -2903,6 +2906,7 @@ app.get('/api/brain', requireDashboardAuth, (_req, res) => {
 
 // Reviewable durable memory API. Every route is server-authenticated; the
 // browser never receives the Supabase service-role key.
+app.get("/api/harmes/status", requireDashboardAuth, (req, res) => { res.json({ ok: true, harmes: harmes.status() }); });
 app.get('/api/memory/overview', requireDashboardAuth, async (_req, res) => {
   try { res.json({ ok: true, overview: await memoryManager.overview() }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -3615,7 +3619,7 @@ app.post("/api/talk", requireDashboardAuth, async (req, res) => {
     // Use the EXACT same base prompt as social messaging so she's identical everywhere.
     // Then layer in: mood, camera feed, learned memories, and live-talk–specific additions.
     const bc = brainCache || {};
-    const learnedMem   = memoryManager.getApprovedContextSync('owner_live_talk') || null;
+    const learnedMem   = harmes.getContext('owner_live_talk') || null;
     const miamiMem     = bc.miami_environment  ? JSON.stringify(bc.miami_environment)  : null;
     const lifestyleMem = bc.lifestyle          ? JSON.stringify(bc.lifestyle)          : null;
     const moodLine   = extrasMood ? `\n\nYour current mood: ${extrasMood}. Let this subtly colour your energy.` : "";
@@ -4722,6 +4726,7 @@ server.listen(PORT, async () => {
   await loadConversations();
   await loadBrain();
   await memoryManager.configure({ client: supabase, cache: brainCache });
+  harmes.start();
   await memoryManager.migrateLegacyLearned(brainCache.learned_memories).catch(e => console.warn('[memory] legacy migration skipped:', e.message));
   if (engineV2?.memEngine?.configureReviewStore) engineV2.memEngine.configureReviewStore(memoryManager);
   await loadPushSubs();

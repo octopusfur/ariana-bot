@@ -25,6 +25,9 @@ let loaded = false;
 let backend = 'local';
 let brainCache = null;
 let writeChain = Promise.resolve();
+let pending = [];
+let degraded = false;
+let lastSyncError = null;
 
 function now() { return new Date().toISOString(); }
 function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
@@ -182,7 +185,7 @@ async function configure({ client = null, cache = null, file = registryFile } = 
   loaded = false;
   if (supabase) {
     try {
-      if (await loadSupabase()) return backend;
+      if (await loadSupabase()) { await loadOutbox(); await syncPending(); return backend; }
       console.warn('[memory] Supabase memory tables are not available; using private local registry until schema.sql is applied.');
     } catch (error) {
       console.warn('[memory] Supabase load failed; using private local registry:', error.message);
@@ -201,19 +204,108 @@ async function refresh() {
   return ensureLoaded();
 }
 
+function outboxPath() { return `${registryFile}.outbox.json`; }
+
+function isOutage(error) {
+  if (!error || tableMissing(error)) return false;
+  const text = `${error.message || ''} ${error.details || ''} ${error.code || ''}`;
+  const status = Number(error.status || error.statusCode || 0);
+  if (status >= 500) return true;
+  if (/^(23|42)\d{3}$/.test(String(error.code || ''))) return false; // constraint / syntax: not an outage
+  return /fetch failed|network|timeout|timed out|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket|bad gateway|service unavailable|gateway|\b5\d\d\b|paused/i.test(text);
+}
+
+async function writeOutbox() {
+  await (writeChain = writeChain.then(async () => {
+    await fsp.mkdir(path.dirname(outboxPath()), { recursive: true });
+    const tmp = `${outboxPath()}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify({ schema_version: 1, pending }, null, 2), { mode: 0o600 });
+    await fsp.rename(tmp, outboxPath());
+  }));
+}
+
+async function loadOutbox() {
+  try {
+    const parsed = JSON.parse(await fsp.readFile(outboxPath(), 'utf8'));
+    if (Array.isArray(parsed.pending)) pending = parsed.pending;
+  } catch (_) { /* no outbox yet */ }
+}
+
+async function pushRemote(op) {
+  let res;
+  if (op.type === 'delete') res = await supabase.from(op.table).delete().eq('id', op.id);
+  else res = await supabase.from(op.table).upsert(op.row, { onConflict: 'id' });
+  if (res && res.error) throw res.error;
+}
+
+// Replays queued writes in order. Stops at the first failure and keeps the rest.
+async function syncPending() {
+  if (!supabase) return { ok: false, pending: pending.length, reason: 'no client' };
+  if (backend !== 'supabase') return { ok: false, pending: pending.length, reason: 'not connected' };
+  if (!pending.length) return { ok: true, pending: 0 };
+  try {
+    while (pending.length) { await pushRemote(pending[0]); pending.shift(); }
+    degraded = false; lastSyncError = null;
+    await writeOutbox();
+    await loadSupabase(); // refresh the cache from the authoritative store
+    return { ok: true, pending: 0 };
+  } catch (error) {
+    lastSyncError = error.message || String(error);
+    await writeOutbox();
+    return { ok: false, pending: pending.length, reason: lastSyncError };
+  }
+}
+
+// Called periodically. If Supabase was unreachable at start-up the manager runs on the
+// local registry; once Supabase answers, local-only items are queued up and the
+// authoritative store takes over again.
+async function reconnect() {
+  if (!supabase) return { ok: false, backend, reason: 'no client' };
+  if (backend === 'supabase') return syncPending();
+  const local = JSON.parse(JSON.stringify(state));
+  try {
+    if (!(await loadSupabase())) return { ok: false, backend, reason: 'tables missing' };
+  } catch (error) {
+    state = local; backend = 'local'; loaded = true; lastSyncError = error.message || String(error);
+    return { ok: false, backend, reason: lastSyncError };
+  }
+  const remoteIds = new Set(state.items.map(i => i.id));
+  const remotePrints = new Set(state.items.map(i => i.fingerprint));
+  const remoteHistory = new Set(state.history.map(h => h.id));
+  for (const item of local.items || []) {
+    if (remoteIds.has(item.id) || remotePrints.has(item.fingerprint)) continue;
+    state.items.push(item);
+    pending.push({ table: 'ariana_memory_items', type: 'upsert', row: { ...item, source: item.source || {}, flag_reasons: item.flag_reasons || [] } });
+  }
+  for (const entry of local.history || []) {
+    if (remoteHistory.has(entry.id)) continue;
+    state.history.push(entry);
+    pending.push({ table: 'ariana_memory_history', type: 'upsert', row: entry });
+  }
+  await writeOutbox();
+  return syncPending();
+}
+
+function getStatus() {
+  return { backend, degraded, pending: pending.length, items: state.items.length, last_error: lastSyncError, has_client: !!supabase };
+}
+
 async function persistItem(item, historyEntry, { remove = false } = {}) {
   if (backend === 'supabase' && supabase) {
-    if (remove) {
-      const { error } = await supabase.from('ariana_memory_items').delete().eq('id', item.id);
-      if (error) throw error;
-    } else {
-      const row = { ...item, source: item.source || {}, flag_reasons: item.flag_reasons || [] };
-      const { error } = await supabase.from('ariana_memory_items').upsert(row, { onConflict: 'id' });
-      if (error) throw error;
-    }
-    if (historyEntry) {
-      const { error } = await supabase.from('ariana_memory_history').insert(historyEntry);
-      if (error) throw error;
+    const ops = [];
+    if (remove) ops.push({ table: 'ariana_memory_items', type: 'delete', id: item.id });
+    else ops.push({ table: 'ariana_memory_items', type: 'upsert', row: { ...item, source: item.source || {}, flag_reasons: item.flag_reasons || [] } });
+    if (historyEntry) ops.push({ table: 'ariana_memory_history', type: 'upsert', row: historyEntry });
+    try {
+      // Preserve ordering: if earlier writes are still queued, queue behind them.
+      if (pending.length) throw Object.assign(new Error('queued behind pending writes'), { queued: true });
+      for (const op of ops) await pushRemote(op);
+    } catch (error) {
+      if (!error.queued && !isOutage(error)) throw error;
+      degraded = true; lastSyncError = error.queued ? lastSyncError : (error.message || String(error));
+      pending.push(...ops);
+      await writeOutbox();
+      console.warn(`[memory] Supabase unreachable; ${pending.length} write(s) queued locally.`);
     }
   }
 
@@ -225,7 +317,7 @@ async function persistItem(item, historyEntry, { remove = false } = {}) {
     if (index === -1) state.items.push(item); else state.items[index] = item;
   }
   if (historyEntry) state.history.push(historyEntry);
-  if (backend !== 'supabase' || !supabase) await writeLocal();
+  if (backend !== 'supabase' || !supabase || pending.length) await writeLocal();
 }
 
 function historyEntry(itemId, event, previous, next, source = 'manual', actor = 'creator') {
@@ -383,13 +475,28 @@ async function restoreHistory(historyId, actor = 'creator') {
   return { ok: true, item: publicItem(restored) };
 }
 
-function getApprovedContextSync(userId) {
+function getApprovedContextSync(userId, { maxChars = 0 } = {}) {
   if (!loaded) return '';
   const wanted = String(userId || '');
-  return state.items.filter(item => item.status === 'approved' && !item.quarantine && (!item.user_id || item.user_id === wanted || item.user_id === 'global' || item.user_id === 'owner_live_talk'))
-    .slice(-50)
-    .map(item => item.content)
-    .join('\n');
+  const eligible = state.items.filter(item => item.status === 'approved' && !item.quarantine && (!item.user_id || item.user_id === wanted || item.user_id === 'global' || item.user_id === 'owner_live_talk'));
+  if (!maxChars) return eligible.slice(-50).map(item => item.content).join('\n');
+  // Bounded memory: rank by category weight, recency and recent use, then fill the budget.
+  // Nothing is deleted; items that do not fit are simply left out of this prompt.
+  const weight = { relationship: 3, preference: 3, fact: 2.5, behavioral_lesson: 2.5, skill: 2, experience: 1.5, other: 1 };
+  const nowMs = Date.now();
+  const scored = eligible.map(item => {
+    const ageDays = Math.max(0, (nowMs - new Date(item.updated_at || item.created_at || nowMs).getTime()) / 86400000);
+    const used = item.last_retrieved_at ? 0.5 : 0;
+    return { item, score: (weight[item.category] || 1) + 2 / (1 + ageDays / 30) + used + (Number(item.confidence) || 0) * 0.5 };
+  }).sort((a, b) => b.score - a.score);
+  const lines = [];
+  let used = 0;
+  for (const { item } of scored) {
+    const line = String(item.content || '');
+    if (!line || used + line.length + 1 > maxChars) continue;
+    lines.push(line); used += line.length + 1;
+  }
+  return lines.join('\n');
 }
 
 function markRetrieved(userId) {
@@ -425,5 +532,5 @@ module.exports = {
   configure, refresh, getBackend, getCategories, overview, list, history, restoreHistory,
   createCandidate, createCandidatesFromObject, updateCandidate, approve, setStatus, remove,
   editApproved, getApprovedContextSync, markRetrieved, migrateLegacyLearned,
-  scanContent, redactSecrets,
+  scanContent, redactSecrets, syncPending, reconnect, getStatus,
 };
