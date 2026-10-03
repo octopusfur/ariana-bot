@@ -72,6 +72,7 @@ function attach(app, { requireAuth } = {}) {
       engine: {
         configured: engine.configured(),
         url: engine.baseUrl(),
+        provider: engine.provider(),
         reachable: !!health.ok,
         error: health.ok ? null : health.error,
         health: health.ok ? health.health : null,
@@ -159,6 +160,54 @@ function attach(app, { requireAuth } = {}) {
     if (!account) return fail(res, 404, 'That account is not in the list.');
     if (!engine.configured()) {
       return fail(res, 503, 'Social engine not connected — ' + engine.configHint(), { setup: setupInstructions() });
+    }
+
+    // Browser Use: the creator signs in themselves on a live browser (no passwords through Ariana).
+    // First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
+    if (engine.provider() === 'browser-use') {
+      const bu = engine.bu;
+      if (bu.hasPendingLogin(account)) {
+        const fin = await bu.finishLogin(account);
+        if (!fin.ok) return fail(res, 502, fin.error);
+      } else {
+        const st = await bu.sessionStatus(account);
+        if (!st.ok) {
+          const updated = await accounts.setStatus(account.account_id, accounts.STATUS.UNKNOWN, st.error);
+          return fail(res, 502, st.error, { account: updated });
+        }
+        if (st.session.exists) {
+          const check = await bu.verify(account);
+          if (check.ok && check.session.connected) {
+            const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ONLINE, check.session.detail);
+            return ok(res, { account: updated, connected: true });
+          }
+        }
+        const login = await bu.startLogin(account);
+        if (!login.ok) {
+          const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, login.error);
+          return fail(res, 502, login.error, { account: updated });
+        }
+        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, 'Waiting for you to sign in on the live browser, then tap Connect again.');
+        return ok(res, {
+          account: updated, connected: false, login_url: login.live_url,
+          instructions: [
+            'A live browser just opened. Sign in to ' + account.platform + ' as @' + account.handle + ' yourself.',
+            login.navigated ? 'It is already on the login page.' : 'Go to ' + login.login_page + ' in that browser.',
+            'When you are signed in and can see your feed, come back here and tap Connect again.',
+          ],
+        });
+      }
+      const v = await bu.verify(account);
+      if (!v.ok) {
+        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.error);
+        return fail(res, 502, v.error, { account: updated });
+      }
+      if (v.session.connected) {
+        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ONLINE, v.session.detail);
+        return ok(res, { account: updated, connected: true });
+      }
+      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.session.detail);
+      return ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.session.detail });
     }
 
     // Cheap check first: is there a session at all? Only run the browser if so —

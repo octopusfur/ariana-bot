@@ -288,17 +288,18 @@ async function handleApi(pathname, body) {
     return { ok: true };
   }
   if (pathname === "/send-media") {
-    if (!body.url) throw new Error("missing 'url'");
+    if (!body.url && !body.base64) throw new Error("missing 'url' or 'base64'");
     let media = null;
     if (body.voice) {
       try {
-        const r = await axios.get(body.url, { responseType: "arraybuffer", timeout: 30000 });
+        const r = body.base64 ? { data: Buffer.from(body.base64, "base64") } : await axios.get(body.url, { responseType: "arraybuffer", timeout: 30000 });
         const ogg = await toOggOpus(Buffer.from(r.data));
         media = new MessageMedia("audio/ogg; codecs=opus", ogg.toString("base64"), "voice.ogg");
       } catch (e) {
         console.warn(`⚠️ voice conversion failed (${e.message}) — sending the original file`);
       }
     }
+    if (!media && body.base64) media = new MessageMedia("audio/mpeg", body.base64, "voice.mp3");
     if (!media) media = await MessageMedia.fromUrl(body.url, { unsafeMime: true });
     stopTyping(jid, false);
     try {
@@ -373,7 +374,7 @@ async function ui(pathname, params) {
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
-    req.on("data", (c) => { raw += c; if (raw.length > 1e6) { reject(new Error("body too large")); req.destroy(); } });
+    req.on("data", (c) => { raw += c; if (raw.length > 8e6) { reject(new Error("body too large")); req.destroy(); } });
     req.on("end", () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error("invalid JSON")); } });
     req.on("error", reject);
   });

@@ -1431,7 +1431,9 @@ async function socConnect(id){
   toast('Checking the session on the engine…');
   const r=await socPost('/api/social/accounts/'+encodeURIComponent(id)+'/connect');
   if(!r.ok){soc.details[id]=true;toast((r.error||'Connect failed').slice(0,140));}
+  else if(r.login_url){window.open(r.login_url,'_blank');toast('Sign in on the browser that just opened, then tap Connect again',6000);}
   else if(r.needs_provisioning)toast('No session yet — see Social → setup steps');
+  else if(r.connected===false)toast((r.error||'Not signed in yet. Tap Connect and sign in.').slice(0,140),5000);
   else toast('Connected');
   loadSocial();
 }

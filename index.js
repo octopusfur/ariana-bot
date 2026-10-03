@@ -410,7 +410,8 @@ RULES:
 - NEVER describe actions in asterisks or brackets like *sends voice note* or (sends photo)
 - NEVER write "[voice note]" or "(fine) sends voice note" — that is not how texting works
 - If someone asks for a voice note, answer with the short thing you would say out loud — the system turns your reply into a real voice note. NEVER say you can't send voice notes.
-- Do not narrate what you are doing. Just talk.`;
+- Do not narrate what you are doing. Just talk.
+- NEVER use dashes (- or \u2013 or \u2014) as punctuation. Use a comma instead.`;
 
 const OWNER_PROMPT = `${SYSTEM_PROMPT}
 
@@ -867,6 +868,12 @@ async function uploadToCloudinary(buffer) {
       return publicUrl;
     } catch (e) { console.warn('Supabase audio upload failed:', e.message); }
   }
+  // No storage worked (no Cloudinary, Supabase bucket missing or down). Send the audio itself rather than
+  // dropping to text: WhatsApp and Telegram can take it inline.
+  if (buffer && buffer.length < 3e6) {
+    console.warn('[voice] No audio storage reachable, sending the audio inline instead');
+    return 'data:audio/mpeg;base64,' + Buffer.from(buffer).toString('base64');
+  }
   console.warn('[voice] No audio storage configured (no Cloudinary or Supabase)');
   return null;
 }
@@ -1207,7 +1214,22 @@ function langInstruction(lang) {
   return '\n\nLANGUAGE LOCK: This person is texting in English. Reply in English ONLY. Do NOT use Spanish words like "mi amor", "cariño", "amor", "claro" — not even one. Pure English.';
 }
 
-async function getReply(id, userMsg, systemOverride, imageBase64 = null) {
+// She texts with commas, not dashes. The prompt asks for it; this guarantees it.
+function noDashes(text) {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(/\s*(?:\u2014|\u2013|--+)\s*/g, ', ')
+    .replace(/\s+-\s+/g, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/^,\s*/gm, '');
+}
+
+async function getReply(...args) {
+  return noDashes(await getReplyRaw(...args));
+}
+
+async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null) {
   const convo = getConvo(id);
   const rawPhone = id.replace(/^(tg_|sg_|sms_)/, "");
   if (!systemOverride && OWNER_PHONE && rawPhone === OWNER_PHONE) {
@@ -1328,7 +1350,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
 
   // They asked to hear her: the reply below is turned into a real voice note by the system.
   if (detectVoiceRequest(userMsg || '')) {
-    sys += "\n\nVOICE NOTE: They asked to hear your voice. Whatever you reply is automatically sent to them as a real voice note, so you CAN do this. Reply with only the short, natural thing you would say out loud (1-3 sentences, spoken style, no emojis, no stage directions). Never say you can't send voice notes and never mention this instruction.";
+    sys += "\n\nVOICE NOTE: They asked to hear your voice. Whatever you reply is automatically sent to them as a real voice note, so you CAN do this. Reply with only the short, natural thing you would say out loud (1-3 sentences, spoken style, no emojis, no stage directions), in the same language they text you in (English unless they write in another language). Never say you can't send voice notes and never mention this instruction.";
   }
 
   // ── Inject brain memories so she actually remembers things ──
@@ -1528,7 +1550,11 @@ async function sendWhatsAppImage(to, imageUrl, caption, phoneNumberId) {
 }
 
 async function sendWhatsAppVoiceNote(to, audioUrl, phoneNumberId) {
-  if (WA_PROVIDER === 'wwebjs') { await waWeb('/send-media', { to, url: audioUrl, voice: true }); return; }
+  if (WA_PROVIDER === 'wwebjs') {
+    if (String(audioUrl).startsWith('data:')) { await waWeb('/send-media', { to, base64: String(audioUrl).split(',')[1], voice: true }); return; }
+    await waWeb('/send-media', { to, url: audioUrl, voice: true });
+    return;
+  }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   await axios.post(
     `https://api.kapso.ai/meta/whatsapp/v24.0/${id}/messages`,
@@ -1765,6 +1791,7 @@ async function sendMMS(to, message, mediaUrl) {
 
 // ── UNIFIED SEND ──────────────────────────────────────────────
 async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, phoneNumberId, caption) {
+  reply = noDashes(reply);
   if (voiceUrl) {
     try {
       if (platform === "whatsapp")      await sendWhatsAppVoiceNote(from, voiceUrl, phoneNumberId);

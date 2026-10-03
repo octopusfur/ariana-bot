@@ -17,6 +17,8 @@
 
 'use strict';
 
+const bu = require('./browseruse_engine');
+
 const DEFAULT_TIMEOUT_MS = 120000; // browser actions are slow on purpose (human delays)
 
 function baseUrl() {
@@ -29,12 +31,17 @@ function apiKey() {
   return (process.env.SOCIAL_ENGINE_API_KEY || '').trim() || null;
 }
 
+// An external engine (SOCIAL_ENGINE_URL) wins. Otherwise BROWSER_USE_API_KEY alone is enough:
+// Browser Use Cloud then acts as the engine.
+function useBU() { return !baseUrl() && bu.configured(); }
+function provider() { return baseUrl() ? 'socialcrabs' : (bu.configured() ? 'browser-use' : null); }
+
 function configured() {
-  return !!baseUrl();
+  return !!baseUrl() || bu.configured();
 }
 
 function configHint() {
-  return 'Set SOCIAL_ENGINE_URL (and SOCIAL_ENGINE_API_KEY) to the address of your deployed social engine.';
+  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine.';
 }
 
 async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
@@ -91,12 +98,14 @@ async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS }
 // ── STATUS ──────────────────────────────────────────────────────────────────
 
 async function health({ timeoutMs = 10000 } = {}) {
+  if (useBU()) return bu.health();
   const r = await request('GET', '/health', undefined, { timeoutMs });
   if (!r.ok) return r;
   return { ok: true, health: r.data };
 }
 
 async function capabilities() {
+  if (useBU()) return bu.capabilities();
   const r = await request('GET', '/api/capabilities', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
   return { ok: true, capabilities: r.data };
@@ -104,6 +113,7 @@ async function capabilities() {
 
 // Engine-side view of every session it holds. Used to reconcile statuses.
 async function sessions() {
+  if (useBU()) return bu.sessions();
   const r = await request('GET', '/api/sessions', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
   return { ok: true, sessions: r.data.sessions || [] };
@@ -112,6 +122,7 @@ async function sessions() {
 // ── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
 async function sessionStatus(account) {
+  if (useBU()) return bu.sessionStatus(account);
   const r = await request('GET', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 20000 });
   if (!r.ok) return r;
   return { ok: true, session: r.data };
@@ -120,6 +131,7 @@ async function sessionStatus(account) {
 // Opens the platform in a browser and asks "am I logged in?" — the difference
 // between "a session file exists" and "the session works".
 async function verify(account) {
+  if (useBU()) return bu.verify(account);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/verify`, {
     platform: account.platform,
     handle: account.handle,
@@ -132,6 +144,7 @@ async function verify(account) {
 // ops scripts — never by the dashboard. The dashboard has no route that accepts
 // credentials or cookies; this is called from the operator's own machine.
 async function importSession(account, session) {
+  if (useBU()) return bu.importSession(account, session);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/import`, {
     platform: account.platform,
     handle: account.handle,
@@ -142,6 +155,7 @@ async function importSession(account, session) {
 }
 
 async function disconnect(account) {
+  if (useBU()) return bu.disconnect(account);
   const r = await request('DELETE', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 60000 });
   if (!r.ok) return r;
   return { ok: true, result: r.data };
@@ -152,6 +166,7 @@ async function disconnect(account) {
 // payload is the action's platform payload: { url } | { url, text } |
 // { username } | { username, message } | { text } | { query } | { profileUrl, note }
 async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
+  if (useBU()) return bu.act(account, action, payload);
   const r = await request('POST', `/api/accounts/${encodeURIComponent(account.account_id)}/actions/${encodeURIComponent(action)}`, {
     platform: account.platform,
     handle: account.handle,
@@ -172,6 +187,8 @@ async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
 }
 
 module.exports = {
+  provider,
+  bu,
   configured,
   configHint,
   baseUrl,
