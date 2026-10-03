@@ -137,6 +137,66 @@ function requireClient() {
   if (!client) throw new Error("Browser is still starting — try again in a few seconds");
 }
 
+// ── PRESENCE + TYPING ─────────────────────────────────────────
+// WhatsApp only shows "typing…" and "last seen" for a linked device that actually reports presence.
+// She goes online when something happens (message in/out), then offline after a short idle, which
+// is what gives contacts a real "last seen" time.
+const typingLoops = new Map(); // chat id -> interval
+let presenceTimer = null;
+let lastOnlineSent = 0;
+let startFailures = 0;
+
+async function goOnline() {
+  if (!client || !isReady) return;
+  if (Date.now() - lastOnlineSent > 20000) {
+    try { await client.sendPresenceAvailable(); lastOnlineSent = Date.now(); }
+    catch (e) { console.warn("⚠️ presence available failed:", e.message); }
+  }
+  clearTimeout(presenceTimer);
+  presenceTimer = setTimeout(goOffline, 60000 + Math.floor(Math.random() * 60000));
+}
+async function goOffline() {
+  if (!client || !isReady) return;
+  if (typingLoops.size) { presenceTimer = setTimeout(goOffline, 15000); return; }
+  try { await client.sendPresenceUnavailable(); lastOnlineSent = 0; }
+  catch (e) { console.warn("⚠️ presence unavailable failed:", e.message); }
+}
+async function pulseTyping(jid) {
+  const chat = await client.getChatById(jid);
+  await chat.sendStateTyping();
+}
+function stopTyping(jid, clear = true) {
+  const t = typingLoops.get(jid);
+  if (t) { clearInterval(t); typingLoops.delete(jid); }
+  if (clear && t && client && isReady) client.getChatById(jid).then(c => c.clearState()).catch(() => {});
+}
+function startTyping(jid, maxMs = 90000) {
+  stopTyping(jid, false);
+  const began = Date.now();
+  const t = setInterval(async () => {
+    if (!isReady || Date.now() - began > maxMs) return stopTyping(jid);
+    try { await pulseTyping(jid); } catch (e) { console.warn(`⚠️ typing refresh failed for ${jid}: ${e.message}`); }
+  }, 8000);
+  typingLoops.set(jid, t);
+}
+
+// WhatsApp voice notes must be OGG/Opus. The TTS gives us MP3, so convert before sending.
+function toOggOpus(buf) {
+  return new Promise((resolve, reject) => {
+    const base = path.join(require("os").tmpdir(), `vn_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    fs.writeFileSync(`${base}.in`, buf);
+    require("child_process").execFile("ffmpeg",
+      ["-y", "-loglevel", "error", "-i", `${base}.in`, "-vn", "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1", "-application", "voip", "-f", "ogg", `${base}.ogg`],
+      { timeout: 30000 },
+      (err) => {
+        let out = null, failure = err;
+        if (!err) { try { out = fs.readFileSync(`${base}.ogg`); } catch (e) { failure = e; } }
+        fs.rm(`${base}.in`, () => {}); fs.rm(`${base}.ogg`, () => {});
+        failure ? reject(failure) : resolve(out);
+      });
+  });
+}
+
 // ── INBOUND ───────────────────────────────────────────────────
 const TYPE_MAP = { chat: "text", image: "image", video: "video", ptt: "audio", audio: "audio", document: "document", sticker: "sticker" };
 
@@ -196,6 +256,7 @@ async function onMessage(msg) {
       message[kind] = { caption: msg.body };
     }
 
+    goOnline();
     console.log(`📱 WA [wwebjs] ${name || number}: ${kind === "text" ? JSON.stringify(msg.body) : `[${kind}]`}`);
     deliverWithRetry({ message, _source: "wwebjs" }, msg).catch(e => console.error("❌ deliver:", e.message));
   } catch (e) {
@@ -209,23 +270,37 @@ async function handleApi(pathname, body) {
   const jid = await resolveJid(body.to);
   if (pathname === "/send") {
     if (!body.message) throw new Error("missing 'message'");
+    stopTyping(jid, false);
     await client.sendMessage(jid, String(body.message));
     console.log(`✅ wwebjs → ${jid}`);
+    goOnline();
     return { ok: true };
   }
   if (pathname === "/typing") {
+    await goOnline();
     try {
-      const chat = await client.getChatById(jid);
-      await chat.sendStateTyping();
+      await pulseTyping(jid);
     } catch (e) {
       console.warn(`⚠️ typing failed for ${jid}: ${e.message}`);
       throw e;
     }
+    startTyping(jid);
     return { ok: true };
   }
   if (pathname === "/send-media") {
     if (!body.url) throw new Error("missing 'url'");
-    const media = await MessageMedia.fromUrl(body.url, { unsafeMime: true });
+    let media = null;
+    if (body.voice) {
+      try {
+        const r = await axios.get(body.url, { responseType: "arraybuffer", timeout: 30000 });
+        const ogg = await toOggOpus(Buffer.from(r.data));
+        media = new MessageMedia("audio/ogg; codecs=opus", ogg.toString("base64"), "voice.ogg");
+      } catch (e) {
+        console.warn(`⚠️ voice conversion failed (${e.message}) — sending the original file`);
+      }
+    }
+    if (!media) media = await MessageMedia.fromUrl(body.url, { unsafeMime: true });
+    stopTyping(jid, false);
     try {
       await client.sendMessage(jid, media, { caption: body.caption || undefined, sendAudioAsVoice: !!body.voice });
     } catch (e) {
@@ -235,7 +310,8 @@ async function handleApi(pathname, body) {
       console.warn(`⚠️ voice-note send failed (${e.message}) — retrying as plain audio`);
       await client.sendMessage(jid, media, { caption: body.caption || undefined });
     }
-    console.log(`✅ wwebjs media → ${jid}`);
+    console.log(`✅ wwebjs ${body.voice ? "voice note" : "media"} → ${jid}`);
+    goOnline();
     return { ok: true };
   }
   const e = new Error("not found");
@@ -382,7 +458,8 @@ async function start() {
     c.on("auth_failure", (m) => console.error("❌ auth failure:", m));
     c.on("remote_session_saved", () => console.log("💾 session backed up to Supabase"));
     c.on("ready", () => {
-      isReady = true; currentQR = null; lastCode = null;
+      isReady = true; currentQR = null; lastCode = null; startFailures = 0;
+      goOnline();
       console.log(`✅ Ariana WhatsApp CONNECTED via whatsapp-web.js (${c.info && c.info.wid ? c.info.wid.user : "?"})`);
     });
     c.on("disconnected", async (reason) => {
@@ -399,7 +476,9 @@ async function start() {
     console.error("❌ start failed:", e.message);
     try { if (client) await client.destroy(); } catch {}
     client = null;
-    setTimeout(start, 10000);
+    // Back off (10s → 5min) so a database outage isn't hammered by restart attempts.
+    const wait = Math.min(300000, 10000 * 2 ** Math.min(startFailures++, 5));
+    setTimeout(start, wait);
   } finally {
     starting = false;
   }
