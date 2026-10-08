@@ -9,11 +9,12 @@
     "test:social": "node --test \"tests/*.test.js\"",
     "test:engine": "node --test \"tests/social-engine.test.js\"",
     "test:all": "npm test",
-    "start:wa": "node wa-web.js",
-    "start:all": "concurrently --kill-others-on-fail \"node index.js\" \"node wa-web.js\" \"node wacalls.js\""
+    "start:wa": "node wa-engine.js",
+    "start:all": "concurrently --kill-others-on-fail \"node index.js\" \"node wa-engine.js\" \"node wacalls.js\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "@whatsmeow-node/whatsmeow-node": "^0.8.0",
     "axios": "^1.7.2",
     "browser-use-sdk": "^3.11.3",
     "concurrently": "^8.2.2",
