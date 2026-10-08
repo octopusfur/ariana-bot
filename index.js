@@ -164,7 +164,12 @@ async function flushAll() {
   ));
   console.log(`💾 Flushed ${ids.length} conversations`);
 }
-process.on('SIGTERM', async () => { await flushAll(); process.exit(0); });
+process.on('SIGTERM', async () => {
+  // let the WhatsApp sidecar save its session backup before we exit (deploys send SIGTERM)
+  const waChild = global.__waSidecar;
+  if (waChild && !waChild.killed) { try { waChild.removeAllListeners('exit'); waChild.kill('SIGTERM'); await new Promise(r => { waChild.once('exit', r); setTimeout(r, 9000); }); } catch {} }
+  await flushAll(); process.exit(0);
+});
 process.on('SIGINT',  async () => { await flushAll(); process.exit(0); });
 
 async function loadConversations() {

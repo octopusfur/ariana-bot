@@ -38,6 +38,53 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 try { fs.mkdirSync(DATA_PATH, { recursive: true }); } catch {}
 
+// ── SESSION BACKUP (Supabase `sessions` table) ────────────────
+// Render's disk is wiped on every deploy. With a local SQLite store we copy the session
+// (db + WAL) into Supabase after connecting and every few minutes, and restore it on boot,
+// so a redeploy does not unlink WhatsApp. Skipped when WA_STORE_URL (Postgres) is used.
+const DB_FILE = path.join(DATA_PATH, "session.db");
+const SUPA_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || "";
+const BACKUP_ON = STORE === DB_FILE && !!SUPA_URL && !!SUPA_KEY && process.env.WA_BACKUP !== "off";
+const supaHeaders = () => ({ apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" });
+let lastBackupHash = "";
+
+async function restoreBackup() {
+  if (!BACKUP_ON || fs.existsSync(DB_FILE)) return;
+  try {
+    const r = await axios.get(`${SUPA_URL}/rest/v1/sessions?type=eq.wa_meow&key=eq.default&select=data`, { headers: supaHeaders(), timeout: 15000 });
+    const d = r.data && r.data[0] && r.data[0].data;
+    if (!d || !d.db) return console.log("ℹ️ No WhatsApp session backup yet — pair from the dashboard");
+    fs.writeFileSync(DB_FILE, Buffer.from(d.db, "base64"));
+    if (d.wal) fs.writeFileSync(DB_FILE + "-wal", Buffer.from(d.wal, "base64"));
+    console.log(`♻️ Restored WhatsApp session from backup (${d.savedAt || "unknown time"})`);
+  } catch (e) { console.warn("⚠️ session restore failed:", e.message); }
+}
+async function backupSession(reason) {
+  if (!BACKUP_ON || !isReady) return;
+  try {
+    let db, wal = null, sig1, sig2, tries = 0;
+    do { // read db+wal as a pair; retry if the Go side wrote in between
+      const st = (f) => { try { const x = fs.statSync(f); return `${x.size}:${x.mtimeMs}`; } catch { return "-"; } };
+      sig1 = st(DB_FILE) + "|" + st(DB_FILE + "-wal");
+      db = fs.readFileSync(DB_FILE);
+      try { wal = fs.readFileSync(DB_FILE + "-wal"); } catch { wal = null; }
+      sig2 = st(DB_FILE) + "|" + st(DB_FILE + "-wal");
+    } while (sig1 !== sig2 && ++tries < 4);
+    const hash = crypto.createHash("sha256").update(db).update(wal || "").digest("hex");
+    if (hash === lastBackupHash) return;
+    await axios.post(`${SUPA_URL}/rest/v1/sessions?on_conflict=type,key`,
+      { type: "wa_meow", key: "default", data: { db: db.toString("base64"), wal: wal ? wal.toString("base64") : null, savedAt: new Date().toISOString() }, updated_at: new Date().toISOString() },
+      { headers: { ...supaHeaders(), Prefer: "resolution=merge-duplicates" }, timeout: 20000 });
+    lastBackupHash = hash;
+    console.log(`💾 WhatsApp session backed up (${reason}, ${Math.round((db.length + (wal ? wal.length : 0)) / 1024)} KB)`);
+  } catch (e) { console.warn("⚠️ session backup failed:", e.message); }
+}
+async function deleteBackup() {
+  if (!BACKUP_ON) return;
+  try { await axios.delete(`${SUPA_URL}/rest/v1/sessions?type=eq.wa_meow&key=eq.default`, { headers: supaHeaders(), timeout: 15000 }); lastBackupHash = ""; } catch {}
+}
+
 // ── STATE ─────────────────────────────────────────────────────
 let client = null, isReady = false, starting = false, currentQR = null, myJid = null, startFailures = 0;
 let pairingRequested = false, wmod = null;
@@ -215,6 +262,7 @@ async function handleApi(pathname, body) {
 }
 
 async function resetSession() {
+  await deleteBackup();
   try { if (client) await client.logout(); } catch {}
   try { if (client) client.close(); } catch {}
   client = null; isReady = false;
@@ -317,6 +365,8 @@ async function start() {
     c.on("connected", ({ jid } = {}) => {
       isReady = true; currentQR = null; startFailures = 0; if (jid) myJid = jid;
       goOnline();
+      setTimeout(() => backupSession("connected"), 20000);
+      if (!global.__waBackupTimer) global.__waBackupTimer = setInterval(() => backupSession("periodic"), 5 * 60 * 1000);
       console.log(`✅ Ariana WhatsApp CONNECTED via whatsmeow (${userPart(myJid) || "?"})`);
     });
     c.on("disconnected", () => { isReady = false; console.log("🔄 Disconnected — whatsmeow auto-reconnects"); });
@@ -345,9 +395,13 @@ async function start() {
     setTimeout(start, wait);
   } finally { starting = false; }
 }
-start();
+restoreBackup().then(start);
 
-const shutdown = () => { try { if (client) client.close(); } catch {} process.exit(0); };
+const shutdown = async () => {
+  try { await Promise.race([backupSession("shutdown"), sleep(8000)]); } catch {}
+  try { if (client) client.close(); } catch {}
+  process.exit(0);
+};
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 process.on("unhandledRejection", (r) => console.error("Unhandled:", r));
