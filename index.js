@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const axios      = require("axios");
 const naija      = require("./naija_lang");
 const wazobia    = require("./wazobia_tts");
+const messenger = require('./messenger');
 const linkRoutes = require("./link_routes");
 const Groq       = require("groq-sdk");
 const path       = require("path");
@@ -16,7 +17,7 @@ try { webpush = require("web-push"); } catch { console.log("⚠️ web-push disa
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server);
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "10mb", verify: (req, _res, buf) => { if (req.url.startsWith("/messenger")) req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -708,6 +709,7 @@ function getConvo(id) {
       platform: id.startsWith("tg_")  ? "telegram"
               : id.startsWith("sg_")  ? "signal"
               : id.startsWith("sms_") ? "sms"
+              : id.startsWith("fb_")  ? "messenger"
               : "whatsapp",
     };
   }
@@ -716,6 +718,7 @@ function getConvo(id) {
     conversations[id].platform = id.startsWith("tg_")  ? "telegram"
                                 : id.startsWith("sg_")  ? "signal"
                                 : id.startsWith("sms_") ? "sms"
+                                : id.startsWith("fb_")  ? "messenger"
                                 : "whatsapp";
   }
   return conversations[id];
@@ -1231,7 +1234,7 @@ async function getReply(...args) {
 
 async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null) {
   const convo = getConvo(id);
-  const rawPhone = id.replace(/^(tg_|sg_|sms_)/, "");
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
   if (!systemOverride && OWNER_PHONE && rawPhone === OWNER_PHONE) {
     systemOverride = OWNER_PROMPT;
   }
@@ -1458,7 +1461,7 @@ async function handleNewTexter(id, userMsg, imageBase64 = null) {
   const convo = getConvo(id);
   if (!convo.isNew) return null;
   convo.isNew = false;
-  const rawPhone = id.replace(/^(tg_|sg_|sms_)/, '');
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
   if (friendWhitelist.has(rawPhone) || friendWhitelist.has(id)) {
     return await getReply(id, userMsg, null, imageBase64);
   }
@@ -1798,6 +1801,7 @@ async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, 
       else if (platform === "telegram") await sendTelegramVoice(chatId, voiceUrl);
       else if (platform === "signal")   await sendSignal(from, reply);
       else if (platform === "sms")      await sendSMS(from, reply);
+      else if (platform === "messenger") await messenger.sendText(from, reply);
     } catch (e) {
       // The voice note failed to deliver (e.g. WhatsApp Web rejected the upload). Don't go silent —
       // send what she was going to say as text instead.
@@ -1809,11 +1813,13 @@ async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, 
     else if (platform === "telegram") await sendTelegramPhoto(chatId, imageUrl);
     else if (platform === "signal")   await sendSignalImage(from, imageUrl, caption || "");
     else if (platform === "sms")      await sendMMS(from, "", imageUrl);
+    else if (platform === "messenger") await messenger.sendImage(from, imageUrl, caption || "");
   } else {
     if (platform === "whatsapp")      await sendWhatsApp(from, reply, phoneNumberId);
     else if (platform === "telegram") await sendTelegram(chatId, reply);
     else if (platform === "signal")   await sendSignal(from, reply);
     else if (platform === "sms")      await sendSMS(from, reply);
+    else if (platform === "messenger") await messenger.sendText(from, reply);
   }
 }
 
@@ -1847,7 +1853,7 @@ const HONEST_AI_DISCLOSURE = "yeah, I'm AI. figured you'd rather know than keep 
 // ── CORE MESSAGE HANDLER ──────────────────────────────────────
 async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, name, mediaUrl, mediaType: incomingMediaType, preloadedImageBase64 = null }) {
   // Silently drop messages from blocked numbers
-  const rawPhone = id.replace(/^(tg_|sg_|sms_)/, '');
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
   if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) {
     console.log(`🚫 Ignored blocked: ${id}`);
     return;
@@ -2019,6 +2025,11 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
   if (platform === "whatsapp") {
     await sendWhatsAppTyping(from, phoneNumberId);
     typingInterval = setInterval(() => sendWhatsAppTyping(from, phoneNumberId), 24000);
+  }
+
+  if (platform === "messenger") {
+    messenger.typing(from);
+    typingInterval = setInterval(() => messenger.typing(from), 15000);
   }
 
   // Telegram typing action
@@ -2548,6 +2559,7 @@ app.post("/api/send/:phone", async (req, res) => {
     if (id.startsWith("tg_"))       await sendTelegram(id.replace("tg_", ""), message);
     else if (id.startsWith("sg_"))  await sendSignal(id.replace("sg_", ""), message);
     else if (id.startsWith("sms_")) await sendSMS(id.replace("sms_", ""), message);
+    else if (id.startsWith("fb_"))  await messenger.sendText(id.replace("fb_", ""), message);
     else await sendWhatsApp(id, message);
     addMessage(id, as || "you", message);
     res.json({ ok: true });
@@ -2561,6 +2573,7 @@ app.post("/api/send-image/:phone", async (req, res) => {
     if (id.startsWith("tg_"))       await sendTelegramPhoto(id.replace("tg_",""), imageUrl, caption);
     else if (id.startsWith("sg_"))  await sendSignal(id.replace("sg_",""), imageUrl);
     else if (id.startsWith("sms_")) await sendMMS(id.replace("sms_",""), caption||"", imageUrl);
+    else if (id.startsWith("fb_"))  await messenger.sendImage(id.replace("fb_",""), imageUrl, caption);
     else await sendWhatsAppImage(id, imageUrl, caption);
     addMessage(id, "ariana", `[image: ${caption||imageUrl}]`);
     res.json({ ok: true });
@@ -2580,6 +2593,7 @@ app.post("/api/send-voice/:phone", async (req, res) => {
     if (!audioUrl) return res.status(500).json({ error: "Voice generation failed — check ElevenLabs & Cloudinary keys" });
     if (id.startsWith("tg_"))  await sendTelegramVoice(id.replace("tg_",""), audioUrl);
     else if (id.startsWith("sg_"))  await sendSignal(id.replace("sg_",""), audioUrl);
+    else if (id.startsWith("fb_"))  await messenger.sendText(id.replace("fb_",""), cleanedText);
     else await sendWhatsAppVoiceNote(id, audioUrl);
     addMessage(id, "ariana", "[voice note]");
     res.json({ ok: true, audioUrl });
@@ -2594,6 +2608,9 @@ app.post("/api/initiate", async (req, res) => {
   if (platform === "telegram" || to.startsWith("tg_")) {
     id = to.startsWith("tg_") ? to : `tg_${to}`;
     from = id.replace("tg_", "");
+  } else if (platform === "messenger" || to.startsWith("fb_")) {
+    id = to.startsWith("fb_") ? to : `fb_${to}`;
+    from = id.replace("fb_", "");
   } else if (platform === "signal" || to.startsWith("sg_")) {
     id = to.startsWith("sg_") ? to : `sg_${to}`;
     from = id.replace("sg_", "");
@@ -2607,6 +2624,7 @@ app.post("/api/initiate", async (req, res) => {
     if (id.startsWith("tg_"))       await sendTelegram(from, message);
     else if (id.startsWith("sg_"))  await sendSignal(from, message);
     else if (id.startsWith("sms_")) await sendSMS(from, message);
+    else if (id.startsWith("fb_"))  await messenger.sendText(from, message);
     else                            await sendWhatsApp(from, message);
     addMessage(id, "ariana", message);
     res.json({ ok: true, id });
@@ -2618,7 +2636,7 @@ app.get("/api/blocked", (_req, res) => res.json({ blocked: [...blockedNumbers] }
 
 app.post("/api/block/:phone", async (req, res) => {
   const id = decodeURIComponent(req.params.phone);
-  const raw = id.replace(/^(tg_|sg_|sms_)/, "");
+  const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
   blockedNumbers.add(id);
   blockedNumbers.add(raw);
   if (supabase) {
@@ -2641,7 +2659,7 @@ app.post("/api/block/:phone", async (req, res) => {
 
 app.post("/api/unblock/:phone", async (req, res) => {
   const id = decodeURIComponent(req.params.phone);
-  const raw = id.replace(/^(tg_|sg_|sms_)/, "");
+  const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
   blockedNumbers.delete(id);
   blockedNumbers.delete(raw);
   if (supabase) {
@@ -2781,7 +2799,7 @@ app.post("/api/owner-command", requireDashboardAuth, async (req, res) => {
   const blockMatch = command.match(/^block\s+(\+?[\w\d_\-]+)/i);
   if (blockMatch) {
     const phone = blockMatch[1];
-    const raw   = phone.replace(/^(tg_|sg_|sms_)/, '');
+    const raw   = phone.replace(/^(tg_|sg_|sms_|fb_)/, '');
     blockedNumbers.add(phone); blockedNumbers.add(raw);
     if (supabase) {
       try { await supabase.from("ariana_blocked").upsert({ phone }, { onConflict: "phone" }); } catch {}
@@ -2835,6 +2853,9 @@ linkRoutes.register(app, {
     setupWebhook: () => setupSignalWebhook(),
   },
 });
+
+// Facebook Messenger (Page inbox): webhook /messenger + dashboard linking, see messenger.js
+const messengerCtl = messenger.init({ app, requireAuth: requireDashboardAuth, getSupabase: () => supabase, onMessage: (m) => handleMessage(m) });
 
 // Dashboard-linked Telegram session / Signal number win over env, so a redeploy never undoes a link.
 async function applyLinkedSessions() {
@@ -2890,6 +2911,11 @@ app.get('/api/platform-status', requireDashboardAuth, async (_req, res) => {
   result.sms = smsConfigured
     ? { status: 'configured', label: 'Configured', detail: 'Twilio credentials are present; no test message was sent.' }
     : result.sms;
+  const mg = messenger.getStatus();
+  result.messenger = mg.configured
+    ? (mg.hasAppSecret ? { status: 'connected', label: 'Linked', detail: mg.pageName || 'Facebook Page linked.' }
+                       : { status: 'configured', label: 'Needs secret', detail: 'Page linked but the App secret is missing, so incoming messages are rejected.' })
+    : { status: 'not_configured', label: 'Not linked', detail: 'Messenger is not linked. Dashboard → Settings → Messenger.' };
   res.json({ ok: true, platforms: result });
 });
 
@@ -3269,8 +3295,9 @@ async function tryExecuteOwnerCommand(message) {
     const platform = target.startsWith('tg_') ? 'telegram'
                    : target.startsWith('sg_') ? 'signal'
                    : target.startsWith('sms_') ? 'sms'
+                   : target.startsWith('fb_') ? 'messenger'
                    : 'whatsapp';
-    const rawId = target.replace(/^(tg_|sg_|sms_)/, '');
+    const rawId = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
 
     if (voiceBase64) {
       // Upload voice to Cloudinary then send
@@ -3399,7 +3426,7 @@ async function tryExecuteOwnerCommand(message) {
   const blockMatch = message.match(/^block\s+(.+)/i);
   if (blockMatch) {
     const target = resolveContact(blockMatch[1]) || blockMatch[1].trim();
-    const raw    = target.replace(/^(tg_|sg_|sms_)/, '');
+    const raw    = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
     blockedNumbers.add(target); blockedNumbers.add(raw);
     if (supabase) { try { await supabase.from('ariana_blocked').upsert({ phone: target }, { onConflict: 'phone' }); } catch {} }
     return { handled: true, confirmation: `Blocked ${conversations[target]?.name || target}.` };
@@ -3457,7 +3484,7 @@ async function tryExecuteOwnerCommand(message) {
   if (callMatch) {
     const target  = resolveContact(callMatch[1]) || callMatch[1].trim();
     const text    = callMatch[2].trim();
-    const rawNum  = target.replace(/^(tg_|sg_|sms_)/, '');
+    const rawNum  = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
     const sid     = process.env.TWILIO_ACCOUNT_SID;
     const token   = process.env.TWILIO_AUTH_TOKEN;
     const from    = process.env.TWILIO_NUMBER;
@@ -3575,7 +3602,7 @@ function buildTodayContext() {
     if (!convo.messages?.length) continue;
 
     // Skip the owner's own conversation — never include it in reports
-    const rawId = id.replace(/^(tg_|sg_|sms_)/, '');
+    const rawId = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
     if (OWNER_PHONE && (rawId === OWNER_PHONE || id === OWNER_PHONE)) continue;
 
     const todayMsgs = convo.messages.filter(m => new Date(m.time) >= todayStart);
@@ -3604,7 +3631,7 @@ async function generateDailyReport() {
     if (!convo.messages?.length) continue;
 
     // Skip owner's own conversation
-    const rawId = id.replace(/^(tg_|sg_|sms_)/, '');
+    const rawId = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
     if (OWNER_PHONE && (rawId === OWNER_PHONE || id === OWNER_PHONE)) continue;
 
     const todayMsgs = convo.messages.filter(m => new Date(m.time) >= todayStart);
@@ -3613,7 +3640,7 @@ async function generateDailyReport() {
     const name     = convo.name || id;
     const platform = convo.platform || 'WhatsApp';
     const userMsgs = todayMsgs.filter(m => m.role === 'user').map(m => m.text || '').join(' | ');
-    const blocked  = blockedNumbers.has(id) || blockedNumbers.has(id.replace(/^(tg_|sg_|sms_)/, ''));
+    const blocked  = blockedNumbers.has(id) || blockedNumbers.has(id.replace(/^(tg_|sg_|sms_|fb_)/, ''));
 
     contactReports.push({ name, platform, id, userMsgs: userMsgs.slice(0, 500), blocked, msgCount: todayMsgs.length });
   }
@@ -3948,7 +3975,7 @@ async function triggerSleep() {
   const recentIds = Object.entries(conversations)
     .filter(([id, c]) => {
       if (!c.messages?.length || takenOver.has(id)) return false;
-      const raw = id.replace(/^(tg_|sg_|sms_)/, '');
+      const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
       if (blockedNumbers.has(id) || blockedNumbers.has(raw)) return false;
       const last = c.messages[c.messages.length - 1];
       if (last.role === 'ariana') return false; // she already had the last word — no need to interrupt
@@ -3962,7 +3989,7 @@ async function triggerSleep() {
       const gn   = goodnightLines[Math.floor(Math.random() * goodnightLines.length)];
       const convo = conversations[id];
       const plat  = convo?.platform || 'whatsapp';
-      const from  = id.replace(/^(tg_|sg_|sms_)/, '');
+      const from  = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
       const chatId = id.startsWith('tg_') ? from : null;
       await sendReply(id, plat, gn, null, null, chatId, from, null);
       addMessage(id, 'ariana', gn);
@@ -4457,7 +4484,7 @@ async function runProactiveCheck() {
   for (const [id, convo] of Object.entries(conversations)) {
     if (!convo.messages?.length) continue;
     if (takenOver.has(id)) continue;
-    const rawPhone = id.replace(/^(tg_|sg_|sms_)/, '');
+    const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
     if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) continue;
     if ((now - (proactiveLastSent[id] || 0)) < MIN_GAP) continue; // messaged recently
 
@@ -4487,7 +4514,7 @@ async function runProactiveCheck() {
 
     try {
       const platform = convo.platform || 'whatsapp';
-      const rawId    = id.replace(/^(tg_|sg_|sms_)/, '');
+      const rawId    = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
       const name     = convo.name || id;
 
       // Build recent history for context
@@ -4766,6 +4793,7 @@ server.listen(PORT, async () => {
   // Load API keys from Supabase FIRST — before any AI calls happen
   await loadKeysFromSupabase();
   await applyLinkedSessions();
+  await messengerCtl.loadLinked();
   // Re-init Groq with loaded key if it wasn't set from env
   if (process.env.GROQ_API_KEY && (!groq || groq.apiKey === 'missing')) {
     const GroqSDK = require('groq-sdk');
