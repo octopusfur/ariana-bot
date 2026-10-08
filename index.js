@@ -4816,6 +4816,23 @@ server.listen(PORT, async () => {
   }
 
   console.log(`\n🌸 Ariana LIVE on port ${PORT}`);
+  // Opt-in: run the whatsmeow WhatsApp sidecar inside this same Render service (WA_ENGINE=whatsmeow).
+  if (process.env.WA_ENGINE === 'whatsmeow' && WA_PROVIDER === 'wwebjs' && !global.__waSidecar) {
+    const { spawn } = require('child_process');
+    let fails = 0;
+    const launch = () => {
+      const started = Date.now();
+      const child = spawn(process.execPath, [require('path').join(__dirname, 'wa-engine.js')], { stdio: 'inherit', env: process.env });
+      global.__waSidecar = child;
+      child.on('exit', (code) => {
+        fails = Date.now() - started > 60000 ? 0 : fails + 1;
+        const wait = Math.min(300000, 5000 * 2 ** Math.min(fails, 6));
+        console.error(`[wa-sidecar] exited (${code}) — restarting in ${Math.round(wait / 1000)}s`);
+        setTimeout(launch, wait);
+      });
+    };
+    launch();
+  }
   if (process.env.OPENAI_API_KEY) {
     openaiBrain.probe(process.env.OPENAI_API_KEY).then(r => console.log(r.ok
       ? `[brain] OpenAI ready -- GPT-6 models on this key: ${r.models.join(', ') || '(none listed)'} | using: ${OPENAI_CHAIN.join(' > ')}`
