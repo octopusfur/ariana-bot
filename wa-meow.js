@@ -107,7 +107,17 @@ async function resolveJid(to) {
 
 async function requestCode(phone) {
   if (!client) throw new Error("Still starting — try again in a few seconds");
-  return client.pairCode(phone.replace(/\D/g, ""));
+  const c = client, digits = phone.replace(/\D/g, "");
+  const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label)), ms))]);
+  try {
+    // An unpaired client can be idle (WhatsApp closes unpaired sockets after a while), so reconnect first.
+    let up = false;
+    try { up = await c.isConnected(); } catch {}
+    if (!up) { console.log("🔌 Reconnecting to WhatsApp before pairing…"); await withTimeout(c.connect(), 20000, "Could not reach WhatsApp — try again"); await sleep(1500); }
+    const code = await withTimeout(c.pairCode(digits), 25000, "WhatsApp did not answer the pairing request — try again");
+    console.log(`🔑 Pairing code issued for ${digits.slice(0, 3)}…${digits.slice(-2)}`);
+    return code;
+  } catch (e) { console.error("❌ pairCode failed:", e.message); throw e; }
 }
 
 // ── PRESENCE + TYPING ─────────────────────────────────────────
@@ -340,7 +350,8 @@ const server = http.createServer(async (req, res) => {
       if (p === "/reset") { await resetSession(); return send(res, 200, "application/json", JSON.stringify({ ok: true })); }
       return send(res, 200, "application/json", JSON.stringify(await handleApi(p, body)));
     }
-    if (ADMIN_KEY && !hasApiAuth && !safeEq(url.searchParams.get("key") || "", ADMIN_KEY)) {
+    const loopbackStatus = p === "/status" && !EXPOSED; // index.js polls this locally with no key
+    if (ADMIN_KEY && !hasApiAuth && !loopbackStatus && !safeEq(url.searchParams.get("key") || "", ADMIN_KEY)) {
       return send(res, 401, "text/html", html(`<p>Unauthorized — add ?key=&lt;WA_ADMIN_KEY&gt;</p>`));
     }
     if (p === "/status") return send(res, 200, "application/json", JSON.stringify({ connected: isReady, hasQR: !!currentQR, mode: /^postgres/i.test(STORE) ? "postgres" : "local", engine: "whatsmeow", number: isReady && myJid ? userPart(myJid) : null }));
@@ -378,7 +389,7 @@ async function start() {
 
     const init = await c.init();
     if (init.jid) myJid = init.jid;
-    if (!init.jid) await c.getQRChannel();
+    if (!init.jid && process.env.WA_QR === "1") await c.getQRChannel(); // QR is off by default; pairing uses codes
     await c.connect();
 
     if (!init.jid && PHONE_NUMBER && !pairingRequested) {
