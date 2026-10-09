@@ -369,7 +369,7 @@ async function start() {
   if (starting) return;
   starting = true;
   try {
-    if (!wmod) wmod = await import("@whatsmeow-node/whatsmeow-node");
+    if (!wmod) wmod = await import(process.env.WA_MEOW_MODULE || "@whatsmeow-node/whatsmeow-node"); // override is for tests
     const c = wmod.createClient({ store: STORE });
     client = c; isReady = false; pairingRequested = false;
 

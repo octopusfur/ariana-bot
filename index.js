@@ -31,7 +31,10 @@ const getKapsoKey  = () => process.env.KAPSO_API_KEY        || '';
 const getGeminiKey = () => process.env.GEMINI_API_KEY   || '';
 // WhatsApp transport: "wwebjs" (whatsapp-web.js sidecar, wa-web.js) or "kapso" (Meta Cloud API via Kapso)
 const WA_PROVIDER   = (process.env.WA_PROVIDER || 'wwebjs').toLowerCase();
-const WA_WEB_URL    = process.env.WA_WEB_URL || `http://127.0.0.1:${process.env.WA_WEB_PORT || 3001}`;
+// With the built-in whatsmeow engine the sidecar always runs inside THIS service, so ignore any stale
+// WA_WEB_URL (e.g. the old Fly.io address) that would send dashboard requests to a dead remote host.
+const WA_LOCAL_SIDECAR = process.env.WA_ENGINE === 'whatsmeow';
+const WA_WEB_URL    = WA_LOCAL_SIDECAR ? 'http://127.0.0.1:3001' : (process.env.WA_WEB_URL || `http://127.0.0.1:${process.env.WA_WEB_PORT || 3001}`);
 const WA_ADMIN_KEY  = process.env.WA_ADMIN_KEY || '';
 const WACALLS_ADAPTER_URL = process.env.WACALLS_ADAPTER_URL || `http://127.0.0.1:${process.env.WACALLS_ADAPTER_PORT || 3002}`;
 const WACALLS_TOKEN = '__wacalls__'; // internal transport marker, never a credential
@@ -4856,7 +4859,9 @@ server.listen(PORT, async () => {
     let fails = 0;
     const launch = () => {
       const started = Date.now();
-      const child = spawn(process.execPath, [require('path').join(__dirname, 'wa-engine.js')], { stdio: 'inherit', env: process.env });
+      // Pin the loopback wiring so leftover env from the old Fly setup (WA_WEB_HOST/PORT, MAIN_APP_URL) cannot break it.
+      const childEnv = { ...process.env, WA_WEB_HOST: '127.0.0.1', WA_WEB_PORT: '3001', MAIN_APP_URL: `http://127.0.0.1:${PORT}` };
+      const child = spawn(process.execPath, [require('path').join(__dirname, 'wa-engine.js')], { stdio: 'inherit', env: childEnv });
       global.__waSidecar = child;
       child.on('exit', (code) => {
         fails = Date.now() - started > 60000 ? 0 : fails + 1;
@@ -4866,6 +4871,21 @@ server.listen(PORT, async () => {
       });
     };
     launch();
+    // Self-check with the exact calls the dashboard makes, so Render logs show if the wiring is broken.
+    const hdr = WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {};
+    const selfCheck = async (n) => {
+      try {
+        const st = await axios.get(WA_WEB_URL + '/status', { timeout: 5000, headers: hdr });
+        let pairRoute = 'unexpected';
+        try { await axios.post(WA_WEB_URL + '/pair', { phone: '' }, { timeout: 5000, headers: hdr }); }
+        catch (e) { pairRoute = e.response && e.response.status === 400 ? 'ok' : `HTTP ${e.response ? e.response.status : e.code || e.message}`; }
+        console.log(`✅ WhatsApp sidecar reachable from dashboard routes (status ok, connected=${st.data.connected}, pair route ${pairRoute})`);
+      } catch (e) {
+        if (n < 6) return setTimeout(() => selfCheck(n + 1), 5000);
+        console.error(`❌ WhatsApp sidecar NOT reachable at ${WA_WEB_URL}: ${e.response ? 'HTTP ' + e.response.status : e.message}`);
+      }
+    };
+    setTimeout(() => selfCheck(1), 6000);
   }
   if (process.env.OPENAI_API_KEY) {
     openaiBrain.probe(process.env.OPENAI_API_KEY).then(r => console.log(r.ok
