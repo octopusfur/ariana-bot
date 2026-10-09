@@ -2709,8 +2709,9 @@ app.get("/api/whatsapp/status", requireDashboardAuth, async (req, res) => {
 app.post("/api/whatsapp/pair", requireDashboardAuth, async (req, res) => {
   const phone = String(req.body?.phone || '').replace(/\D/g, '');
   if (phone.length < 8) return res.status(400).json({ error: 'Enter the full number with country code' });
+  console.log('📲 Dashboard asked for a WhatsApp pairing code');
   try { const r = await waWeb('/pair', { phone }); res.json(r.data); }
-  catch (e) { res.status(502).json({ error: e.message }); }
+  catch (e) { console.error('❌ WhatsApp pair request failed:', e.message); res.status(502).json({ error: e.message }); }
 });
 
 app.post("/api/whatsapp/reset-auth", requireDashboardAuth, async (req, res) => {

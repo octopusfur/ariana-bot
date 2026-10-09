@@ -337,6 +337,7 @@ const server = http.createServer(async (req, res) => {
   const bearer = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const hasApiAuth = !!API_SECRET && safeEq(bearer, API_SECRET);
   try {
+    if (p !== "/ping") console.log(`🌐 wa-meow ${req.method} ${p}`);
     if (p === "/ping") return send(res, 200, "text/plain", "ok");
     if (req.method === "POST") {
       if (API_SECRET ? !hasApiAuth : EXPOSED) return send(res, 401, "application/json", JSON.stringify({ error: "unauthorized" }));
