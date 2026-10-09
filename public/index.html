@@ -164,6 +164,34 @@ textarea.inp{resize:vertical;min-height:120px}
 .tgl.on{background:var(--acc)}
 .tgl-k{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s}
 .tgl.on .tgl-k{transform:translateX(18px)}
+/* ── SETTINGS (grouped cards, channel rows) ── */
+#s-settings .sbody>*{flex-shrink:0}
+.st-sec{font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.12em;padding:24px 6px 10px}
+.st-card{background:var(--s1);border:1px solid var(--bdr);border-radius:18px;overflow:hidden}
+.st-pad{padding:12px}
+.st-font{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
+.st-field{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-bottom:1px solid var(--bdr)}
+.st-field:last-child{border-bottom:none}
+.st-field .inp{background:transparent;border:none;padding:0;font-size:16px;border-radius:0}
+.st-field .lbl{margin-bottom:0}
+details.st-ch{border-bottom:1px solid var(--bdr)}
+details.st-ch:last-child{border-bottom:none}
+details.st-ch>summary,details.st-adv>summary{list-style:none;cursor:pointer}
+details.st-ch>summary{display:flex;align-items:center;gap:14px;padding:14px 16px}
+details.st-ch>summary::-webkit-details-marker,details.st-adv>summary::-webkit-details-marker,details.st-more>summary::-webkit-details-marker{display:none}
+details.st-ch>summary:active{background:var(--s2)}
+.st-ic{width:38px;height:38px;border-radius:11px;background:var(--s2);border:1px solid var(--bdr);display:flex;align-items:center;justify-content:center;color:var(--txt);flex-shrink:0}
+.st-nm{font-size:15px;font-weight:600;color:var(--txt);display:flex;flex-direction:column;gap:3px}
+.st-sub{font-size:12px;font-weight:500;color:var(--txt2);display:flex;align-items:center;gap:6px}
+.st-chev{margin-left:auto;color:var(--txt3);transition:transform .2s;flex-shrink:0}
+details[open]>summary .st-chev{transform:rotate(90deg)}
+.st-panel{padding:2px 16px 18px}
+.st-note{font-size:13px;color:var(--txt2);margin-bottom:12px;line-height:1.5}
+.st-seg{display:flex;background:var(--s2);border:1px solid var(--bdr);border-radius:12px;padding:3px;gap:3px}
+.st-seg button{flex:1;padding:10px;border:none;background:transparent;color:var(--txt2);border-radius:9px;font:600 14px 'DM Sans',system-ui,sans-serif;cursor:pointer;transition:all .15s}
+.st-seg button.on{background:var(--acc);color:var(--bg)}
+.st-link{background:none;border:none;color:var(--txt2);font:500 13px 'DM Sans',system-ui,sans-serif;padding:10px 2px;cursor:pointer;list-style:none;display:inline-block}
+.st-save{position:sticky;bottom:0;margin-top:20px;padding:14px 0 calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 78%,transparent);z-index:2}
 /* ── SOCIAL ─────────────────────────────────────────────────────────────
    Same vocabulary as the rest of the app: hairline borders, .sgroup sections,
    one accent. Status is a small dot + word, never a wall of colour. */
@@ -576,117 +604,132 @@ textarea.inp{resize:vertical;min-height:120px}
     <span class="hdr-title">Settings</span>
   </div>
   <div class="sbody no-nav" style="padding:0 16px;display:flex;flex-direction:column">
-    <div class="sgroup">
-      <div class="sgroup-title">Persona</div>
-      <div class="sec"><label class="lbl">Signature font</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button onclick="setHeroFont('fn-great-vibes')" data-font-btn="fn-great-vibes" class="btn-ghost" style="flex:1;min-width:40%;font-family:'Great Vibes',cursive;font-size:18px;padding:10px">Ariana</button>
-          <button onclick="setHeroFont('fn-dancing')" data-font-btn="fn-dancing" class="btn-ghost" style="flex:1;min-width:40%;font-family:'Dancing Script',cursive;font-size:18px;padding:10px">Ariana</button>
-          <button onclick="setHeroFont('fn-pacifico')" data-font-btn="fn-pacifico" class="btn-ghost" style="flex:1;min-width:40%;font-family:'Pacifico',cursive;font-size:14px;padding:10px">Ariana</button>
-          <button onclick="setHeroFont('fn-satisfy')" data-font-btn="fn-satisfy" class="btn-ghost" style="flex:1;min-width:40%;font-family:'Satisfy',cursive;font-size:18px;padding:10px">Ariana</button>
-        </div>
+
+    <div class="st-sec">Ariana</div>
+    <div class="st-card">
+      <div class="st-font">
+        <button onclick="setHeroFont('fn-great-vibes')" data-font-btn="fn-great-vibes" class="btn-ghost" style="font-family:'Great Vibes',cursive;font-size:20px;padding:10px">Ariana</button>
+        <button onclick="setHeroFont('fn-dancing')" data-font-btn="fn-dancing" class="btn-ghost" style="font-family:'Dancing Script',cursive;font-size:20px;padding:10px">Ariana</button>
+        <button onclick="setHeroFont('fn-pacifico')" data-font-btn="fn-pacifico" class="btn-ghost" style="font-family:'Pacifico',cursive;font-size:15px;padding:12px">Ariana</button>
+        <button onclick="setHeroFont('fn-satisfy')" data-font-btn="fn-satisfy" class="btn-ghost" style="font-family:'Satisfy',cursive;font-size:20px;padding:10px">Ariana</button>
       </div>
     </div>
-    <div class="sgroup">
-      <div class="sgroup-title">WhatsApp</div>
-      <div class="sec">
-        <div id="wa-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
-        <div id="wa-link">
-          <label class="lbl">Ariana's WhatsApp number</label>
-          <input type="tel" id="wa-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
-          <button class="btn" id="wa-btn" onclick="waPair()" style="margin-top:10px">Get pairing code</button>
-          <div id="wa-code-box" style="display:none;margin-top:16px;text-align:center">
-            <div id="wa-code" style="font-size:34px;font-weight:800;letter-spacing:6px;color:var(--acc)"></div>
-            <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has this WhatsApp account:<br>Settings &rarr; Linked devices &rarr; Link a device &rarr; <b>Link with phone number instead</b>, then type this code.</div>
+
+    <div class="st-sec">You</div>
+    <div class="st-card">
+      <div class="st-field"><label class="lbl" for="cfg-name">Name Ariana calls you</label><input type="text" id="cfg-name" class="inp" placeholder="Your name"></div>
+      <div class="st-field"><label class="lbl" for="cfg-phone">Your number</label><input type="tel" id="cfg-phone" class="inp" placeholder="+1 234 567 890"></div>
+    </div>
+
+    <div class="st-sec">Channels</div>
+    <div class="st-card">
+      <details class="st-ch" name="st-ch" id="ch-wa">
+        <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 01-12.6 7.4L3 20l1.2-5.2A8.5 8.5 0 1121 11.5z"/></svg></span>
+          <span class="st-nm">WhatsApp<span class="st-sub"><span class="s-dot" id="dot-wa"></span><span id="pill-wa">Checking…</span></span></span>
+          <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+        <div class="st-panel">
+          <div id="wa-status" class="st-note">Checking...</div>
+          <div id="wa-link">
+            <label class="lbl">Ariana's WhatsApp number</label>
+            <input type="tel" id="wa-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
+            <button class="btn" id="wa-btn" onclick="waPair()" style="margin-top:10px">Get pairing code</button>
+            <div id="wa-code-box" style="display:none;margin-top:16px;text-align:center">
+              <div id="wa-code" style="font-size:34px;font-weight:800;letter-spacing:6px;color:var(--acc)"></div>
+              <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has this WhatsApp account:<br>Settings &rarr; Linked devices &rarr; Link a device &rarr; <b>Link with phone number instead</b>, then type this code.</div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Messenger</div>
-      <div class="sec">
-        <div id="fb-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
-        <div id="fb-link">
-          <label class="lbl">Page access token</label>
-          <input type="password" id="fb-token" class="inp" autocomplete="off" placeholder="EAAB...">
-          <label class="lbl" style="margin-top:8px">App secret</label>
-          <input type="password" id="fb-secret" class="inp" autocomplete="off" placeholder="App Settings → Basic → App secret">
-          <label class="lbl" style="margin-top:8px">App ID (optional, sets the webhook for you)</label>
-          <input type="tel" id="fb-appid" class="inp" inputmode="numeric" placeholder="123456789012345">
-          <button class="btn" id="fb-btn" onclick="fbSave()" style="margin-top:10px">Link Messenger</button>
-        </div>
-        <div id="fb-hook" style="display:none;margin-top:14px;font-size:12px;color:var(--txt2);line-height:1.6;word-break:break-all"></div>
-        <button class="btn" id="fb-unlink" onclick="fbUnlink()" style="display:none;margin-top:10px">Unlink Messenger</button>
-      </div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Telegram</div>
-      <div class="sec">
-        <div id="tg-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
-        <div id="tg-link">
-          <label class="lbl">Ariana's Telegram number</label>
-          <input type="tel" id="tg-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
-          <button class="btn" id="tg-btn" onclick="tgSendCode()" style="margin-top:10px">Send code</button>
-          <div id="tg-code-box" style="display:none;margin-top:14px">
-            <label class="lbl">Code Telegram sent to that account</label>
-            <input type="text" id="tg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
-            <div id="tg-pw-box" style="display:none;margin-top:10px"><label class="lbl">Two-step verification password</label><input type="password" id="tg-pw" class="inp" placeholder="Your Telegram 2FA password"></div>
-            <button class="btn" id="tg-verify-btn" onclick="tgVerify()" style="margin-top:10px">Link Telegram</button>
+      </details>
+      <details class="st-ch" name="st-ch" id="ch-fb">
+        <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.0015 2C6.36858 2 2 6.12644 2 11.7011C2 14.6169 3.1954 17.1356 5.14023 18.8751C5.30192 19.0215 5.40077 19.2238 5.40843 19.4444L5.4636 21.2245C5.46756 21.3554 5.50365 21.4833 5.56868 21.5969C5.63371 21.7106 5.7257 21.8065 5.83653 21.8762C5.94736 21.9459 6.07364 21.9873 6.20423 21.9968C6.33483 22.0062 6.46575 21.9834 6.58544 21.9303L8.57088 21.0552C8.74023 20.9816 8.92797 20.9671 9.10421 21.0146C10.0161 21.2651 10.987 21.4008 11.9985 21.4008C17.6314 21.4008 22 17.2751 22 11.7004C22 6.12644 17.6322 2 12.0015 2ZM17.2529 9.57854L14.7487 13.5502C14.6544 13.6997 14.5302 13.8281 14.3839 13.9272C14.2376 14.0263 14.0724 14.0941 13.8986 14.1262C13.7248 14.1583 13.5463 14.154 13.3742 14.1137C13.2021 14.0734 13.0403 13.9979 12.8989 13.892L10.9065 12.3992C10.8178 12.3329 10.71 12.2971 10.5992 12.2971C10.4885 12.2971 10.3807 12.3329 10.292 12.3992L7.60383 14.4398C7.24751 14.7119 6.77625 14.282 7.01533 13.9034L9.51954 9.9318C9.61378 9.7823 9.73796 9.65394 9.88427 9.55481C10.0306 9.45568 10.1958 9.38793 10.3696 9.35582C10.5434 9.32371 10.7219 9.32795 10.894 9.36826C11.0661 9.40857 11.2279 9.48408 11.3693 9.59004L13.3617 11.0828C13.4504 11.149 13.5582 11.1849 13.669 11.1849C13.7797 11.1849 13.8875 11.149 13.9762 11.0828L16.6644 9.04215C17.0245 8.76628 17.4958 9.19617 17.2529 9.57854Z"/></svg></span>
+          <span class="st-nm">Messenger<span class="st-sub"><span class="s-dot" id="dot-fb"></span><span id="pill-fb">Checking…</span></span></span>
+          <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+        <div class="st-panel">
+          <div id="fb-status" class="st-note">Checking...</div>
+          <div id="fb-link">
+            <label class="lbl">Page access token</label>
+            <input type="password" id="fb-token" class="inp" autocomplete="off" placeholder="Paste from your Facebook app">
+            <label class="lbl" style="margin-top:10px">App secret</label>
+            <input type="password" id="fb-secret" class="inp" autocomplete="off" placeholder="Paste from your Facebook app">
+            <label class="lbl" style="margin-top:10px">App ID (optional)</label>
+            <input type="tel" id="fb-appid" class="inp" inputmode="numeric" placeholder="Lets Ariana set the webhook for you">
+            <button class="btn" id="fb-btn" onclick="fbSave()" style="margin-top:12px">Link Messenger</button>
           </div>
+          <details id="fb-hook-wrap" class="st-more" style="display:none"><summary class="st-link">Webhook details</summary><div id="fb-hook" class="st-note" style="word-break:break-all;line-height:1.7"></div></details>
+          <button class="btn-ghost" id="fb-unlink" onclick="fbUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Unlink Messenger</button>
         </div>
-        <button class="btn-ghost" id="tg-unlink" onclick="tgUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Unlink Telegram</button>
-      </div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Signal</div>
-      <div class="sec">
-        <div id="sg-status" style="font-size:13px;color:var(--txt2);margin-bottom:12px">Checking...</div>
-        <div id="sg-accounts"></div>
-        <label class="lbl">Link to the Signal account on your phone</label>
-        <button class="btn" id="sg-link-btn" onclick="sgLink()">Link as a device</button>
-        <div id="sg-link-box" style="display:none;margin-top:12px;text-align:center">
-          <a id="sg-link-a" class="btn" href="#" style="display:none;text-decoration:none">Open in Signal</a>
-          <img id="sg-qr" alt="Signal link QR code" style="display:none;width:220px;height:220px;background:#fff;padding:8px;border-radius:12px;margin:12px auto 0">
-          <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has Signal, tap <b>Open in Signal</b> (or scan the QR from another screen) and approve. Then come back here and tap the number to use it.</div>
-          <button class="btn-ghost" onclick="sgRefresh()" style="margin-top:10px">I've approved it — refresh</button>
+      </details>
+      <details class="st-ch" name="st-ch" id="ch-tg">
+        <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+          <span class="st-nm">Telegram<span class="st-sub"><span class="s-dot" id="dot-tg"></span><span id="pill-tg">Checking…</span></span></span>
+          <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+        <div class="st-panel">
+          <div id="tg-status" class="st-note">Checking...</div>
+          <div id="tg-link">
+            <label class="lbl">Ariana's Telegram number</label>
+            <input type="tel" id="tg-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
+            <button class="btn" id="tg-btn" onclick="tgSendCode()" style="margin-top:10px">Send code</button>
+            <div id="tg-code-box" style="display:none;margin-top:14px">
+              <label class="lbl">Code Telegram sent to that account</label>
+              <input type="text" id="tg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+              <div id="tg-pw-box" style="display:none;margin-top:10px"><label class="lbl">Two-step verification password</label><input type="password" id="tg-pw" class="inp" placeholder="Your Telegram 2FA password"></div>
+              <button class="btn" id="tg-verify-btn" onclick="tgVerify()" style="margin-top:10px">Link Telegram</button>
+            </div>
+          </div>
+          <button class="btn-ghost" id="tg-unlink" onclick="tgUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Unlink Telegram</button>
         </div>
+      </details>
+      <details class="st-ch" name="st-ch" id="ch-sg">
+        <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>
+          <span class="st-nm">Signal<span class="st-sub"><span class="s-dot" id="dot-sg"></span><span id="pill-sg">Checking…</span></span></span>
+          <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+        <div class="st-panel">
+          <div id="sg-status" class="st-note">Checking...</div>
+          <div id="sg-accounts"></div>
+          <label class="lbl">Link to the Signal account on your phone</label>
+          <button class="btn" id="sg-link-btn" onclick="sgLink()">Link as a device</button>
+          <div id="sg-link-box" style="display:none;margin-top:12px;text-align:center">
+            <a id="sg-link-a" class="btn" href="#" style="display:none;text-decoration:none">Open in Signal</a>
+            <img id="sg-qr" alt="Signal link QR code" style="display:none;width:220px;height:220px;background:#fff;padding:8px;border-radius:12px;margin:12px auto 0">
+            <div style="font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.5">On the phone that has Signal, tap <b>Open in Signal</b> and approve. Then come back here and tap the number to use it.</div>
+            <button class="btn-ghost" onclick="sgRefresh()" style="margin-top:10px">I've approved it, refresh</button>
+          </div>
+          <details class="st-more" style="margin-top:6px"><summary class="st-link">Register a new number instead</summary>
+            <input type="tel" id="sg-num" class="inp" inputmode="tel" placeholder="+1 430 362 9477" style="margin-top:8px">
+            <input type="text" id="sg-captcha" class="inp" placeholder="Captcha code (only if Signal asks)" style="margin-top:8px">
+            <button class="btn" id="sg-reg-btn" onclick="sgRegister()" style="margin-top:10px">Send verification code</button>
+            <input type="text" id="sg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="Code you received" style="margin-top:12px">
+            <button class="btn" id="sg-ver-btn" onclick="sgVerify()" style="margin-top:10px">Verify and use this number</button>
+          </details>
+        </div>
+      </details>
+    </div>
+
+    <div class="st-sec">Appearance</div>
+    <div class="st-card st-pad">
+      <div class="st-seg"><button id="st-th-dark" onclick="setTheme('dark')">Dark</button><button id="st-th-light" onclick="setTheme('light')">Light</button></div>
+    </div>
+
+    <div class="st-sec">Security</div>
+    <div class="st-card">
+      <div class="st-field"><label class="lbl" for="cfg-dash-key">Dashboard key</label><input type="password" id="cfg-dash-key" class="inp" placeholder="Needed to unlock this dashboard"></div>
+    </div>
+
+    <details class="st-adv" name="st-adv">
+      <summary class="st-sec" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;list-style:none">Advanced<svg class="st-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+      <div class="st-card">
+        <div class="st-field"><label class="lbl" for="cfg-groq">Groq key</label><input type="password" id="cfg-groq" class="inp" placeholder="gsk_…"></div>
+        <div class="st-field"><label class="lbl" for="cfg-gemini">Gemini key</label><input type="password" id="cfg-gemini" class="inp" placeholder="AIza…"></div>
+        <div class="st-field"><label class="lbl" for="cfg-kapso">Kapso key</label><input type="password" id="cfg-kapso" class="inp" placeholder="Only if you use Kapso for WhatsApp"></div>
+        <div class="st-field"><label class="lbl" for="cfg-supa-url">Supabase URL</label><input type="text" id="cfg-supa-url" class="inp" placeholder="https://your-project.supabase.co"></div>
+        <div class="st-field"><label class="lbl" for="cfg-supa-key">Supabase key</label><input type="password" id="cfg-supa-key" class="inp" placeholder="eyJ…"></div>
       </div>
-      <div class="sec">
-        <label class="lbl">Or register a new number</label>
-        <input type="tel" id="sg-num" class="inp" inputmode="tel" placeholder="+1 430 362 9477">
-        <input type="text" id="sg-captcha" class="inp" placeholder="Captcha token (signalcaptcha://...) — only if asked" style="margin-top:8px">
-        <button class="btn" id="sg-reg-btn" onclick="sgRegister()" style="margin-top:10px">Send verification code</button>
-        <input type="text" id="sg-code" class="inp" inputmode="numeric" autocomplete="one-time-code" placeholder="Code you received" style="margin-top:12px">
-        <button class="btn" id="sg-ver-btn" onclick="sgVerify()" style="margin-top:10px">Verify and use this number</button>
-      </div>
+    </details>
+
+    <div class="st-save">
+      <button class="btn" onclick="saveSettings()">Save</button>
+      <div style="text-align:center"><button class="st-link" onclick="clearSettings()" style="color:var(--red)">Reset all settings</button></div>
     </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Access</div>
-      <div class="sec"><label class="lbl">Dashboard Key</label><input type="password" id="cfg-dash-key" class="inp" placeholder="DASHBOARD_SECRET value"></div>
-      <div class="sec"><label class="lbl">Your Phone (Mitra)</label><input type="tel" id="cfg-phone" class="inp" placeholder="+1234567890"></div>
-      <div class="sec"><label class="lbl">Your Name</label><input type="text" id="cfg-name" class="inp" placeholder="Name Ariana calls you"></div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">AI</div>
-      <div class="sec"><label class="lbl">Groq API Key</label><input type="password" id="cfg-groq" class="inp" placeholder="gsk_..."></div>
-      <div class="sec"><label class="lbl">Gemini API Key</label><input type="password" id="cfg-gemini" class="inp" placeholder="AIza..."></div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Messaging</div>
-      <div class="sec"><label class="lbl">Kapso API Key</label><input type="password" id="cfg-kapso" class="inp" placeholder="..."></div>
-      <div class="sec"><label class="lbl">Supabase URL</label><input type="text" id="cfg-supa-url" class="inp" placeholder="https://xxx.supabase.co"></div>
-      <div class="sec"><label class="lbl">Supabase Anon Key</label><input type="password" id="cfg-supa-key" class="inp" placeholder="eyJ..."></div>
-    </div>
-    <div class="sgroup">
-      <div class="sgroup-title">Appearance</div>
-      <button class="btn-ghost" onclick="toggleTheme()" style="justify-content:space-between;padding:14px 16px">
-        <span>Toggle light / dark mode</span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-      </button>
-    </div>
-    <button class="btn" onclick="saveSettings()" style="margin-top:auto">Save settings</button>
-    <button class="btn-ghost" onclick="clearSettings()" style="margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Clear all</button>
-    <div style="height:calc(16px + env(safe-area-inset-bottom))"></div>
   </div>
 </div>
 
@@ -810,6 +853,19 @@ async function waPair(){
   }catch(e){toast('Request failed');}
   finally{btn.disabled=false;btn.textContent='Get pairing code';}
 }
+function plainErr(s){s=String(s==null?'':s);if(/<\s*(!doctype|html|head|body)/i.test(s))return /cloudflare|just a moment|challenge/i.test(s)?'blocked by a security check':'returned a web page instead of an answer';return s.replace(/\s+/g,' ').trim().slice(0,140);}
+async function loadChannelPills(){
+  try{
+    const r=await fetch('/api/platform-status',{headers:authH()});if(!r.ok)return;
+    const p=(await r.json()).platforms||{};
+    [['wa','whatsapp'],['fb','messenger'],['tg','telegram'],['sg','signal']].forEach(([k,n])=>{
+      const x=p[n],dot=document.getElementById('dot-'+k),t=document.getElementById('pill-'+k);if(!x||!t||!dot)return;
+      const on=x.status==='connected',bad=x.status==='unreachable';
+      t.textContent=on?'Connected':(bad?'Unavailable':'Not linked');dot.className='s-dot'+(on?' on':bad?' err':'');
+    });
+  }catch{}
+}
+['waRefresh','fbRefresh','tgRefresh','sgRefresh'].forEach(n=>{const f=window[n];if(typeof f!=='function')return;window[n]=async function(...a){const r=await f.apply(this,a);loadChannelPills();return r;};});
 // ── MESSENGER LINKING (Settings) ──
 async function fbRefresh(){
   const st=document.getElementById('fb-status');if(!st)return;
@@ -821,8 +877,8 @@ async function fbRefresh(){
     if(d.configured){
       st.textContent='Linked to '+(d.pageName||'your Page')+(d.hasAppSecret?'':' (app secret missing)');
       link.style.display='none';un.style.display='';
-      hook.style.display='';hook.innerHTML='Webhook URL: <b>'+d.webhookUrl+'</b><br>Verify token: <b>'+(d.verifyToken||'')+'</b><br>Subscribe the Page to <b>messages</b> and <b>messaging_postbacks</b>.';
-    }else{st.textContent='Not linked. Paste your Page token and app secret.';link.style.display='';un.style.display='none';hook.style.display='none';}
+      document.getElementById('fb-hook-wrap').style.display='';hook.innerHTML='Webhook URL: <b>'+d.webhookUrl+'</b><br>Verify token: <b>'+(d.verifyToken||'')+'</b><br>Subscribe the Page to <b>messages</b> and <b>messaging_postbacks</b>.';
+    }else{st.textContent='Not linked. Paste your Page token and app secret.';link.style.display='';un.style.display='none';document.getElementById('fb-hook-wrap').style.display='none';}
   }catch(e){st.textContent='Could not check status.';}
 }
 async function fbSave(){
@@ -884,7 +940,7 @@ async function sgRefresh(){
     if(r.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return;}
     const d=await r.json();
     box.textContent='';
-    if(!d.reachable){st.textContent='Signal server is not reachable'+(d.error?': '+d.error:'')+'.';return;}
+    if(!d.reachable){st.textContent='Signal server is not reachable'+(d.error?': '+plainErr(d.error):'')+'.';return;}
     st.textContent=d.linked?('Connected as '+d.number):(d.accounts.length?'Linked on the server. Tap the number Ariana should use:':'No Signal account linked yet.');
     if(!d.linked)d.accounts.forEach(n=>{
       const b=document.createElement('button');b.className='btn-ghost';b.style.marginBottom='8px';b.textContent='Use '+n;
@@ -1269,7 +1325,8 @@ function toggleProfile(){document.getElementById('pm').classList.contains('on')?
 function openSide(){closeOverlays();document.getElementById('sp').classList.add('on');document.getElementById('ov').classList.add('on');}
 function pmGo(n){closeOverlays();go(n);}
 function spGo(n){closeOverlays();if(['wa','tg','sig','sms','fb'].includes(n))openChannel(n);else go(n);}
-function syncThemeUI(){const sw=document.getElementById('pm-sw');if(sw)sw.classList.toggle('on',(document.documentElement.getAttribute('data-theme')||'dark')==='dark');}
+function syncThemeUI(){const dk=(document.documentElement.getAttribute('data-theme')||'dark')==='dark';const sw=document.getElementById('pm-sw');if(sw)sw.classList.toggle('on',dk);const a=document.getElementById('st-th-dark'),b=document.getElementById('st-th-light');if(a)a.classList.toggle('on',dk);if(b)b.classList.toggle('on',!dk);}
+function setTheme(t){document.documentElement.setAttribute('data-theme',t);cfg.set('theme',t);syncThemeUI();}
 function shrinkImg(file,max){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{const k=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.82));};img.onerror=rej;img.src=u;});}
 function wpKey(){const c=conversations[currentPhone];return 'wallpaper_'+((c&&c.platform)||'whatsapp');}
 function applyWallpaper(){const el=document.getElementById('convo-msgs');if(!el)return;const url=(cfg.get(wpKey())||cfg.get('cover')||'').replace(/"/g,'%22');if(url){el.style.backgroundImage=`linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url("${url}")`;el.classList.add('has-wp');}else{el.style.backgroundImage='';el.classList.remove('has-wp');}}
@@ -1341,16 +1398,14 @@ function socEngineStrip(){
   if(!st.engine.configured){
     const steps=(st.setup&&st.setup.steps||[]).map(s=>socEsc(s)).join('\n');
     return `<div class="s-act" style="border-color:var(--bdr2)">
-      <div class="s-act-top"><span class="s-dot err"></span>Backend not connected</div>
-      <div class="s-act-err">Ariana's social engine is not deployed yet, so no account can be connected and no action can run. Everything else about her works as normal.</div>
-      <button class="s-link" onclick="socToggleDetail('engine')" style="margin-top:8px">${soc.details.engine?'Hide setup':'View details'}</button>
-      ${soc.details.engine?`<div class="s-details">${steps}\n\nEnv vars Ariana needs: SOCIAL_ENGINE_URL, SOCIAL_ENGINE_API_KEY\nEnv vars the engine needs: ENGINE_API_KEY, COOKIE_ENCRYPTION_KEY, SESSION_DIR (volume), MAX_BROWSERS</div>`:''}
+      <div class="s-act-top"><span class="s-dot"></span>Social isn't set up yet</div>
+      <div class="s-act-err">Until it is, Ariana can't post or watch social accounts. Everything else about her works as normal.</div>
     </div>`;
   }
   if(!st.engine.reachable){
     return `<div class="s-act" style="border-color:var(--bdr2)">
       <div class="s-act-top"><span class="s-dot err"></span>Engine configured but unreachable</div>
-      <div class="s-act-err">${socEsc(st.engine.error||'')}</div>
+      <div class="s-act-err">${socEsc(plainErr(st.engine.error||'')||'Ariana can\'t reach it right now.')}</div>
       <button class="s-link" onclick="loadSocial(true)" style="margin-top:8px">Try again</button>
     </div>`;
   }
@@ -1458,6 +1513,12 @@ function socActivityList(){
 
 function renderSocial(){
   const el=document.getElementById('social-engine');if(!el)return;
+  const off=!soc.status||(soc.status.engine&&!soc.status.engine.configured)||(soc.status.engine&&!soc.status.engine.reachable);
+  document.querySelectorAll('#s-social .sgroup').forEach(g=>g.style.display=off?'none':'');
+  if(!soc.status){
+    el.innerHTML=`<div class="s-act" style="border-color:var(--bdr2)"><div class="s-act-top"><span class="s-dot warn"></span>Couldn't load Social</div><div class="s-act-err">Check your connection and try again.</div><button class="s-link" onclick="loadSocial(true)" style="margin-top:8px">Try again</button></div>`;
+    return;
+  }
   el.innerHTML=socEngineStrip();
   document.getElementById('social-accounts').innerHTML=socPlatformBlocks();
   document.getElementById('social-activity').innerHTML=socActivityList();

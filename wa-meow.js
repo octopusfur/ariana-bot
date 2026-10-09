@@ -55,8 +55,10 @@ async function restoreBackup() {
     const r = await axios.get(`${SUPA_URL}/rest/v1/sessions?type=eq.wa_meow&key=eq.default&select=data`, { headers: supaHeaders(), timeout: 15000 });
     const d = r.data && r.data[0] && r.data[0].data;
     if (!d || !d.db) return console.log("ℹ️ No WhatsApp session backup yet — pair from the dashboard");
-    fs.writeFileSync(DB_FILE, Buffer.from(d.db, "base64"));
-    if (d.wal) fs.writeFileSync(DB_FILE + "-wal", Buffer.from(d.wal, "base64"));
+    const zlib = require("zlib");
+    const unpack = (b64) => { const b = Buffer.from(b64, "base64"); return d.gz ? zlib.gunzipSync(b) : b; };
+    fs.writeFileSync(DB_FILE, unpack(d.db));
+    if (d.wal) fs.writeFileSync(DB_FILE + "-wal", unpack(d.wal));
     console.log(`♻️ Restored WhatsApp session from backup (${d.savedAt || "unknown time"})`);
   } catch (e) { console.warn("⚠️ session restore failed:", e.message); }
 }
@@ -71,10 +73,11 @@ async function backupSession(reason) {
       try { wal = fs.readFileSync(DB_FILE + "-wal"); } catch { wal = null; }
       sig2 = st(DB_FILE) + "|" + st(DB_FILE + "-wal");
     } while (sig1 !== sig2 && ++tries < 4);
+    const zlib = require("zlib");
     const hash = crypto.createHash("sha256").update(db).update(wal || "").digest("hex");
     if (hash === lastBackupHash) return;
     await axios.post(`${SUPA_URL}/rest/v1/sessions?on_conflict=type,key`,
-      { type: "wa_meow", key: "default", data: { db: db.toString("base64"), wal: wal ? wal.toString("base64") : null, savedAt: new Date().toISOString() }, updated_at: new Date().toISOString() },
+      { type: "wa_meow", key: "default", data: { gz: true, db: zlib.gzipSync(db).toString("base64"), wal: wal ? zlib.gzipSync(wal).toString("base64") : null, savedAt: new Date().toISOString() }, updated_at: new Date().toISOString() },
       { headers: { ...supaHeaders(), Prefer: "resolution=merge-duplicates" }, timeout: 20000 });
     lastBackupHash = hash;
     console.log(`💾 WhatsApp session backed up (${reason}, ${Math.round((db.length + (wal ? wal.length : 0)) / 1024)} KB)`);
@@ -378,7 +381,7 @@ async function start() {
       isReady = true; currentQR = null; startFailures = 0; if (jid) myJid = jid;
       goOnline();
       setTimeout(() => backupSession("connected"), 20000);
-      if (!global.__waBackupTimer) global.__waBackupTimer = setInterval(() => backupSession("periodic"), 5 * 60 * 1000);
+      if (!global.__waBackupTimer) global.__waBackupTimer = setInterval(() => backupSession("periodic"), 10 * 60 * 1000);
       console.log(`✅ Ariana WhatsApp CONNECTED via whatsmeow (${userPart(myJid) || "?"})`);
     });
     c.on("disconnected", () => { isReady = false; console.log("🔄 Disconnected — whatsmeow auto-reconnects"); });

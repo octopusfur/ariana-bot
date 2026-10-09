@@ -56,6 +56,7 @@ function renderWith({ status, accounts, activity, autonomy, caps, fetchImpl }) {
     setTimeout, clearTimeout,
     document: {
       getElementById: (id) => els[id] || makeEl(),
+      querySelectorAll: () => [],
       createElement: () => makeEl(),
     },
     fetch: fetchImpl || (async (url) => ({
@@ -102,17 +103,12 @@ const ENGINE_OFF = {
   setup: { steps: ['1. Deploy the social engine.', '2. Set SOCIAL_ENGINE_API_KEY.', '3. Provision a session.'] },
 };
 
-test('dashboard: shows "Backend not connected" and the real setup steps', async () => {
+test('dashboard: when the social engine is off it says so in plain words, with no developer jargon', async () => {
   const { sandbox, els } = renderWith({ status: ENGINE_OFF, accounts: { accounts: [] }, activity: { activity: [] }, caps: CAPS, autonomy: { enabled: false } });
   await sandbox.loadSocial();
   const engineHtml = els['social-engine'].innerHTML;
-  assert.match(engineHtml, /Backend not connected/);
-  assert.match(engineHtml, /View details/);
-  sandbox.socToggleDetail('engine');
-  const expanded = els['social-engine'].innerHTML;
-  assert.match(expanded, /Deploy the social engine/);
-  assert.match(expanded, /SOCIAL_ENGINE_URL/);
-  assert.match(expanded, /COOKIE_ENCRYPTION_KEY/);
+  assert.match(engineHtml, /Social isn't set up yet/);
+  assert.doesNotMatch(engineHtml, /SOCIAL_ENGINE_URL|COOKIE_ENCRYPTION_KEY|ENGINE_API_KEY|Env vars|Deploy the social engine/);
 });
 
 test('dashboard: a connected account reads Connected @handle — Online, with actions enabled', async () => {

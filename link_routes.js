@@ -138,7 +138,12 @@ function register(app, deps) {
   // ── SIGNAL ───────────────────────────────────────────────────
   const sgGet = (path, opts) => http.get(`${sg.getUrl()}${path}`, { timeout: 20000, ...opts });
   const sgPost = (path, body, opts) => http.post(`${sg.getUrl()}${path}`, body, { timeout: 30000, ...opts });
-  const sgErr = (e) => e.response?.data?.error || (typeof e.response?.data === 'string' ? e.response.data : '') || e.message;
+  const plainErr = (t) => {
+    t = String(t == null ? '' : t);
+    if (/<\s*(!doctype|html|head|body)/i.test(t)) return /cloudflare|just a moment|challenge/i.test(t) ? 'blocked by a security check' : 'returned a web page instead of an answer';
+    return t.replace(/\s+/g, ' ').trim().slice(0, 160);
+  };
+  const sgErr = (e) => plainErr(e.response?.data?.error || (typeof e.response?.data === 'string' ? e.response.data : '') || e.message);
 
   app.get('/api/signal/status', requireAuth, async (_req, res) => {
     const number = sg.getNumber();
