@@ -88,6 +88,31 @@ async function deleteBackup() {
   try { await axios.delete(`${SUPA_URL}/rest/v1/sessions?type=eq.wa_meow&key=eq.default`, { headers: supaHeaders(), timeout: 15000 }); lastBackupHash = ""; } catch {}
 }
 
+// ── LID -> PHONE ──────────────────────────────────────────────
+// WhatsApp now addresses some contacts by an internal "@lid" id instead of their phone number.
+// Ariana's memory, owner check and history are all keyed by phone number, so we translate back using
+// the mapping whatsmeow keeps in its session database (whatsmeow_lid_map). WA_LID_ALIASES="lid=phone,..."
+// is a manual override. If nothing matches, the lid is used as-is (and logged so it can be aliased).
+let nodeSqlite = null; try { nodeSqlite = require("node:sqlite"); } catch {}
+const lidCache = new Map();
+let lidWarned = false;
+const ENV_LID = new Map(String(process.env.WA_LID_ALIASES || "").split(",").map((x) => x.trim().split("=").map((v) => v.replace(/\D/g, ""))).filter((p) => p[0] && p[1]));
+function lidDb(fn) {
+  if (!nodeSqlite || !fs.existsSync(DB_FILE)) return null;
+  let db;
+  try { db = new nodeSqlite.DatabaseSync(DB_FILE, { readOnly: true }); return fn(db); }
+  catch (e) { if (!lidWarned) { lidWarned = true; console.warn("⚠️ LID lookup failed:", e.message); } return null; }
+  finally { try { db && db.close(); } catch {} }
+}
+function lidToPhone(lid) {
+  if (ENV_LID.has(lid)) return ENV_LID.get(lid);
+  if (lidCache.has(lid)) return lidCache.get(lid);
+  const row = lidDb((db) => db.prepare("SELECT pn FROM whatsmeow_lid_map WHERE lid = ?").get(lid));
+  if (row && row.pn) { lidCache.set(lid, String(row.pn)); return String(row.pn); }
+  return null;
+}
+const phoneToLid = (pn) => { const r = lidDb((db) => db.prepare("SELECT lid FROM whatsmeow_lid_map WHERE pn = ?").get(pn)); return r && r.lid ? String(r.lid) : null; };
+
 // ── STATE ─────────────────────────────────────────────────────
 let client = null, isReady = false, starting = false, currentQR = null, myJid = null, startFailures = 0;
 let pairingRequested = false, wmod = null;
@@ -197,7 +222,7 @@ function classify(m) {
   if (m.videoMessage) return { kind: "video", caption: m.videoMessage.caption };
   if (m.audioMessage) return { kind: "audio" };
   if (m.documentMessage) return { kind: "document", caption: m.documentMessage.caption };
-  if (m.stickerMessage) return { kind: "sticker" };
+  if (m.stickerMessage) return { kind: "sticker", sticker: m.stickerMessage };
   return null; // reactions, protocol messages, etc.
 }
 
@@ -208,15 +233,31 @@ function onMessage({ info, message }) {
     if (!c) return;
     if (c.kind === "text" && !String(c.text || "").trim()) return;
 
-    const number = userPart(info.sender); // may be a WhatsApp "@lid" id for some contacts
+    let number = userPart(info.sender);
+    let viaLid = false;
+    if (String(info.sender).endsWith("@lid")) {
+      viaLid = true;
+      const pn = lidToPhone(number);
+      if (pn) number = pn;
+      else console.warn(`⚠️ Could not map @lid ${number} to a phone number — treating as a new contact. To link it set WA_LID_ALIASES=${number}=<their phone number>`);
+    }
     jidByNumber.set(number, info.chat);
     const msg = { from: number, id: info.id, pushName: info.pushName || null, type: c.kind };
     if (c.kind === "text") msg.text = { body: c.text };
     else if (c.caption) msg[c.kind] = { caption: c.caption };
 
     goOnline();
-    console.log(`📱 WA [whatsmeow] ${info.pushName || number}${String(info.sender).endsWith("@lid") ? " (lid)" : ""}: ${c.kind === "text" ? JSON.stringify(c.text) : `[${c.kind}]`}`);
-    deliverWithRetry({ message: msg, _source: "wwebjs" }, info).catch((e) => console.error("❌ deliver:", e.message));
+    console.log(`📱 WA [whatsmeow] ${info.pushName || number} (${number}${viaLid ? ", via lid" : ""}): ${c.kind === "text" ? JSON.stringify(c.text) : `[${c.kind}]`}`);
+    (async () => {
+      if (c.kind === "sticker") { // hand the sticker's bytes to the main app so Ariana can learn it
+        try {
+          const file = await Promise.race([client.downloadAny(message), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))]);
+          const buf = fs.readFileSync(file); fs.rm(file, () => {});
+          if (buf.length && buf.length < 400000) msg.sticker = { base64: buf.toString("base64"), mimetype: c.sticker.mimetype || "image/webp", animated: !!c.sticker.isAnimated };
+        } catch (e) { console.warn("⚠️ sticker download failed:", e.message); }
+      }
+      await deliverWithRetry({ message: msg, _source: "wwebjs" }, info);
+    })().catch((e) => console.error("❌ deliver:", e.message));
   } catch (e) { console.error("❌ onMessage:", e.message); }
 }
 
@@ -230,6 +271,8 @@ async function sendMedia(jid, body) {
     mime = String(r.headers["content-type"] || "application/octet-stream").split(";")[0];
     kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "document";
   }
+  const isSticker = !!body.sticker;
+  if (isSticker) { kind = "image"; mime = "image/webp"; }
   let ptt = false;
   if (body.voice) {
     try { buf = await toOggOpus(buf); mime = "audio/ogg; codecs=opus"; ptt = true; kind = "audio"; }
@@ -240,8 +283,10 @@ async function sendMedia(jid, body) {
   try {
     const up = await client.uploadMedia(tmp, kind);
     const common = { URL: up.URL, directPath: up.directPath, mediaKey: up.mediaKey, fileEncSHA256: up.fileEncSHA256, fileSHA256: up.fileSHA256, fileLength: String(up.fileLength), mimetype: mime };
-    const field = { image: "imageMessage", video: "videoMessage", audio: "audioMessage", document: "documentMessage" }[kind];
-    const payload = { ...common, ...(kind === "audio" ? { PTT: ptt } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}) };
+    const field = isSticker ? "stickerMessage" : { image: "imageMessage", video: "videoMessage", audio: "audioMessage", document: "documentMessage" }[kind];
+    const payload = isSticker
+      ? { ...common, isAnimated: !!body.animated }
+      : { ...common, ...(kind === "audio" ? { PTT: ptt } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}) };
     await client.sendRawMessage(jid, { [field]: payload });
   } finally { fs.rm(tmp, () => {}); }
 }
@@ -381,6 +426,13 @@ async function start() {
       isReady = true; currentQR = null; startFailures = 0; if (jid) myJid = jid;
       goOnline();
       setTimeout(() => backupSession("connected"), 20000);
+      setTimeout(async () => { // make sure the owner's phone<->lid mapping is known, and say so in the logs
+        const owner = String(process.env.OWNER_PHONE || "").replace(/\D/g, "");
+        if (!owner) return;
+        try { await c.isOnWhatsApp(["+" + owner]); } catch {}
+        const lid = phoneToLid(owner);
+        console.log(`🔗 Owner phone↔lid mapping: ${lid ? "known" : "not known yet (messages from the owner will map as soon as WhatsApp reveals it)"}`);
+      }, 8000);
       if (!global.__waBackupTimer) global.__waBackupTimer = setInterval(() => backupSession("periodic"), 10 * 60 * 1000);
       console.log(`✅ Ariana WhatsApp CONNECTED via whatsmeow (${userPart(myJid) || "?"})`);
     });

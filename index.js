@@ -1,4 +1,9 @@
 "use strict";
+// Restore memory/state files from Supabase BEFORE the engines load (a redeploy wipes the server's disk).
+try { require('child_process').execFileSync(process.execPath, [require('path').join(__dirname, 'state_sync.js'), 'restore'], { stdio: 'inherit', timeout: 25000, env: process.env }); }
+catch (e) { console.warn('[state-sync] restore step failed:', e.message); }
+const stateSync = require('./state_sync');
+const stickers  = require('./stickers');
 const express    = require("express");
 const http       = require("http");
 const { Server } = require("socket.io");
@@ -171,7 +176,7 @@ process.on('SIGTERM', async () => {
   // let the WhatsApp sidecar save its session backup before we exit (deploys send SIGTERM)
   const waChild = global.__waSidecar;
   if (waChild && !waChild.killed) { try { waChild.removeAllListeners('exit'); waChild.kill('SIGTERM'); await new Promise(r => { waChild.once('exit', r); setTimeout(r, 9000); }); } catch {} }
-  await flushAll(); process.exit(0);
+  await stateSync.flush(); await flushAll(); process.exit(0);
 });
 process.on('SIGINT',  async () => { await flushAll(); process.exit(0); });
 
@@ -2131,6 +2136,14 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     if (tgTypingInterval) clearInterval(tgTypingInterval);
     await sendReply(id, platform, reply, voiceUrl, null, chatId, from, phoneNumberId);
 
+    // Now and then she follows a text with a sticker from her drawer (WhatsApp only).
+    if (platform === "whatsapp" && WA_PROVIDER === 'wwebjs' && !voiceUrl) {
+      stickers.maybeFollowUp({
+        chat: id, userText: finalText, replyText: reply,
+        send: async (st) => { await new Promise((r) => setTimeout(r, 900 + Math.random() * 1600)); await waWeb('/send-media', { to: from, base64: st.base64, sticker: true, animated: st.animated }); },
+      }).catch(() => {});
+    }
+
     // ── SELF-LEARNING: extract facts from every social conversation ──
     // Runs in background — never blocks the reply or the sender
     setImmediate(async () => {
@@ -2296,6 +2309,13 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
       else if (mediaType === "document") finalText = "[sent a document]";
       else if (mediaType === "sticker")  finalText = "[sent a sticker]";
       else                               finalText = `[sent ${mediaType}]`;
+    }
+    // The owner's stickers go into Ariana's drawer so she can send them back later.
+    if (mediaType === "sticker" && msg?.sticker?.base64 && OWNER_PHONE && String(from) === OWNER_PHONE) {
+      try {
+        const st = await Promise.race([stickers.add({ base64: msg.sticker.base64, mimetype: msg.sticker.mimetype, animated: msg.sticker.animated }), new Promise((r) => setTimeout(() => r(null), 12000))]);
+        if (st && st.label && st.label !== "sticker") finalText = `[sent a sticker: ${st.label}]`;
+      } catch (e) { console.warn("[stickers] learn failed:", e.message); }
     }
     if (!finalText) return;
 
@@ -4803,6 +4823,9 @@ server.listen(PORT, async () => {
   await loadKeysFromSupabase();
   await applyLinkedSessions();
   await messengerCtl.loadLinked();
+  stateSync.startMirror();
+  stickers.configure({ supabase });
+  stickers.load().then((n) => console.log(`🎟️ Sticker drawer: ${n} sticker(s)`)).catch(() => {});
   // Re-init Groq with loaded key if it wasn't set from env
   if (process.env.GROQ_API_KEY && (!groq || groq.apiKey === 'missing')) {
     const GroqSDK = require('groq-sdk');
