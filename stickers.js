@@ -41,7 +41,7 @@ async function describe(base64, mimetype = "image/webp", { complete = openai.com
   if (!apiKey) return { label: "sticker", mood: "" };
   try {
     const msg = await complete({
-      apiKey, effort: "low", maxOutputTokens: 300, temperature: 0.2, models: ["gpt-6-luna", "gpt-6-sol"],
+      apiKey, effort: "low", maxOutputTokens: 300, temperature: 0.2, models: ["gpt-6-luna"],
       sys: "You catalogue WhatsApp stickers so a chat persona can pick one later. Reply with JSON only: {\"label\":\"<max 8 words: what it shows>\",\"mood\":\"<2-4 words: when to use it, e.g. teasing, celebrating, shocked, sleepy>\"}",
       history: [{ role: "user", content: [{ type: "text", text: "Describe this sticker." }, { type: "image_url", image_url: { url: `data:${mimetype};base64,${base64}` } }] }],
     });
@@ -81,7 +81,7 @@ async function choose({ userText, replyText }, { complete = openai.complete, api
   const options = list().map((s) => `${s.id}: ${s.label}${s.mood ? ` (${s.mood})` : ""}`).join("\n");
   try {
     const msg = await complete({
-      apiKey, effort: "low", maxOutputTokens: 200, temperature: 0.4, models: ["gpt-6-luna", "gpt-6-sol"],
+      apiKey, effort: "low", maxOutputTokens: 200, temperature: 0.4, models: ["gpt-6-luna"],
       sys: "You choose a WhatsApp sticker to follow a chat reply. Pick one only if it clearly fits the mood of the exchange; otherwise none. Reply with JSON only: {\"id\":\"<sticker id>\"} or {\"id\":null}.",
       history: [{ role: "user", content: `They said: ${String(userText || "").slice(0, 300)}\nShe replied: ${String(replyText || "").slice(0, 300)}\n\nStickers:\n${options}` }],
     });
