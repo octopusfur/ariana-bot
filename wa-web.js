@@ -161,21 +161,21 @@ async function goOffline() {
   try { await client.sendPresenceUnavailable(); lastOnlineSent = 0; }
   catch (e) { console.warn("⚠️ presence unavailable failed:", e.message); }
 }
-async function pulseTyping(jid) {
+async function pulseTyping(jid, mode = "text") {
   const chat = await client.getChatById(jid);
-  await chat.sendStateTyping();
+  if (mode === "recording") await chat.sendStateRecording(); else await chat.sendStateTyping();
 }
 function stopTyping(jid, clear = true) {
   const t = typingLoops.get(jid);
   if (t) { clearInterval(t); typingLoops.delete(jid); }
   if (clear && t && client && isReady) client.getChatById(jid).then(c => c.clearState()).catch(() => {});
 }
-function startTyping(jid, maxMs = 90000) {
+function startTyping(jid, mode = "text", maxMs = 90000) {
   stopTyping(jid, false);
   const began = Date.now();
   const t = setInterval(async () => {
     if (!isReady || Date.now() - began > maxMs) return stopTyping(jid);
-    try { await pulseTyping(jid); } catch (e) { console.warn(`⚠️ typing refresh failed for ${jid}: ${e.message}`); }
+    try { await pulseTyping(jid, mode); } catch (e) { console.warn(`⚠️ typing refresh failed for ${jid}: ${e.message}`); }
   }, 8000);
   typingLoops.set(jid, t);
 }
@@ -277,15 +277,16 @@ async function handleApi(pathname, body) {
     return { ok: true };
   }
   if (pathname === "/typing") {
+    const mode = body.mode === "recording" ? "recording" : "text";
     await goOnline();
     try {
-      await pulseTyping(jid);
+      await pulseTyping(jid, mode);
     } catch (e) {
       console.warn(`⚠️ typing failed for ${jid}: ${e.message}`);
       throw e;
     }
-    startTyping(jid);
-    return { ok: true };
+    startTyping(jid, mode);
+    return { ok: true, mode };
   }
   if (pathname === "/send-media") {
     if (!body.url && !body.base64) throw new Error("missing 'url' or 'base64'");
