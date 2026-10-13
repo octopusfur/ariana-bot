@@ -18,6 +18,7 @@ const http = require("http");
 const crypto = require("crypto");
 const axios = require("axios");
 const qrcode = require("qrcode");
+const { analyzeVoice } = require("./voice_wave");
 
 const PORT = Number(process.env.WA_WEB_PORT || 3001);
 const MAIN_APP_URL = (process.env.MAIN_APP_URL || `http://127.0.0.1:${process.env.PORT || 3000}`).replace(/\/$/, "");
@@ -164,19 +165,20 @@ async function goOffline() {
   if (typingLoops.size) { presenceTimer = setTimeout(goOffline, 15000); return; }
   try { await client.sendPresence("unavailable"); lastOnlineSent = 0; } catch (e) { console.warn("⚠️ presence unavailable failed:", e.message); }
 }
-const pulseTyping = (jid) => client.sendChatPresence(jid, "composing");
+// mode "recording" shows "recording audio…" at the top of the chat; "text" shows "typing…".
+const pulseTyping = (jid, mode = "text") => client.sendChatPresence(jid, "composing", mode === "recording" ? "audio" : "");
 function stopTyping(jid, clear = true) {
   const t = typingLoops.get(jid);
   if (t) { clearInterval(t); typingLoops.delete(jid); }
   if (clear && t && client && isReady) client.sendChatPresence(jid, "paused").catch(() => {});
 }
-function startTyping(jid, maxMs = 90000) {
+function startTyping(jid, mode = "text", maxMs = 90000) {
   stopTyping(jid, false);
   const began = Date.now();
   const t = setInterval(async () => {
     if (!isReady || Date.now() - began > maxMs) return stopTyping(jid);
-    try { await pulseTyping(jid); } catch (e) { console.warn(`⚠️ typing refresh failed: ${e.message}`); }
-  }, 8000);
+    try { await pulseTyping(jid, mode); } catch (e) { console.warn(`⚠️ ${mode} indicator refresh failed: ${e.message}`); }
+  }, 6000);
   typingLoops.set(jid, t);
 }
 
@@ -326,9 +328,9 @@ async function sendMedia(jid, body) {
     if (buf.length > 4500000) throw new Error("GIF too large");
     kind = "video"; mime = "video/mp4";
   }
-  let ptt = false;
+  let ptt = false, voiceMeta = null;
   if (body.voice) {
-    try { buf = await toOggOpus(buf); mime = "audio/ogg; codecs=opus"; ptt = true; kind = "audio"; }
+    try { buf = await toOggOpus(buf); mime = "audio/ogg; codecs=opus"; ptt = true; kind = "audio"; voiceMeta = await analyzeVoice(buf); } // length + waveform bars, so it looks like a real voice note
     catch (e) { console.warn(`⚠️ voice conversion failed (${e.message}) — sending original`); }
   }
   const tmp = path.join(os.tmpdir(), `wa_${Date.now()}_${Math.random().toString(36).slice(2)}`);
@@ -339,7 +341,7 @@ async function sendMedia(jid, body) {
     const field = isSticker ? "stickerMessage" : { image: "imageMessage", video: "videoMessage", audio: "audioMessage", document: "documentMessage" }[kind];
     const payload = isSticker
       ? { ...common, isAnimated: !!body.animated }
-      : { ...common, ...(kind === "audio" ? { PTT: ptt } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}), ...(isGif ? { gifPlayback: true } : {}) };
+      : { ...common, ...(kind === "audio" ? { PTT: ptt, ...(ptt && voiceMeta ? { seconds: voiceMeta.seconds, waveform: voiceMeta.waveform.toString("base64") } : {}) } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}), ...(isGif ? { gifPlayback: true } : {}) };
     await client.sendRawMessage(jid, { [field]: payload });
   } finally { fs.rm(tmp, () => {}); }
 }
@@ -370,10 +372,12 @@ async function handleApi(pathname, body) {
     return { ok: true };
   }
   if (pathname === "/typing") {
+    const mode = body.mode === "recording" ? "recording" : "text";
     await goOnline();
-    await pulseTyping(jid);
-    startTyping(jid);
-    return { ok: true };
+    await pulseTyping(jid, mode);
+    startTyping(jid, mode);
+    console.log(`${mode === "recording" ? "🎙️" : "✍️"} ${mode === "recording" ? "recording audio" : "typing"} → ${jid}`);
+    return { ok: true, mode };
   }
   if (pathname === "/send-media") {
     if (!body.url && !body.base64) throw new Error("missing 'url' or 'base64'");
