@@ -218,7 +218,7 @@ async function deliverWithRetry(payload, info) {
 function classify(m) {
   if (m.conversation) return { kind: "text", text: m.conversation };
   if (m.extendedTextMessage && m.extendedTextMessage.text) return { kind: "text", text: m.extendedTextMessage.text };
-  if (m.imageMessage) return { kind: "image", caption: m.imageMessage.caption };
+  if (m.imageMessage) return { kind: "image", caption: m.imageMessage.caption, media: m.imageMessage };
   if (m.videoMessage) return { kind: "video", caption: m.videoMessage.caption };
   if (m.audioMessage) return { kind: "audio" };
   if (m.documentMessage) return { kind: "document", caption: m.documentMessage.caption };
@@ -249,12 +249,15 @@ function onMessage({ info, message }) {
     goOnline();
     console.log(`📱 WA [whatsmeow] ${info.pushName || number} (${number}${viaLid ? ", via lid" : ""}): ${c.kind === "text" ? JSON.stringify(c.text) : `[${c.kind}]`}`);
     (async () => {
-      if (c.kind === "sticker") { // hand the sticker's bytes to the main app so Ariana can learn it
+      if (c.kind === "sticker" || c.kind === "image") { // hand the bytes to the main app: stickers are learned, images are looked at
         try {
-          const file = await Promise.race([client.downloadAny(message), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))]);
+          const file = await Promise.race([client.downloadAny(message), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))]);
           const buf = fs.readFileSync(file); fs.rm(file, () => {});
-          if (buf.length && buf.length < 400000) msg.sticker = { base64: buf.toString("base64"), mimetype: c.sticker.mimetype || "image/webp", animated: !!c.sticker.isAnimated };
-        } catch (e) { console.warn("⚠️ sticker download failed:", e.message); }
+          const limit = c.kind === "sticker" ? 400000 : 4000000;
+          if (!buf.length || buf.length >= limit) console.warn(`⚠️ ${c.kind} not forwarded (${buf.length} bytes)`);
+          else if (c.kind === "sticker") { msg.sticker = { base64: buf.toString("base64"), mimetype: c.sticker.mimetype || "image/webp", animated: !!c.sticker.isAnimated }; console.log(`🎟️ sticker received (${Math.round(buf.length / 1024)} KB)`); }
+          else { msg.image = { ...(msg.image || {}), base64: buf.toString("base64"), mimetype: (c.media && c.media.mimetype) || "image/jpeg" }; console.log(`🖼️ image received (${Math.round(buf.length / 1024)} KB)`); }
+        } catch (e) { console.warn(`⚠️ ${c.kind} download failed:`, e.message); }
       }
       await deliverWithRetry({ message: msg, _source: "wwebjs" }, info);
     })().catch((e) => console.error("❌ deliver:", e.message));
@@ -264,8 +267,10 @@ function onMessage({ info, message }) {
 // ── OUTBOUND ──────────────────────────────────────────────────
 async function sendMedia(jid, body) {
   let buf, mime = "audio/mpeg", kind = "audio", name = "file";
-  if (body.base64) buf = Buffer.from(body.base64, "base64");
-  else {
+  if (body.base64) {
+    buf = Buffer.from(body.base64, "base64");
+    if (body.mimetype) { mime = String(body.mimetype); kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "document"; }
+  } else {
     const r = await axios.get(body.url, { responseType: "arraybuffer", timeout: 30000 });
     buf = Buffer.from(r.data);
     mime = String(r.headers["content-type"] || "application/octet-stream").split(";")[0];
@@ -291,8 +296,22 @@ async function sendMedia(jid, body) {
   } finally { fs.rm(tmp, () => {}); }
 }
 
+const STATUS_JID = "status@broadcast";
+const STATUS_BACKGROUNDS = [0xFF1F3A5F, 0xFF5B2A86, 0xFF8E3B46, 0xFF1B6B5A, 0xFF9A5B13, 0xFF2F4858, 0xFF7A3E65, 0xFF35654D];
+
 async function handleApi(pathname, body) {
   requireReady();
+  if (pathname === "/post-status") { // Ariana's own WhatsApp Status (24h story), visible to contacts saved on her account
+    const text = String(body.text || "").trim();
+    if (body.base64) await sendMedia(STATUS_JID, { base64: body.base64, mimetype: body.mimetype || "image/jpeg", caption: text });
+    else {
+      if (!text) throw new Error("missing 'text'");
+      const bg = STATUS_BACKGROUNDS[Math.floor(Math.random() * STATUS_BACKGROUNDS.length)] >>> 0;
+      await client.sendRawMessage(STATUS_JID, { extendedTextMessage: { text, backgroundArgb: bg, textArgb: 0xFFFFFFFF, font: Math.floor(Math.random() * 6), previewType: 0 } });
+    }
+    console.log(`✅ whatsmeow status posted${body.base64 ? " (image)" : ""}`);
+    return { ok: true };
+  }
   const jid = await resolveJid(body.to);
   if (pathname === "/send") {
     if (!body.message) throw new Error("missing 'message'");

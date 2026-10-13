@@ -130,3 +130,26 @@ test("/send-media with sticker:true sends a stickerMessage", async () => {
     assert.strictEqual(line.msg.stickerMessage.mimetype, "image/webp");
   } finally { child.kill(); }
 });
+
+test("an inbound photo is forwarded with its bytes so Ariana can look at it", async () => {
+  const hit = await runInbound({ lidRow: ["123456789012345", "2348012345678"], message: JSON.stringify({ info: { id: "I1", chat: "123456789012345@lid", sender: "123456789012345@lid", isFromMe: false, isGroup: false, timestamp: 1, pushName: "Owner" }, message: { imageMessage: { caption: "look", mimetype: "image/jpeg" } } }) });
+  assert.strictEqual(hit.message.type, "image");
+  assert.strictEqual(hit.message.image.caption, "look");
+  assert.strictEqual(hit.message.image.mimetype, "image/jpeg");
+  assert.ok(Buffer.from(hit.message.image.base64, "base64").length > 0);
+});
+
+test("/post-status posts a text Status to status@broadcast", async () => {
+  const log = path.join(os.tmpdir(), "fake-st-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
+  try {
+    await wait(400);
+    const r = await call(port, "POST", "/post-status", { text: "coffee first, opinions later" });
+    assert.strictEqual(r.status, 200);
+    const line = JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").pop());
+    assert.strictEqual(line.jid, "status@broadcast");
+    assert.strictEqual(line.msg.extendedTextMessage.text, "coffee first, opinions later");
+    assert.ok(line.msg.extendedTextMessage.backgroundArgb > 0xFF000000, "has a background colour");
+    assert.strictEqual((await call(port, "POST", "/post-status", { text: "  " })).status, 500, "empty text is refused");
+  } finally { child.kill(); }
+});

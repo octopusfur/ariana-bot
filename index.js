@@ -4,6 +4,7 @@ try { require('child_process').execFileSync(process.execPath, [require('path').j
 catch (e) { console.warn('[state-sync] restore step failed:', e.message); }
 const stateSync = require('./state_sync');
 const stickers  = require('./stickers');
+const statusPosterMod = require('./status_poster');
 const express    = require("express");
 const http       = require("http");
 const { Server } = require("socket.io");
@@ -53,7 +54,7 @@ async function waCalls(route, body) {
   catch (e) { throw new Error(e.response?.data?.error || e.message); }
 }
 const PORT            = process.env.PORT || 3000;
-const OWNER_PHONE     = process.env.OWNER_PHONE || "";
+const OWNER_PHONE     = String(process.env.OWNER_PHONE || "").replace(/\D/g, ""); // digits only, so "+234 …" in the env still matches
 const SIGNAL_CLI_URL  = process.env.SIGNAL_CLI_URL || "https://signal-cli-rest-api-y65f.onrender.com";
 let   SIGNAL_NUMBER   = process.env.SIGNAL_NUMBER  || "+19832058251"; // dashboard-linked number (Settings → Signal) overrides this at startup
 const VAPID_PUBLIC    = process.env.VAPID_PUBLIC   || "";
@@ -2311,7 +2312,10 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
       else                               finalText = `[sent ${mediaType}]`;
     }
     // The owner's stickers go into Ariana's drawer so she can send them back later.
-    if (mediaType === "sticker" && msg?.sticker?.base64 && OWNER_PHONE && String(from) === OWNER_PHONE) {
+    if (mediaType === "sticker" && !(msg?.sticker?.base64 && OWNER_PHONE && String(from).replace(/\D/g, "") === OWNER_PHONE)) {
+      console.log(`[stickers] not learned: ${!msg?.sticker?.base64 ? "no sticker bytes arrived" : !OWNER_PHONE ? "OWNER_PHONE is not set" : "sender is not the owner"}`);
+    }
+    if (mediaType === "sticker" && msg?.sticker?.base64 && OWNER_PHONE && String(from).replace(/\D/g, "") === OWNER_PHONE) {
       try {
         const st = await Promise.race([stickers.add({ base64: msg.sticker.base64, mimetype: msg.sticker.mimetype, animated: msg.sticker.animated }), new Promise((r) => setTimeout(() => r(null), 12000))]);
         if (st && st.label && st.label !== "sticker") finalText = `[sent a sticker: ${st.label}]`;
@@ -2331,7 +2335,8 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
     await handleMessage({
       id: from, platform: "whatsapp", from, text: finalText,
       chatId: null, phoneNumberId: body.phone_number_id, name: contactName,
-      mediaUrl, mediaType
+      mediaUrl, mediaType,
+      preloadedImageBase64: mediaType === "image" ? (msg?.image?.base64 || null) : null
     });
   } catch (e) { console.error("❌ WA webhook:", e.message); }
 });
@@ -2885,6 +2890,22 @@ linkRoutes.register(app, {
 
 // Facebook Messenger (Page inbox): webhook /messenger + dashboard linking, see messenger.js
 const messengerCtl = messenger.init({ app, requireAuth: requireDashboardAuth, getSupabase: () => supabase, onMessage: (m) => handleMessage(m) });
+
+// Ariana's own WhatsApp Status posts (see status_poster.js)
+const statusPoster = statusPosterMod.create({
+  enabled: () => process.env.WA_STATUS_POSTS !== 'off' && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
+  isConnected: async () => { try { return !!(await axios.get(WA_WEB_URL + '/status', { timeout: 4000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} })).data.connected; } catch { return false; } },
+  generate: async (prompt) => {
+    const sys = engineV2 ? await engineV2.buildBasePrompt() : '';
+    const r = await generateBrainReply([{ role: 'user', content: prompt }], sys, { attempts: 1 });
+    return typeof r === 'string' ? r : (r && (r.text || r.content)) || null;
+  },
+  post: (text) => waWeb('/post-status', { text }),
+});
+app.post('/api/whatsapp/status-post', requireDashboardAuth, async (req, res) => {
+  try { res.json({ ok: true, text: await statusPoster.postNow(req.body && req.body.text) }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
 
 // Dashboard-linked Telegram session / Signal number win over env, so a redeploy never undoes a link.
 async function applyLinkedSessions() {
@@ -4826,6 +4847,8 @@ server.listen(PORT, async () => {
   stateSync.startMirror();
   stickers.configure({ supabase });
   stickers.load().then((n) => console.log(`🎟️ Sticker drawer: ${n} sticker(s)`)).catch(() => {});
+  setTimeout(() => statusPoster.tick().catch(() => {}), 90 * 1000);
+  setInterval(() => statusPoster.tick().catch(() => {}), 5 * 60 * 1000);
   // Re-init Groq with loaded key if it wasn't set from env
   if (process.env.GROQ_API_KEY && (!groq || groq.apiKey === 'missing')) {
     const GroqSDK = require('groq-sdk');

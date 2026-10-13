@@ -629,6 +629,7 @@ details[open]>summary .st-chev{transform:rotate(90deg)}
           <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
         <div class="st-panel">
           <div id="wa-status" class="st-note">Checking...</div>
+          <button class="btn-ghost" id="wa-status-btn" onclick="waPostStatus()" style="margin-bottom:14px">Post a status now</button>
           <div id="wa-link">
             <label class="lbl">Ariana's WhatsApp number</label>
             <input type="tel" id="wa-phone" class="inp" inputmode="tel" placeholder="+234 801 234 5678">
@@ -880,6 +881,12 @@ async function fbRefresh(){
       document.getElementById('fb-hook-wrap').style.display='';hook.innerHTML='Webhook URL: <b>'+d.webhookUrl+'</b><br>Verify token: <b>'+(d.verifyToken||'')+'</b><br>Subscribe the Page to <b>messages</b> and <b>messaging_postbacks</b>.';
     }else{st.textContent='Not linked. Paste your Page token and app secret.';link.style.display='';un.style.display='none';document.getElementById('fb-hook-wrap').style.display='none';}
   }catch(e){st.textContent='Could not check status.';}
+}
+async function waPostStatus(){
+  const b=document.getElementById('wa-status-btn');if(!b)return;b.disabled=true;b.textContent='Posting...';
+  const {ok,d}=await jpost('/api/whatsapp/status-post',{});
+  b.disabled=false;b.textContent='Post a status now';
+  toast(ok?('Posted: '+(d.text||'')):(d.error||'Could not post'),5000);
 }
 async function fbSave(){
   const pageToken=document.getElementById('fb-token').value.trim(),appSecret=document.getElementById('fb-secret').value.trim(),appId=document.getElementById('fb-appid').value.trim();
