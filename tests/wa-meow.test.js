@@ -241,3 +241,36 @@ test("10. a failed download, an over-long clip or an oversized file is reported 
   const tooBig = await inboundWith(inboundMsg("F3", { imageMessage: { mimetype: "image/jpeg" } }), { FAKE_DOWNLOAD_FILE: huge });
   assert.strictEqual(tooBig.message.mediaError, "too large");
 });
+
+test("a voice note goes out as push-to-talk with its real length and a 64-bar waveform", { skip: skipFx }, async () => {
+  const log = path.join(os.tmpdir(), "fake-vn-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
+  try {
+    await wait(400);
+    const r = await call(port, "POST", "/send-media", { to: "2348012345678", base64: fx.oggVoice().toString("base64"), mimetype: "audio/ogg", voice: true });
+    assert.strictEqual(r.status, 200, r.body);
+    const a = lastLog(log).msg.audioMessage;
+    assert.strictEqual(a.PTT, true);
+    assert.strictEqual(a.mimetype, "audio/ogg; codecs=opus");
+    assert.strictEqual(a.seconds, 2); // 1.5s of audio shows as 0:02, never 0:00
+    const wave = Buffer.from(a.waveform, "base64");
+    assert.strictEqual(wave.length, 64);
+    assert.ok([...wave].every((v) => v <= 100) && Math.max(...wave) === 100);
+  } finally { child.kill(); }
+});
+
+test("/typing shows \"typing…\" by default and \"recording audio…\" when asked", async () => {
+  const log = path.join(os.tmpdir(), "fake-typ-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
+  try {
+    await wait(400);
+    const presence = () => fs.readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.op === "sendChatPresence");
+    assert.strictEqual((await call(port, "POST", "/typing", { to: "2348012345678" })).status, 200);
+    let p = presence().pop();
+    assert.deepStrictEqual([p.presence, p.media], ["composing", ""]);
+    const rec = await call(port, "POST", "/typing", { to: "2348012345678", mode: "recording" });
+    assert.strictEqual(rec.status, 200);
+    p = presence().pop();
+    assert.deepStrictEqual([p.presence, p.media], ["composing", "audio"]);
+  } finally { child.kill(); }
+});
