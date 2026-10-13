@@ -27,6 +27,6 @@ export function createClient() {
     async uploadMedia() { return { URL: "u", directPath: "d", mediaKey: "k", fileEncSHA256: "e", fileSHA256: "s", fileLength: 12 }; },
     async sendRawMessage(jid, msg) { log({ op: "sendRawMessage", jid, msg }); return { id: "x", timestamp: 1 }; },
     async sendMessage(jid, msg) { log({ op: "sendMessage", jid, msg }); return { id: "x", timestamp: 1 }; },
-    async sendPresence() {}, async sendChatPresence() {}, async markRead() {},
+    async sendPresence() {}, async sendChatPresence(jid, presence, media) { log({ op: "sendChatPresence", jid, presence, media }); }, async markRead() {},
   };
 }
