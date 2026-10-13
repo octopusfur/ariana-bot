@@ -1,21 +1,24 @@
 'use strict';
 /**
- * OpenAI client for Ariana's brain — Responses API (GPT-6 family: Sol / Luna / Astra).
+ * OpenAI client for Ariana's brain — Responses API (GPT-6 family). Luna 6 ONLY: Sol models are blocked everywhere (too expensive).
  * Presents the same shape the brain already expects from Chat Completions:
  *   { content, tool_calls: [{ id, function: { name, arguments } }] }
  *
- * Env: OPENAI_API_KEY, OPENAI_MODEL (default gpt-6.1-sol), OPENAI_REASONING (default "low").
+ * Env: OPENAI_API_KEY, OPENAI_MODEL (default gpt-6-luna; any *sol* model is ignored), OPENAI_REASONING (default "low").
  * If a model is missing/forbidden we try the next one in the chain; if a model rejects a request
  * parameter (temperature, reasoning, tool_choice...) we retry without it.
  */
 const axios = require('axios');
 
 const API = 'https://api.openai.com/v1';
-const DEFAULT_MODELS = ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'];
+const DEFAULT_MODELS = ['gpt-6-luna'];
+
+// Sol models are expensive and must never be called, whatever env/config asks for.
+const isBlocked = (m) => /sol/i.test(String(m || ''));
 
 function modelChain(env = process.env) {
   const first = String(env.OPENAI_MODEL || '').trim();
-  return [...new Set([first, ...DEFAULT_MODELS].filter(Boolean))];
+  return [...new Set([first, ...DEFAULT_MODELS].filter((m) => m && !isBlocked(m)))];
 }
 
 function partToInput(part, role) {
@@ -112,9 +115,11 @@ async function complete(opts) {
   const {
     apiKey, history, sys, tools, toolChoice,
     effort = 'low', maxOutputTokens = 2000, temperature,
-    models = modelChain(), post = (url, body, cfg) => axios.post(url, body, cfg),
+    models: modelsIn = modelChain(), post = (url, body, cfg) => axios.post(url, body, cfg),
   } = opts;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+  const models = (modelsIn || []).filter((m) => !isBlocked(m));
+  if (!models.length) throw new Error('no allowed OpenAI model (Sol models are blocked)');
   let lastErr;
   for (const model of models) {
     let body = buildBody({ model, history, sys, tools, toolChoice, effort, maxOutputTokens, temperature });
@@ -149,4 +154,4 @@ async function probe(apiKey, get = (url, cfg) => axios.get(url, cfg)) {
   }
 }
 
-module.exports = { modelChain, toInput, toTools, toToolChoice, buildBody, fromResponse, repairBody, complete, probe };
+module.exports = { modelChain, isBlocked, toInput, toTools, toToolChoice, buildBody, fromResponse, repairBody, complete, probe };
