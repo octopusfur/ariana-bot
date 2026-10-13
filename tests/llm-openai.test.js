@@ -6,14 +6,25 @@ const TOOL = { type: 'function', function: { name: 'send_reply', description: 'r
 const okReply = (text) => ({ data: { output: [{ type: 'reasoning' }, { type: 'function_call', call_id: 'c1', name: 'send_reply', arguments: JSON.stringify({ message: text }) }] } });
 const httpErr = (status, message) => Object.assign(new Error(message), { response: { status, data: { error: { message } } } });
 
-test('chain: GPT-6.1 Sol first, then Sol, then Luna; OPENAI_MODEL leads without duplicates', () => {
-  assert.deepStrictEqual(o.modelChain({}), ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']);
-  assert.deepStrictEqual(o.modelChain({ OPENAI_MODEL: 'gpt-6-astra' }), ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']);
+test('chain: Luna 6 only; Sol models are never in the chain, even via OPENAI_MODEL', () => {
+  assert.deepStrictEqual(o.modelChain({}), ['gpt-6-luna']);
+  assert.deepStrictEqual(o.modelChain({ OPENAI_MODEL: 'gpt-6-astra' }), ['gpt-6-astra', 'gpt-6-luna']);
+  assert.deepStrictEqual(o.modelChain({ OPENAI_MODEL: 'gpt-6.1-sol' }), ['gpt-6-luna']);
+  assert.deepStrictEqual(o.modelChain({ OPENAI_MODEL: 'gpt-6-sol' }), ['gpt-6-luna']);
   assert.strictEqual(o.modelChain({ OPENAI_MODEL: 'gpt-6-luna' }).filter((m) => m === 'gpt-6-luna').length, 1);
 });
 
+test('complete() never calls a Sol model even if explicitly passed', async () => {
+  const seen = [];
+  const post = async (url, body) => { seen.push(body.model); return okReply('ok'); };
+  await o.complete({ apiKey: 'k', history: [{ role: 'user', content: 'x' }], sys: 's', tools: [TOOL], models: ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'], post });
+  assert.deepStrictEqual(seen, ['gpt-6-luna']);
+  await assert.rejects(() => o.complete({ apiKey: 'k', history: [], sys: 's', models: ['gpt-6-sol'], post }), /blocked/);
+  assert.deepStrictEqual(seen, ['gpt-6-luna']);
+});
+
 test('request is shaped for the Responses API (flat tools, instructions, forced function)', () => {
-  const b = o.buildBody({ model: 'gpt-6.1-sol', history: [{ role: 'user', content: 'hey' }, { role: 'assistant', content: 'hi' }], sys: 'You are Ariana', tools: [TOOL], toolChoice: { type: 'function', function: { name: 'send_reply' } }, effort: 'low', maxOutputTokens: 2000, temperature: 0.92 });
+  const b = o.buildBody({ model: 'gpt-6-luna', history: [{ role: 'user', content: 'hey' }, { role: 'assistant', content: 'hi' }], sys: 'You are Ariana', tools: [TOOL], toolChoice: { type: 'function', function: { name: 'send_reply' } }, effort: 'low', maxOutputTokens: 2000, temperature: 0.92 });
   assert.strictEqual(b.instructions, 'You are Ariana');
   assert.deepStrictEqual(b.input, [{ role: 'user', content: 'hey' }, { role: 'assistant', content: 'hi' }]);
   assert.strictEqual(b.tools[0].name, 'send_reply');
@@ -44,9 +55,9 @@ test('refusals and empty output throw so the caller can fall back', () => {
 
 test('missing model -> tries the next one', async () => {
   const seen = [];
-  const post = async (url, body) => { seen.push(body.model); if (body.model === 'gpt-6.1-sol') throw httpErr(404, 'The model `gpt-6.1-sol` does not exist or you do not have access to it.'); return okReply('ok'); };
-  const m = await o.complete({ apiKey: 'k', history: [{ role: 'user', content: 'x' }], sys: 's', tools: [TOOL], post });
-  assert.deepStrictEqual(seen, ['gpt-6.1-sol', 'gpt-6-sol']);
+  const post = async (url, body) => { seen.push(body.model); if (body.model === 'gpt-6-astra') throw httpErr(404, 'The model `gpt-6-astra` does not exist or you do not have access to it.'); return okReply('ok'); };
+  const m = await o.complete({ apiKey: 'k', history: [{ role: 'user', content: 'x' }], sys: 's', tools: [TOOL], models: ['gpt-6-astra', 'gpt-6-luna'], post });
+  assert.deepStrictEqual(seen, ['gpt-6-astra', 'gpt-6-luna']);
   assert.ok(m.tool_calls);
 });
 
