@@ -196,6 +196,21 @@ function toOggOpus(buf) {
   });
 }
 
+function gifToMp4(buf) { // H.264 needs even dimensions and yuv420p to play everywhere
+  return new Promise((resolve, reject) => {
+    const base = path.join(os.tmpdir(), `gif_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    fs.writeFileSync(`${base}.gif`, buf);
+    require("child_process").execFile("ffmpeg",
+      ["-y", "-loglevel", "error", "-i", `${base}.gif`, "-movflags", "+faststart", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-an", `${base}.mp4`],
+      { timeout: 30000 }, (err) => {
+        let out = null, failure = err;
+        if (!err) { try { out = fs.readFileSync(`${base}.mp4`); } catch (e) { failure = e; } }
+        fs.rm(`${base}.gif`, () => {}); fs.rm(`${base}.mp4`, () => {});
+        failure ? reject(failure) : resolve(out);
+      });
+  });
+}
+
 // ── INBOUND ───────────────────────────────────────────────────
 async function forwardToMainApp(payload) {
   try {
@@ -219,11 +234,28 @@ function classify(m) {
   if (m.conversation) return { kind: "text", text: m.conversation };
   if (m.extendedTextMessage && m.extendedTextMessage.text) return { kind: "text", text: m.extendedTextMessage.text };
   if (m.imageMessage) return { kind: "image", caption: m.imageMessage.caption, media: m.imageMessage };
-  if (m.videoMessage) return { kind: "video", caption: m.videoMessage.caption };
-  if (m.audioMessage) return { kind: "audio" };
+  if (m.videoMessage) return { kind: "video", caption: m.videoMessage.caption, media: m.videoMessage, gif: !!m.videoMessage.gifPlayback };
+  if (m.audioMessage) return { kind: "audio", media: m.audioMessage, ptt: !!m.audioMessage.PTT };
   if (m.documentMessage) return { kind: "document", caption: m.documentMessage.caption };
   if (m.stickerMessage) return { kind: "sticker", sticker: m.stickerMessage };
   return null; // reactions, protocol messages, etc.
+}
+
+// What we download and hand to the main app, and the size/length caps (bytes / seconds).
+const MEDIA_LIMITS = { sticker: { bytes: 400000 }, image: { bytes: 4000000 }, video: { bytes: 4500000, seconds: 20 }, audio: { bytes: 6000000, seconds: 300 } };
+const DOWNLOAD_TIMEOUT_MS = 20000;
+async function fetchMedia(message, kind, secs) {
+  const lim = MEDIA_LIMITS[kind];
+  if (lim.seconds && secs && secs > lim.seconds) return { error: "too long" };
+  let file;
+  try {
+    file = await Promise.race([client.downloadAny(message), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), DOWNLOAD_TIMEOUT_MS))]);
+    const buf = fs.readFileSync(file);
+    if (!buf.length) return { error: "download returned nothing" };
+    if (buf.length >= lim.bytes) return { error: "too large" };
+    return { buf };
+  } catch (e) { return { error: e.message === "timeout" ? "download timed out" : "download failed" }; }
+  finally { if (file) fs.rm(file, () => {}); }
 }
 
 function onMessage({ info, message }) {
@@ -249,15 +281,18 @@ function onMessage({ info, message }) {
     goOnline();
     console.log(`📱 WA [whatsmeow] ${info.pushName || number} (${number}${viaLid ? ", via lid" : ""}): ${c.kind === "text" ? JSON.stringify(c.text) : `[${c.kind}]`}`);
     (async () => {
-      if (c.kind === "sticker" || c.kind === "image") { // hand the bytes to the main app: stickers are learned, images are looked at
-        try {
-          const file = await Promise.race([client.downloadAny(message), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))]);
-          const buf = fs.readFileSync(file); fs.rm(file, () => {});
-          const limit = c.kind === "sticker" ? 400000 : 4000000;
-          if (!buf.length || buf.length >= limit) console.warn(`⚠️ ${c.kind} not forwarded (${buf.length} bytes)`);
-          else if (c.kind === "sticker") { msg.sticker = { base64: buf.toString("base64"), mimetype: c.sticker.mimetype || "image/webp", animated: !!c.sticker.isAnimated }; console.log(`🎟️ sticker received (${Math.round(buf.length / 1024)} KB)`); }
-          else { msg.image = { ...(msg.image || {}), base64: buf.toString("base64"), mimetype: (c.media && c.media.mimetype) || "image/jpeg" }; console.log(`🖼️ image received (${Math.round(buf.length / 1024)} KB)`); }
-        } catch (e) { console.warn(`⚠️ ${c.kind} download failed:`, e.message); }
+      if (["sticker", "image", "video", "audio"].includes(c.kind)) { // hand the bytes to the main app: stickers are learned, the rest is looked at / listened to
+        const secs = c.media && c.media.seconds ? Number(c.media.seconds) : 0;
+        const got = await fetchMedia(message, c.kind, secs);
+        if (got.error) { msg.mediaError = got.error; console.warn(`⚠️ ${c.kind} not forwarded (${got.error})`); }
+        else {
+          const b64 = got.buf.toString("base64");
+          if (c.kind === "sticker") msg.sticker = { base64: b64, mimetype: c.sticker.mimetype || "image/webp", animated: !!c.sticker.isAnimated };
+          else if (c.kind === "image") msg.image = { ...(msg.image || {}), base64: b64, mimetype: (c.media && c.media.mimetype) || "image/jpeg" };
+          else if (c.kind === "video") msg.video = { ...(msg.video || {}), base64: b64, mimetype: (c.media && c.media.mimetype) || "video/mp4", gif: c.gif, seconds: secs || null };
+          else msg.audio = { base64: b64, mimetype: (c.media && c.media.mimetype) || "audio/ogg", ptt: c.ptt, seconds: secs || null };
+          console.log(`📎 ${c.kind} received (${Math.round(got.buf.length / 1024)} KB)`);
+        }
       }
       await deliverWithRetry({ message: msg, _source: "wwebjs" }, info);
     })().catch((e) => console.error("❌ deliver:", e.message));
@@ -277,7 +312,20 @@ async function sendMedia(jid, body) {
     kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "document";
   }
   const isSticker = !!body.sticker;
-  if (isSticker) { kind = "image"; mime = "image/webp"; }
+  if (isSticker) {
+    kind = "image"; mime = "image/webp";
+    if (buf.toString("latin1", 8, 12) !== "WEBP") { // WhatsApp stickers must be WebP, 512x512 at most
+      buf = await require("sharp")(buf).resize(512, 512, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp().toBuffer();
+    }
+    if (buf.length > 500000) throw new Error("sticker too large for WhatsApp (500 KB max)");
+  }
+  const isGif = !!body.gif && !isSticker;
+  if (isGif) { // WhatsApp has no native GIF message: a GIF is an MP4 video flagged gifPlayback
+    if (buf.toString("latin1", 0, 4) === "GIF8") buf = await gifToMp4(buf);
+    if (buf.toString("latin1", 4, 8) !== "ftyp") throw new Error("GIF must be a GIF or MP4 file");
+    if (buf.length > 4500000) throw new Error("GIF too large");
+    kind = "video"; mime = "video/mp4";
+  }
   let ptt = false;
   if (body.voice) {
     try { buf = await toOggOpus(buf); mime = "audio/ogg; codecs=opus"; ptt = true; kind = "audio"; }
@@ -291,7 +339,7 @@ async function sendMedia(jid, body) {
     const field = isSticker ? "stickerMessage" : { image: "imageMessage", video: "videoMessage", audio: "audioMessage", document: "documentMessage" }[kind];
     const payload = isSticker
       ? { ...common, isAnimated: !!body.animated }
-      : { ...common, ...(kind === "audio" ? { PTT: ptt } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}) };
+      : { ...common, ...(kind === "audio" ? { PTT: ptt } : body.caption ? { caption: body.caption } : {}), ...(kind === "document" ? { fileName: name } : {}), ...(isGif ? { gifPlayback: true } : {}) };
     await client.sendRawMessage(jid, { [field]: payload });
   } finally { fs.rm(tmp, () => {}); }
 }

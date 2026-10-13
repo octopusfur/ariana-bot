@@ -9,6 +9,7 @@ const crypto = require("crypto");
 const openai = require("./llm_openai");
 
 const MAX_STICKERS = 80;
+const MAX_GIF_BYTES = 1500000; // base64 length guard for stored GIFs (they are sent back as MP4)
 const COOLDOWN_REPLIES = 4;   // at least this many replies between stickers in a chat
 const CHANCE = 0.35;          // then only this often
 
@@ -25,7 +26,7 @@ async function load() {
   if (!supabase) return 0;
   try {
     const { data } = await supabase.from("sessions").select("key,data").eq("type", "wa_sticker");
-    for (const r of data || []) if (r.data && r.data.base64) lib.set(r.key, { id: r.key, ...r.data });
+    for (const r of data || []) if (r.data && r.data.base64) lib.set(r.key, { id: r.key, kind: "sticker", ...r.data });
     return lib.size;
   } catch (e) { console.warn("[stickers] could not load:", e.message); return lib.size; }
 }
@@ -37,13 +38,13 @@ function firstJson(text) {
 }
 
 /** Ask the vision model what this sticker is for. Never throws. */
-async function describe(base64, mimetype = "image/webp", { complete = openai.complete, apiKey = process.env.OPENAI_API_KEY } = {}) {
+async function describe(base64, mimetype = "image/webp", { complete = openai.complete, apiKey = process.env.OPENAI_API_KEY } = {}, previews = []) {
   if (!apiKey) return { label: "sticker", mood: "" };
   try {
     const msg = await complete({
       apiKey, effort: "low", maxOutputTokens: 300, temperature: 0.2, models: ["gpt-6-luna"],
       sys: "You catalogue WhatsApp stickers so a chat persona can pick one later. Reply with JSON only: {\"label\":\"<max 8 words: what it shows>\",\"mood\":\"<2-4 words: when to use it, e.g. teasing, celebrating, shocked, sleepy>\"}",
-      history: [{ role: "user", content: [{ type: "text", text: "Describe this sticker." }, { type: "image_url", image_url: { url: `data:${mimetype};base64,${base64}` } }] }],
+      history: [{ role: "user", content: [{ type: "text", text: previews.length > 1 ? "Describe this animated sticker/GIF (frames in order)." : "Describe this sticker." }, ...(previews.length ? previews.slice(0, 4).map((p) => ({ type: "image_url", image_url: { url: `data:${p.mimetype};base64,${p.base64}` } })) : [{ type: "image_url", image_url: { url: `data:${mimetype};base64,${base64}` } }])] }],
     });
     const j = firstJson(msg && msg.content);
     return { label: String((j && j.label) || "sticker").slice(0, 80), mood: String((j && j.mood) || "").slice(0, 60) };
@@ -51,16 +52,17 @@ async function describe(base64, mimetype = "image/webp", { complete = openai.com
 }
 
 /** Learn a sticker. Returns the entry (existing one if we already had it). */
-async function add({ base64, mimetype = "image/webp", animated = false }, deps = {}) {
+async function add({ base64, mimetype = "image/webp", animated = false, kind = "sticker", previews = [] }, deps = {}) {
   if (!base64) return null;
+  if (kind === "gif" && base64.length > MAX_GIF_BYTES) return null;
   const id = crypto.createHash("sha1").update(base64).digest("hex").slice(0, 20);
   if (lib.has(id)) return lib.get(id);
   if (lib.size >= MAX_STICKERS) return null;
-  const { label, mood } = await describe(base64, mimetype, deps);
-  const entry = { id, base64, mimetype, animated: !!animated, label, mood, addedAt: new Date().toISOString() };
+  const { label, mood } = await describe(base64, mimetype, deps, previews);
+  const entry = { id, base64, mimetype, animated: !!animated, kind, label, mood, addedAt: new Date().toISOString() };
   lib.set(id, entry);
   if (supabase) {
-    try { await supabase.from("sessions").upsert({ type: "wa_sticker", key: id, data: { base64, mimetype, animated: !!animated, label, mood, addedAt: entry.addedAt }, updated_at: entry.addedAt }, { onConflict: "type,key" }); }
+    try { await supabase.from("sessions").upsert({ type: "wa_sticker", key: id, data: { base64, mimetype, animated: !!animated, kind, label, mood, addedAt: entry.addedAt }, updated_at: entry.addedAt }, { onConflict: "type,key" }); }
     catch (e) { console.warn("[stickers] could not save:", e.message); }
   }
   console.log(`[stickers] learned: ${label}${mood ? ` (${mood})` : ""} — ${lib.size} in the drawer`);
@@ -78,7 +80,7 @@ function shouldTry(chat) {
 /** Let the model pick a fitting sticker, or none. */
 async function choose({ userText, replyText }, { complete = openai.complete, apiKey = process.env.OPENAI_API_KEY } = {}) {
   if (!lib.size || !apiKey) return null;
-  const options = list().map((s) => `${s.id}: ${s.label}${s.mood ? ` (${s.mood})` : ""}`).join("\n");
+  const options = [...lib.values()].map((s) => `${s.id}${s.kind === 'gif' ? ' [GIF]' : ''}: ${s.label}${s.mood ? ` (${s.mood})` : ""}`).join("\n");
   try {
     const msg = await complete({
       apiKey, effort: "low", maxOutputTokens: 200, temperature: 0.4, models: ["gpt-6-luna"],

@@ -8,6 +8,7 @@ const os = require("os");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
 
+const fx = require("./helpers-media");
 const STUB = pathToFileURL(path.join(__dirname, "fixtures", "fake-whatsmeow.mjs")).href;
 
 function launch(extraEnv) {
@@ -122,7 +123,7 @@ test("/send-media with sticker:true sends a stickerMessage", async () => {
   const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
   try {
     await wait(400);
-    const r = await call(port, "POST", "/send-media", { to: "2348012345678", base64: Buffer.from("RIFFxxxx").toString("base64"), sticker: true, animated: false });
+    const r = await call(port, "POST", "/send-media", { to: "2348012345678", base64: (await fx.staticWebp()).toString("base64"), sticker: true, animated: false });
     assert.strictEqual(r.status, 200);
     const line = JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").pop());
     assert.strictEqual(line.op, "sendRawMessage");
@@ -152,4 +153,91 @@ test("/post-status posts a text Status to status@broadcast", async () => {
     assert.ok(line.msg.extendedTextMessage.backgroundArgb > 0xFF000000, "has a background colour");
     assert.strictEqual((await call(port, "POST", "/post-status", { text: "  " })).status, 500, "empty text is refused");
   } finally { child.kill(); }
+});
+
+// ── Media in / out (real fixtures, fake WhatsApp library) ─────
+const lastLog = (log) => JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").pop());
+const tmpFile = (buf, ext) => { const f = path.join(os.tmpdir(), `wm_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`); fs.writeFileSync(f, buf); return f; };
+const inboundMsg = (id, message) => JSON.stringify({ info: { id, chat: "2348055500011@s.whatsapp.net", sender: "2348055500011@s.whatsapp.net", isFromMe: false, isGroup: false, timestamp: 1, pushName: "Tola" }, message });
+async function inboundWith(message, extraEnv = {}) {
+  const sink = await webhookSink();
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  const child = spawn(process.execPath, [path.join(__dirname, "..", "wa-meow.js")], {
+    env: { PATH: process.env.PATH, WA_MEOW_MODULE: STUB, WA_WEB_PORT: String(port), WA_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "wam-")), WA_BACKUP: "off", MAIN_APP_URL: `http://127.0.0.1:${sink.port}`, FAKE_EMIT: "1", FAKE_MESSAGE: message, ...extraEnv },
+    stdio: ["ignore", "pipe", "pipe"] });
+  try { for (let i = 0; i < 80 && !sink.got.length; i++) await wait(100); return sink.got[0]; }
+  finally { child.kill(); sink.server.close(); }
+}
+const skipFx = fx.hasFfmpeg ? false : "ffmpeg not installed";
+
+test("6. an outgoing sticker is uploaded and delivered as a real stickerMessage (animated flag kept)", async () => {
+  const log = path.join(os.tmpdir(), "fake-stk-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
+  try {
+    await wait(400);
+    const webp = await fx.staticWebp();
+    assert.strictEqual((await call(port, "POST", "/send-media", { to: "2348012345678", base64: webp.toString("base64"), sticker: true, animated: true })).status, 200);
+    let line = lastLog(log);
+    assert.ok(line.msg.stickerMessage && !line.msg.imageMessage);
+    assert.strictEqual(line.msg.stickerMessage.isAnimated, true);
+    assert.strictEqual(line.msg.stickerMessage.mimetype, "image/webp");
+    assert.ok(line.msg.stickerMessage.directPath, "media was uploaded, not just referenced by URL");
+    // a PNG is converted to a WhatsApp-legal WebP rather than sent as-is
+    assert.strictEqual((await call(port, "POST", "/send-media", { to: "2348012345678", base64: (await fx.png()).toString("base64"), sticker: true })).status, 200);
+    assert.strictEqual(lastLog(log).msg.stickerMessage.mimetype, "image/webp");
+    // oversized stickers are refused instead of being rejected later by WhatsApp
+    const big = await require("sharp")({ create: { width: 512, height: 512, channels: 3, background: "#000" } }).webp({ lossless: true }).toBuffer();
+    const noisy = Buffer.alloc(600000); require("crypto").randomFillSync(noisy);
+    const tooBig = await call(port, "POST", "/send-media", { to: "2348012345678", base64: Buffer.concat([big.subarray(0, 12), noisy]).toString("base64"), sticker: true });
+    assert.notStrictEqual(tooBig.status, 200);
+  } finally { child.kill(); }
+});
+
+test("7. an outgoing GIF goes out as an MP4 videoMessage with gifPlayback (WhatsApp has no native GIF type)", { skip: skipFx }, async () => {
+  const log = path.join(os.tmpdir(), "fake-gif-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log });
+  try {
+    await wait(400);
+    const fromGif = await call(port, "POST", "/send-media", { to: "2348012345678", base64: fx.colourGif().toString("base64"), gif: true });
+    assert.strictEqual(fromGif.status, 200, fromGif.body);
+    let m = lastLog(log).msg.videoMessage;
+    assert.ok(m && m.gifPlayback === true);
+    assert.strictEqual(m.mimetype, "video/mp4");
+    const fromMp4 = await call(port, "POST", "/send-media", { to: "2348012345678", base64: fx.mp4(2).toString("base64"), mimetype: "video/mp4", gif: true });
+    assert.strictEqual(fromMp4.status, 200);
+    assert.strictEqual(lastLog(log).msg.videoMessage.gifPlayback, true);
+    const bad = await call(port, "POST", "/send-media", { to: "2348012345678", base64: Buffer.from("not media at all, sorry").toString("base64"), gif: true });
+    assert.notStrictEqual(bad.status, 200, "garbage is not sent as a GIF");
+  } finally { child.kill(); }
+});
+
+test("inbound voice note is forwarded with its OGG bytes and the push-to-talk flag", { skip: skipFx }, async () => {
+  const ogg = tmpFile(fx.oggVoice(), "ogg");
+  const hit = await inboundWith(inboundMsg("A1", { audioMessage: { PTT: true, seconds: 2, mimetype: "audio/ogg; codecs=opus" } }), { FAKE_DOWNLOAD_FILE: ogg });
+  assert.strictEqual(hit.message.type, "audio");
+  assert.strictEqual(hit.message.audio.ptt, true);
+  assert.strictEqual(Buffer.from(hit.message.audio.base64, "base64").toString("latin1", 0, 4), "OggS");
+  assert.strictEqual(hit.message.mediaError, undefined);
+});
+
+test("inbound GIF (gifPlayback video) is flagged and forwarded; animated sticker keeps its flag", { skip: skipFx }, async () => {
+  const mp4f = tmpFile(fx.mp4(2), "mp4");
+  const gif = await inboundWith(inboundMsg("V1", { videoMessage: { gifPlayback: true, seconds: 2, mimetype: "video/mp4" } }), { FAKE_DOWNLOAD_FILE: mp4f });
+  assert.strictEqual(gif.message.video.gif, true);
+  assert.strictEqual(Buffer.from(gif.message.video.base64, "base64").toString("latin1", 4, 8), "ftyp");
+  const aw = tmpFile(await fx.animatedWebp(), "webp");
+  const stk = await inboundWith(inboundMsg("S9", { stickerMessage: { isAnimated: true, mimetype: "image/webp" } }), { FAKE_DOWNLOAD_FILE: aw });
+  assert.strictEqual(stk.message.sticker.animated, true);
+});
+
+test("10. a failed download, an over-long clip or an oversized file is reported as such, never as media", async () => {
+  const failed = await inboundWith(inboundMsg("F1", { audioMessage: { PTT: true, seconds: 3 } }), { FAKE_DOWNLOAD_FAIL: "1" });
+  assert.strictEqual(failed.message.type, "audio");
+  assert.ok(failed.message.mediaError, "the main app is told the download failed");
+  assert.strictEqual(failed.message.audio, undefined, "no bytes are invented");
+  const tooLong = await inboundWith(inboundMsg("F2", { videoMessage: { gifPlayback: false, seconds: 400 } }));
+  assert.strictEqual(tooLong.message.mediaError, "too long");
+  const huge = tmpFile(Buffer.alloc(4100000, 1), "webp");
+  const tooBig = await inboundWith(inboundMsg("F3", { imageMessage: { mimetype: "image/jpeg" } }), { FAKE_DOWNLOAD_FILE: huge });
+  assert.strictEqual(tooBig.message.mediaError, "too large");
 });

@@ -18,7 +18,12 @@ export function createClient() {
     async isConnected() { return st.connected; },
     async pairCode() { if (!st.connected) throw new Error("not connected"); return "ABCD-EFGH"; },
     async isOnWhatsApp(phones) { return phones.map((p) => ({ query: p, isIn: true, jid: p.replace(/\D/g, "") + "@s.whatsapp.net" })); },
-    async downloadAny() { const f = "/tmp/fake-sticker-" + Date.now() + ".webp"; fs.writeFileSync(f, Buffer.from("RIFFfakewebp")); return f; },
+    async downloadAny() {
+      if (process.env.FAKE_DOWNLOAD_FAIL) throw new Error("boom");
+      const f = "/tmp/fake-dl-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+      if (process.env.FAKE_DOWNLOAD_FILE) fs.copyFileSync(process.env.FAKE_DOWNLOAD_FILE, f); else fs.writeFileSync(f, Buffer.from("RIFFfakewebp"));
+      return f;
+    },
     async uploadMedia() { return { URL: "u", directPath: "d", mediaKey: "k", fileEncSHA256: "e", fileSHA256: "s", fileLength: 12 }; },
     async sendRawMessage(jid, msg) { log({ op: "sendRawMessage", jid, msg }); return { id: "x", timestamp: 1 }; },
     async sendMessage(jid, msg) { log({ op: "sendMessage", jid, msg }); return { id: "x", timestamp: 1 }; },

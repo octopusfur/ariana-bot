@@ -4,6 +4,7 @@ try { require('child_process').execFileSync(process.execPath, [require('path').j
 catch (e) { console.warn('[state-sync] restore step failed:', e.message); }
 const stateSync = require('./state_sync');
 const stickers  = require('./stickers');
+const media     = require('./media');
 const statusPosterMod = require('./status_poster');
 const express    = require("express");
 const http       = require("http");
@@ -756,7 +757,7 @@ function humanDelay(message) {
   else if (len < 60) { min = 15000; max = 40000; }
   else               { min = 30000; max = 70000; }
   if (Math.random() < 0.2) max += 30000;
-  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+  const delay = Math.floor((Math.floor(Math.random() * (max - min + 1)) + min) * (parseFloat(process.env.HUMAN_DELAY_SCALE) >= 0 ? parseFloat(process.env.HUMAN_DELAY_SCALE) : 1));
   return new Promise(r => setTimeout(r, delay));
 }
 
@@ -1082,7 +1083,7 @@ async function rawCompletion(history, sys, backup, tools, toolChoice) {
     }
   }
   const client = (backup && groq2) ? groq2 : groq;
-  const base = { messages: [{ role: "system", content: sys }, ...history], max_tokens: 350, temperature: 0.92 };
+  const base = { messages: [{ role: "system", content: sys }, ...history.map(m => ({ ...m, content: media.flattenContent(m.content) }))], max_tokens: 350, temperature: 0.92 };
   if (tools) { base.tools = tools; base.tool_choice = toolChoice; }
   let lastErr;
   for (let i = groqModelIdx; i < GROQ_CHAIN.length; i++) {
@@ -1246,7 +1247,7 @@ async function getReply(...args) {
   return noDashes(await getReplyRaw(...args));
 }
 
-async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null) {
+async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null, prepared = null) {
   const convo = getConvo(id);
   const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
   if (!systemOverride && OWNER_PHONE && rawPhone === OWNER_PHONE) {
@@ -1420,7 +1421,20 @@ Make them feel like they have a real girlfriend they can text anytime.`
     } catch (e) { console.warn('[eyes] vision pipeline failed:', e.message); }
   }
 
-  const fullHistory = [...history, { role: 'user', content: effectiveUserMsg }];
+  // Real media (images / animation frames / voice-note transcript) prepared by media.js: Luna gets the actual pixels.
+  let baseHistory = history;
+  if (prepared) {
+    if (prepared.ok && prepared.images.length && !process.env.OPENAI_API_KEY) {
+      // No vision-capable brain configured: fall back to the old eyes (first frame only) rather than pretending.
+      const v = formatVisionContext(await seeImage(prepared.images[0].base64));
+      effectiveUserMsg = [userMsg, v ? `[${v}]` : '[You could not see the image.]'].filter(Boolean).join('\n\n');
+    } else {
+      effectiveUserMsg = media.buildUserContent(userMsg, prepared);
+    }
+    const last = history[history.length - 1];
+    if (last && last.role === 'user' && last.content === String(userMsg || '').trim()) baseHistory = history.slice(0, -1); // the media turn replaces its text stub
+  }
+  const fullHistory = [...baseHistory, { role: 'user', content: effectiveUserMsg }];
 
   // ── BRAIN — Groq only, no fallback to another personality engine ──
   let reply = await generateBrainReply(fullHistory, sys);
@@ -1471,15 +1485,15 @@ Make them feel like they have a real girlfriend they can text anytime.`
   return cleaned;
 }
 
-async function handleNewTexter(id, userMsg, imageBase64 = null) {
+async function handleNewTexter(id, userMsg, imageBase64 = null, prepared = null) {
   const convo = getConvo(id);
   if (!convo.isNew) return null;
   convo.isNew = false;
   const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
   if (friendWhitelist.has(rawPhone) || friendWhitelist.has(id)) {
-    return await getReply(id, userMsg, null, imageBase64);
+    return await getReply(id, userMsg, null, imageBase64, prepared);
   }
-  return await getReply(id, userMsg, NEW_TEXTER_PROMPT, imageBase64);
+  return await getReply(id, userMsg, NEW_TEXTER_PROMPT, imageBase64, prepared);
 }
 
 // ── WHATSAPP SENDERS ──────────────────────────────────────────
@@ -1865,7 +1879,7 @@ function isSincereAIQuestion(text) {
 const HONEST_AI_DISCLOSURE = "yeah, I'm AI. figured you'd rather know than keep guessing";
 
 // ── CORE MESSAGE HANDLER ──────────────────────────────────────
-async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, name, mediaUrl, mediaType: incomingMediaType, preloadedImageBase64 = null }) {
+async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, name, mediaUrl, mediaType: incomingMediaType, preloadedImageBase64 = null, mediaPayload = null }) {
   // Silently drop messages from blocked numbers
   const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
   if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) {
@@ -1916,6 +1930,22 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
         if (!finalText || finalText === '[sent an image]') finalText = '[sent a photo]';
       }
     } catch (e) { console.warn('[vision] Image fetch failed:', e.message); }
+  }
+
+  // ── REAL MEDIA (WhatsApp sidecar): images, stickers, GIFs/animations, voice notes ──
+  // Processed per message and handed to Luna as actual images / a transcript. Failures are reported to the
+  // model truthfully so she never pretends to have seen or heard something.
+  let preparedMedia = null;
+  if (mediaPayload) {
+    preparedMedia = await media.prepare(mediaPayload);
+    const cap = mediaPayload.caption ? ` ${mediaPayload.caption}` : '';
+    if (!preparedMedia.ok) finalText = `[sent ${{ image: 'a photo', sticker: 'a sticker', animation: mediaPayload.label ? 'a ' + mediaPayload.label : 'a GIF', audio: 'a voice note' }[mediaPayload.kind] || 'media'} that did not come through]${cap}`;
+    else if (mediaPayload.kind === 'audio') finalText = preparedMedia.transcript ? `[voice note] ${preparedMedia.transcript}` : '[voice note: unintelligible]';
+    else if (mediaPayload.kind === 'image') finalText = mediaPayload.caption || '[sent a photo]';
+    else if (mediaPayload.kind === 'animation') finalText = mediaPayload.caption || `[sent ${mediaPayload.label ? 'a ' + mediaPayload.label : 'a GIF'}]`;
+    else if (mediaPayload.kind === 'sticker' && !/^\[sent a sticker: /.test(finalText || '')) finalText = '[sent a sticker]';
+    if (!preparedMedia.ok && !preparedMedia.images.length) preparedMedia = { ...preparedMedia, images: [] };
+    console.log(`[media] ${mediaPayload.kind}: ${preparedMedia.ok ? `ok (${preparedMedia.images.length} image(s)${preparedMedia.transcript ? ', transcript ' + preparedMedia.transcript.length + ' chars' : ''})` : 'failed — ' + String(preparedMedia.error).slice(0, 60)}`);
   }
 
   const isFirst = convo.isNew;
@@ -2091,9 +2121,9 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     }
 
     const replyPromise = isFirst
-      ? handleNewTexter(id, finalText, incomingImageBase64)
-      : getReply(id, finalText, systemOverride, incomingImageBase64);
-    let [reply] = await Promise.all([replyPromise, humanDelay(text)]);
+      ? handleNewTexter(id, finalText, incomingImageBase64, preparedMedia)
+      : getReply(id, finalText, systemOverride, incomingImageBase64, preparedMedia);
+    let [reply] = await Promise.all([replyPromise, humanDelay(preparedMedia ? finalText : text)]);
 
     // Never go completely silent — if all AI failed, send a natural-sounding fallback
     if (!reply || reply === 'hold on') {
@@ -2141,7 +2171,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     if (platform === "whatsapp" && WA_PROVIDER === 'wwebjs' && !voiceUrl) {
       stickers.maybeFollowUp({
         chat: id, userText: finalText, replyText: reply,
-        send: async (st) => { await new Promise((r) => setTimeout(r, 900 + Math.random() * 1600)); await waWeb('/send-media', { to: from, base64: st.base64, sticker: true, animated: st.animated }); },
+        send: async (st) => { await new Promise((r) => setTimeout(r, 900 + Math.random() * 1600)); await waWeb('/send-media', st.kind === 'gif' ? { to: from, base64: st.base64, mimetype: st.mimetype || 'video/mp4', gif: true } : { to: from, base64: st.base64, sticker: true, animated: st.animated }); },
       }).catch(() => {});
     }
 
@@ -2279,6 +2309,36 @@ function requireWaWebhookAuth(req, res, next) {
   console.warn(`[webhook] ❌ WhatsApp message rejected (401): ${_why}`);
   return res.status(401).json({ error: 'unauthorized' });
 }
+// WhatsApp redelivers webhooks and the sidecar retries on failure: process each message id once.
+const _seenWaIds = new Map();
+function alreadySeen(id) {
+  if (!id) return false;
+  const now = Date.now();
+  if (_seenWaIds.size > 5000) for (const [k, t] of _seenWaIds) if (now - t > 6 * 3600e3) _seenWaIds.delete(k);
+  if (_seenWaIds.has(id)) return true;
+  _seenWaIds.set(id, now);
+  return false;
+}
+// Messages from the same sender are handled strictly in arrival order (so a slow voice note cannot be
+// answered after the text that followed it); different senders never wait on each other.
+const _waChains = new Map();
+function inOrder(key, fn) {
+  const prev = _waChains.get(key) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  _waChains.set(key, next);
+  next.finally(() => { if (_waChains.get(key) === next) _waChains.delete(key); }).catch(() => {});
+  return next;
+}
+// Build the media description the sidecar forwarded (bytes arrive base64 inside the webhook JSON).
+function waMediaPayload(msg, mediaType) {
+  const err = msg?.mediaError || null;
+  const cap = msg?.image?.caption || msg?.video?.caption || null;
+  if (mediaType === 'image') return { kind: 'image', base64: msg?.image?.base64, caption: cap, error: err || (!msg?.image?.base64 ? 'no media bytes arrived' : null) };
+  if (mediaType === 'sticker') return { kind: msg?.sticker?.animated ? 'animation' : 'sticker', label: msg?.sticker?.animated ? 'animated sticker' : null, base64: msg?.sticker?.base64, error: err || (!msg?.sticker?.base64 ? 'no media bytes arrived' : null) };
+  if (mediaType === 'video') return { kind: 'animation', gif: !!msg?.video?.gif, label: msg?.video?.gif ? 'GIF' : 'short video', base64: msg?.video?.base64, caption: cap, error: err || (!msg?.video?.base64 ? 'no media bytes arrived' : null) };
+  if (mediaType === 'audio') return { kind: 'audio', base64: msg?.audio?.base64, seconds: msg?.audio?.seconds, error: err || (!msg?.audio?.base64 ? 'no media bytes arrived' : null) };
+  return null;
+}
 app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
   res.status(200).json({ ok: true });
   try {
@@ -2286,6 +2346,8 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
     const msg  = body.message || body.data || body;
     const from = msg?.from || msg?.sender || msg?.contact?.phone || msg?.waId || null;
     if (!from) return;
+    const msgId = msg?.id || msg?.message_id || null;
+    if (alreadySeen(msgId)) { console.log('[webhook] duplicate message ignored'); return; }
 
     // Extract contact name from webhook (WhatsApp sends pushName)
     const contactName = msg?.pushName || msg?.senderName || msg?.contact?.name || null;
@@ -2311,20 +2373,11 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
       else if (mediaType === "sticker")  finalText = "[sent a sticker]";
       else                               finalText = `[sent ${mediaType}]`;
     }
-    // The owner's stickers go into Ariana's drawer so she can send them back later.
-    if (mediaType === "sticker" && !(msg?.sticker?.base64 && OWNER_PHONE && String(from).replace(/\D/g, "") === OWNER_PHONE)) {
-      console.log(`[stickers] not learned: ${!msg?.sticker?.base64 ? "no sticker bytes arrived" : !OWNER_PHONE ? "OWNER_PHONE is not set" : "sender is not the owner"}`);
-    }
-    if (mediaType === "sticker" && msg?.sticker?.base64 && OWNER_PHONE && String(from).replace(/\D/g, "") === OWNER_PHONE) {
-      try {
-        const st = await Promise.race([stickers.add({ base64: msg.sticker.base64, mimetype: msg.sticker.mimetype, animated: msg.sticker.animated }), new Promise((r) => setTimeout(() => r(null), 12000))]);
-        if (st && st.label && st.label !== "sticker") finalText = `[sent a sticker: ${st.label}]`;
-      } catch (e) { console.warn("[stickers] learn failed:", e.message); }
-    }
-    if (!finalText) return;
+    const mediaPayload = (mediaType === 'image' && !msg?.image?.base64 && !msg?.mediaError && mediaUrl) ? null : waMediaPayload(msg, mediaType); // URL-only images (Kapso) keep the old fetch path
+    const isOwnerSender = !!OWNER_PHONE && String(from).replace(/\D/g, "") === OWNER_PHONE;
 
-    const msgId = msg?.id || msg?.message_id || null;
-    console.log(`📱 WA ${contactName||from}: "${finalText}"`);
+    console.log(`📱 WA ${contactName||from}: ${mediaPayload ? `[${mediaType}]` : `"${finalText}"`}`);
+    if (!finalText) return;
     if (msgId) markWhatsAppRead(msgId, body.phone_number_id).catch(() => {});
 
     // Save contact name so dashboard shows it
@@ -2332,11 +2385,30 @@ app.post("/webhook", requireWaWebhookAuth, async (req, res) => {
       if (conversations[from]) conversations[from].name = contactName;
     }
 
-    await handleMessage({
-      id: from, platform: "whatsapp", from, text: finalText,
-      chatId: null, phoneNumberId: body.phone_number_id, name: contactName,
-      mediaUrl, mediaType,
-      preloadedImageBase64: mediaType === "image" ? (msg?.image?.base64 || null) : null
+    await inOrder(from, async () => {
+      // The owner's stickers and GIFs go into Ariana's drawer so she can send them back later.
+      let learnedLabel = null;
+      if (isOwnerSender && mediaPayload && !mediaPayload.error && (mediaType === 'sticker' || (mediaType === 'video' && msg?.video?.gif))) {
+        try {
+          const prep = await media.prepare(mediaPayload);
+          const st = await Promise.race([stickers.add({
+            base64: mediaType === 'sticker' ? msg.sticker.base64 : msg.video.base64,
+            mimetype: mediaType === 'sticker' ? msg.sticker.mimetype : (msg.video.mimetype || 'video/mp4'),
+            animated: mediaType === 'sticker' ? msg.sticker.animated : true,
+            kind: mediaType === 'sticker' ? 'sticker' : 'gif',
+            previews: prep.ok ? prep.images : [],
+          }), new Promise((r) => setTimeout(() => r(null), 20000))]);
+          if (st && st.label && st.label !== 'sticker') learnedLabel = st.label;
+        } catch (e) { console.warn("[stickers] learn failed:", e.message); }
+      } else if (mediaType === 'sticker' && !isOwnerSender) {
+        console.log('[stickers] not learned: sender is not the owner');
+      }
+      await handleMessage({
+        id: from, platform: "whatsapp", from, text: learnedLabel ? `[sent a sticker: ${learnedLabel}]` : finalText,
+        chatId: null, phoneNumberId: body.phone_number_id, name: contactName,
+        mediaUrl: mediaPayload ? null : mediaUrl, mediaType,
+        mediaPayload,
+      });
     });
   } catch (e) { console.error("❌ WA webhook:", e.message); }
 });

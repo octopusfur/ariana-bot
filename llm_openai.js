@@ -10,7 +10,7 @@
  */
 const axios = require('axios');
 
-const API = 'https://api.openai.com/v1';
+const API = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''); // override is for tests / proxies
 const DEFAULT_MODELS = ['gpt-6-luna'];
 
 // Sol models are expensive and must never be called, whatever env/config asks for.
@@ -24,7 +24,7 @@ function modelChain(env = process.env) {
 function partToInput(part, role) {
   if (typeof part === 'string') return { type: role === 'assistant' ? 'output_text' : 'input_text', text: part };
   if (part && part.type === 'text') return { type: role === 'assistant' ? 'output_text' : 'input_text', text: part.text || '' };
-  if (part && part.type === 'image_url') return { type: 'input_image', image_url: (part.image_url && part.image_url.url) || part.image_url };
+  if (part && part.type === 'image_url') return { type: 'input_image', image_url: (part.image_url && part.image_url.url) || part.image_url, ...(part.detail ? { detail: part.detail } : {}) };
   return { type: role === 'assistant' ? 'output_text' : 'input_text', text: String((part && part.text) || '') };
 }
 
