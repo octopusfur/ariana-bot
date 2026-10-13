@@ -1391,6 +1391,8 @@ Make them feel like they have a real girlfriend they can text anytime.`
     if (contactFacts) memLines.push(`[What you know about this person]: ${contactFacts}`);
   }
   if (memLines.length) sys += `\n\nYOUR MEMORY:\n${memLines.join('\n')}`;
+  // Older media turns only survive in the log as short text stubs; without this she reads them as "I only get a description".
+  sys += "\n\nMEDIA: Photos and stickers reach you as the real image, GIFs and animated stickers as frames sampled in order, and voice notes as a transcript, attached to the message they came with. Older messages in this chat only keep a short text stub such as [sent a sticker], [sent a photo] or a sticker label. That is just bookkeeping: you did see the real thing when it arrived. Never say you only get a description or caption, or that you cannot see stickers, photos or GIFs. Only if a message says the media did not come through do you say you could not see or hear it, and ask them to resend.";
 
   // Context the outbound finalize gate uses to judge whether an
   // off-screen activity claim is actually backed by something real,
@@ -1510,9 +1512,10 @@ async function sendWhatsApp(to, message, phoneNumberId) {
   );
 }
 
-async function sendWhatsAppTyping(to, phoneNumberId) {
+// mode: 'text' shows "typing…", 'recording' shows "recording audio…" at the top of the chat.
+async function sendWhatsAppTyping(to, phoneNumberId, mode = 'text') {
   if (phoneNumberId === WACALLS_TOKEN) return; // WaCalls has no typing API
-  if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to }); } catch (e) { console.warn('[wa typing] failed:', e.message); } return; }
+  if (WA_PROVIDER === 'wwebjs') { try { await waWeb('/typing', { to, mode }); } catch (e) { console.warn('[wa typing] failed:', e.message); } return; }
   const id = phoneNumberId || KAPSO_PHONE_ID;
   try {
     await axios.post(
@@ -2067,8 +2070,10 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
 
   let typingInterval;
   if (platform === "whatsapp") {
-    await sendWhatsAppTyping(from, phoneNumberId);
-    typingInterval = setInterval(() => sendWhatsAppTyping(from, phoneNumberId), 24000);
+    // They asked for a voice note: show "recording audio…" from the start instead of "typing…".
+    const presenceMode = wantsVoice ? 'recording' : 'text';
+    await sendWhatsAppTyping(from, phoneNumberId, presenceMode);
+    typingInterval = setInterval(() => sendWhatsAppTyping(from, phoneNumberId, presenceMode), 24000);
   }
 
   if (platform === "messenger") {
@@ -2159,7 +2164,20 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     }
 
     if (wantsVoice || randomVoice()) {
+      // She is about to send a voice note, so show "recording audio…" (not "typing…") while it is made, and keep
+      // it visible for a believable moment so the person actually sees it before the note lands.
+      const recStart = Date.now();
+      if (platform === "whatsapp" && !wantsVoice) {
+        if (typingInterval) clearInterval(typingInterval);
+        typingInterval = setInterval(() => sendWhatsAppTyping(from, phoneNumberId, 'recording'), 24000);
+        await sendWhatsAppTyping(from, phoneNumberId, 'recording');
+      }
       voiceUrl = await generateVoiceNote(reply);
+      if (voiceUrl && platform === "whatsapp") {
+        const minMs = Math.min(8000, Math.max(2500, String(reply).length * 60));
+        const left = minMs - (Date.now() - recStart);
+        if (left > 0) await new Promise((r) => setTimeout(r, left));
+      }
     }
 
     addMessage(id, "ariana", reply);
