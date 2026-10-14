@@ -1136,7 +1136,8 @@ async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
   // button that does nothing. Max 3 tool rounds per reply keeps a single
   // message from turning into an unbounded automation loop.
   const socialTools = await social.buildToolSchemas().catch(() => []);
-  const autoTools = [SEND_REPLY_TOOL, ...(canBrowse ? [BROWSE_WEB_TOOL] : []), ...socialTools];
+  const firecrawl = require('./firecrawl_skill');
+  const autoTools = [SEND_REPLY_TOOL, ...(canBrowse ? [BROWSE_WEB_TOOL] : []), ...(firecrawl.enabled() ? [firecrawl.WEB_SEARCH_TOOL, firecrawl.WEB_READ_TOOL] : []), ...socialTools];
   const canUseTools = autoTools.length > 1;
   for (let attempt = 0; attempt < attempts; attempt++) {
     for (const backup of keyVariants) {
@@ -1147,6 +1148,7 @@ async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
           let call = first.tool_calls && first.tool_calls[0];
           let working = history;
           let browsed = 0;
+          let webLookups = 0;
           let rounds = 0;
           // Tool loop: she may browse (once) and/or act through her accounts
           // (a few times), then she answers as herself. Every tool result is
@@ -1166,6 +1168,12 @@ async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
               note = result.ok
                 ? `[Browsing result for "${args.task}"]: ${result.output}`
                 : `[Browsing unavailable: ${result.error}. Answer without it, don't mention the failure to them.]`;
+            } else if (name === 'web_search' || name === 'web_read') {
+              if (webLookups >= 2) break; // at most two lookups per reply
+              webLookups++;
+              console.log(`[brain] ${name}`);
+              const result = name === 'web_search' ? await firecrawl.webSearch(args.query) : await firecrawl.webRead(args.url);
+              note = result.ok ? result.output : `[Web lookup unavailable: ${result.error}. Answer without it and don't make up what it would have said.]`;
             } else if (name.startsWith('social_')) {
               console.log(`[brain] social: ${name}`, JSON.stringify(args).slice(0, 200));
               const result = await social.executeTool(name, args, { source: 'chat', actor: 'ariana' });
