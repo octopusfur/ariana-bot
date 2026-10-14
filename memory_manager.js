@@ -418,6 +418,22 @@ async function approve(itemId, patch = {}, actor = 'creator') {
   return { ok: true, item: publicItem(next) };
 }
 
+// Auto-approval for clean learnings only. Anything the safety scan flags or quarantines stays in review, a
+// contradiction of an already-approved memory is only replaced when allowSupersede is set (the owner
+// correcting a fact), and behavioural lessons only go live when allowLessons is set (the owner teaching her).
+async function approveIfSafe(itemId, { allowSupersede = false, allowLessons = false, actor = 'ariana-auto' } = {}) {
+  await ensureLoaded();
+  const item = findItem(itemId);
+  if (!item) return { ok: false, reason: 'not_found' };
+  if (item.status !== 'candidate') return { ok: false, reason: 'not_candidate' };
+  const scan = scanContent(item.content);
+  if (scan.flagged || item.quarantine) return { ok: false, reason: 'flagged' };
+  if (item.category === 'behavioral_lesson' && !allowLessons) return { ok: false, reason: 'lesson_needs_review' };
+  const contradicts = item.source && item.source.brain && item.source.brain.contradicts;
+  if (contradicts && !allowSupersede) return { ok: false, reason: 'contradiction' };
+  return approve(itemId, contradicts ? { allow_flagged: true } : {}, actor);
+}
+
 async function setStatus(itemId, status, actor = 'creator') {
   await ensureLoaded();
   const item = findItem(itemId);
@@ -620,6 +636,6 @@ function getCategories() { return CATEGORIES.slice(); }
 module.exports = {
   configure, refresh, getBackend, getCategories, overview, list, history, restoreHistory,
   createCandidate, createCandidatesFromObject, updateCandidate, approve, setStatus, remove,
-  editApproved, getApprovedContextSync, markRetrieved, migrateLegacyLearned,
+  editApproved, approveIfSafe, getApprovedContextSync, markRetrieved, migrateLegacyLearned,
   scanContent, redactSecrets, syncPending, reconnect, getStatus, setLayer, consolidate, analysis,
 };
