@@ -40,3 +40,16 @@ test("the drawer reloads from Supabase after a restart", async () => {
   stickers._lib.clear();
   assert.strictEqual(await stickers.load(), 1);
 });
+
+test("an explicit sticker request bypasses the cooldown and always sends one", async () => {
+  stickers._lib.clear(); stickers._replies.clear();
+  stickers._lib.set("a", { id: "a", base64: "AAAA", mimetype: "image/webp", animated: false, label: "smirk" });
+  const sent = [];
+  const deps = { apiKey: "k", complete: async () => ({ content: '{"id":null}' }) }; // model declines
+  const quiet = await stickers.maybeFollowUp({ chat: "c1", userText: "hi", replyText: "hey", send: async (s) => sent.push(s), deps });
+  assert.strictEqual(quiet, false, "normal turns still respect the cooldown / model choice");
+  const asked = await stickers.maybeFollowUp({ chat: "c1", userText: "send me a sticker", replyText: "ok", send: async (s) => sent.push(s), deps, force: true });
+  assert.strictEqual(asked, true);
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].id, "a");
+});

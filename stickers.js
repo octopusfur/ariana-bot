@@ -77,25 +77,29 @@ function shouldTry(chat) {
   return n > COOLDOWN_REPLIES && rand() < CHANCE;
 }
 
+const randomPick = () => { const a = [...lib.values()]; return a.length ? a[Math.floor(Math.random() * a.length)] : null; };
+
 /** Let the model pick a fitting sticker, or none. */
-async function choose({ userText, replyText }, { complete = openai.complete, apiKey = process.env.OPENAI_API_KEY } = {}) {
-  if (!lib.size || !apiKey) return null;
+async function choose({ userText, replyText, force = false }, { complete = openai.complete, apiKey = process.env.OPENAI_API_KEY } = {}) {
+  if (!lib.size) return null;
+  if (!apiKey) return force ? randomPick() : null;
   const options = [...lib.values()].map((s) => `${s.id}${s.kind === 'gif' ? ' [GIF]' : ''}: ${s.label}${s.mood ? ` (${s.mood})` : ""}`).join("\n");
   try {
     const msg = await complete({
       apiKey, effort: "low", maxOutputTokens: 200, temperature: 0.4, models: ["gpt-6-luna"],
-      sys: "You choose a WhatsApp sticker to follow a chat reply. Pick one only if it clearly fits the mood of the exchange; otherwise none. Reply with JSON only: {\"id\":\"<sticker id>\"} or {\"id\":null}.",
+      sys: "You choose a WhatsApp sticker to follow a chat reply. " + (force ? "They asked for a sticker, so you MUST pick the best-fitting one." : "Pick one only if it clearly fits the mood of the exchange; otherwise none.") + " Reply with JSON only: {\"id\":\"<sticker id>\"} or {\"id\":null}.",
       history: [{ role: "user", content: `They said: ${String(userText || "").slice(0, 300)}\nShe replied: ${String(replyText || "").slice(0, 300)}\n\nStickers:\n${options}` }],
     });
     const j = firstJson(msg && msg.content);
-    return j && j.id && lib.has(j.id) ? lib.get(j.id) : null;
-  } catch (e) { console.warn("[stickers] choose failed:", e.message); return null; }
+    const hit = j && j.id && lib.has(j.id) ? lib.get(j.id) : null;
+    return hit || (force ? randomPick() : null);
+  } catch (e) { console.warn("[stickers] choose failed:", e.message); return force ? randomPick() : null; }
 }
 
 /** Call after a text reply. send(stickerEntry) delivers it. Resets the cooldown when one is sent. */
-async function maybeFollowUp({ chat, userText, replyText, send, deps }) {
-  if (!shouldTry(chat)) return false;
-  const pick = await choose({ userText, replyText }, deps);
+async function maybeFollowUp({ chat, userText, replyText, send, deps, force = false }) {
+  if (!force && !shouldTry(chat)) return false;
+  const pick = await choose({ userText, replyText, force }, deps);
   if (!pick) return false;
   try { await send(pick); repliesSince.set(chat, 0); return true; }
   catch (e) { console.warn("[stickers] send failed:", e.message); return false; }

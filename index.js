@@ -2006,7 +2006,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     }
 
     // ── text +234XXXX on whatsapp saying hi ────────────────────
-    const m = finalText.match(/^(?:text|message|msg|send)\s+([+\d\s\-]{7,20}|\w+)(?:\s+on)?\s+(whatsapp|signal|telegram|sms|wa)?\s*(?:saying[:\s]+|:\s*)?(.+)/i);
+    const m = finalText.match(/^(?:text|message|msg|send)\s+(\+?\d[\d\s\-]{6,19})(?:\s+on)?\s+(whatsapp|signal|telegram|sms|wa)?\s*(?:saying[:\s]+|:\s*)?(.+)/i);
     if (m) {
       const target = m[1].trim().replace(/\s/g, '');
       const p      = (m[2]||'whatsapp').toLowerCase();
@@ -2186,9 +2186,10 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     await sendReply(id, platform, reply, voiceUrl, null, chatId, from, phoneNumberId);
 
     // Now and then she follows a text with a sticker from her drawer (WhatsApp only).
-    if (platform === "whatsapp" && WA_PROVIDER === 'wwebjs' && !voiceUrl) {
+    const askedForSticker = /\b(send|give|drop|show|got|have)\b[^.?!\n]{0,40}\b(stickers?|gifs?)\b|\b(stickers?|gifs?)\b[^.?!\n]{0,20}\b(now|please|pls)\b/i.test(finalText || '');
+    if (platform === "whatsapp" && WA_PROVIDER === 'wwebjs' && (!voiceUrl || askedForSticker)) {
       stickers.maybeFollowUp({
-        chat: id, userText: finalText, replyText: reply,
+        chat: id, userText: finalText, replyText: reply, force: askedForSticker,
         send: async (st) => { await new Promise((r) => setTimeout(r, 900 + Math.random() * 1600)); await waWeb('/send-media', st.kind === 'gif' ? { to: from, base64: st.base64, mimetype: st.mimetype || 'video/mp4', gif: true } : { to: from, base64: st.base64, sticker: true, animated: st.animated }); },
       }).catch(() => {});
     }

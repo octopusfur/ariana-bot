@@ -175,3 +175,19 @@ test("media from one sender is answered in arrival order relative to their next 
   assert.ok(order.findIndex((t) => t.includes("first the voice note")) < order.findIndex((t) => t.includes("second the text")));
   transcript = "ok";
 });
+
+test("owner saying 'Send me voice note' is a normal chat turn, not a cross-send to 'me'", async () => {
+  const before = lunaReqs.length, sentBefore = sent.length;
+  await post({ from: OWNER, id: uid(), pushName: "Owner", type: "text", text: { body: "Send me voice note\nDo you think I should change your voice" } });
+  await until(() => lunaReqs.length > before);
+  await wait(800);
+  assert.ok(lunaReqs.slice(before).some((r) => JSON.stringify(r).includes("change your voice")), "it reached the model");
+  assert.ok(!sent.slice(sentBefore).some((x) => /failed|is not on WhatsApp/.test(String(x.message || ""))), "no cross-send failure message");
+});
+
+test("a real 'text <number> saying ...' owner command still cross-sends", async () => {
+  const sentBefore = sent.length;
+  await post({ from: OWNER, id: uid(), pushName: "Owner", type: "text", text: { body: "text 2348011122233 on whatsapp saying hello from the test" } });
+  await until(() => sent.slice(sentBefore).some((x) => x.route === "/send" && String(x.to).includes("2348011122233")));
+  assert.ok(sent.slice(sentBefore).some((x) => x.message === "hello from the test"));
+});
