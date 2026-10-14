@@ -246,6 +246,16 @@ let _sleepCheckTimer = null;
 // ── MEDIA COOLDOWN ────────────────────────────────────────────
 // Prevent sending another photo to the same person within 5 minutes
 const lastMediaSent = {};
+// Her own pictures from the dashboard media library, sent only if SHE chooses to (send_photo tool).
+const photoSkill = require('./photo_skill').createPhotoSkill({
+  fetchRows: async () => {
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('ariana_media').select('id,url,tags,media_type,created_at').order('created_at', { ascending: false }).limit(80);
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+});
+const looksLikePhotoRequest = require('./photo_skill').looksLikePhotoRequest;
 
 // ── BRAIN ─────────────────────────────────────────────────────
 const brain = {};
@@ -1128,7 +1138,7 @@ async function callGroq(history, sys, backup, { asCharacter = false } = {}) {
 // the browse, feed the result back, and force a final send_reply. Capped at
 // one browse per reply — this is meant for "check one thing", not a
 // multi-step research session.
-async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
+async function generateBrainReply(history, sys, { attempts = 2, convoId = null, photos = [] } = {}) {
   const keyVariants = groq2 ? [false, true] : [false];
   const canBrowse = !!process.env.BROWSER_USE_API_KEY;
   // Social tools are only offered when there is a real, enabled account behind
@@ -1137,7 +1147,7 @@ async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
   // message from turning into an unbounded automation loop.
   const socialTools = await social.buildToolSchemas().catch(() => []);
   const firecrawl = require('./firecrawl_skill');
-  const autoTools = [SEND_REPLY_TOOL, ...(canBrowse ? [BROWSE_WEB_TOOL] : []), ...(firecrawl.enabled() ? [firecrawl.WEB_SEARCH_TOOL, firecrawl.WEB_READ_TOOL] : []), ...socialTools];
+  const autoTools = [SEND_REPLY_TOOL, ...(canBrowse ? [BROWSE_WEB_TOOL] : []), ...(convoId && photos.length ? [photoSkill.schema(photos)] : []), ...(firecrawl.enabled() ? [firecrawl.WEB_SEARCH_TOOL, firecrawl.WEB_READ_TOOL] : []), ...socialTools];
   const canUseTools = autoTools.length > 1;
   for (let attempt = 0; attempt < attempts; attempt++) {
     for (const backup of keyVariants) {
@@ -1174,6 +1184,10 @@ async function generateBrainReply(history, sys, { attempts = 2 } = {}) {
               console.log(`[brain] ${name}`);
               const result = name === 'web_search' ? await firecrawl.webSearch(args.query) : await firecrawl.webRead(args.url);
               note = result.ok ? result.output : `[Web lookup unavailable: ${result.error}. Answer without it and don't make up what it would have said.]`;
+            } else if (name === 'send_photo') {
+              const r = await photoSkill.execute(convoId, args);
+              console.log(`[brain] send_photo ${args.photo_id || ''}: ${r.ok ? 'queued' : 'declined by guard'}`);
+              note = r.note;
             } else if (name.startsWith('social_')) {
               console.log(`[brain] social: ${name}`, JSON.stringify(args).slice(0, 200));
               const result = await social.executeTool(name, args, { source: 'chat', actor: 'ariana' });
@@ -1401,6 +1415,9 @@ Make them feel like they have a real girlfriend they can text anytime.`
   if (memLines.length) sys += `\n\nYOUR MEMORY:\n${memLines.join('\n')}`;
   // Older media turns only survive in the log as short text stubs; without this she reads them as "I only get a description".
   sys += "\n\nMEDIA: Photos and stickers reach you as the real image, GIFs and animated stickers as frames sampled in order, and voice notes as a transcript, attached to the message they came with. Older messages in this chat only keep a short text stub such as [sent a sticker], [sent a photo] or a sticker label. That is just bookkeeping: you did see the real thing when it arrived. Never say you only get a description or caption, or that you cannot see stickers, photos or GIFs. Only if a message says the media did not come through do you say you could not see or hear it, and ask them to resend.";
+  // Someone is asking to see her: hand her the library and the send_photo option. Using it is entirely her choice.
+  const photoItems = looksLikePhotoRequest(userMsg) ? await photoSkill.snapshot() : [];
+  if (photoItems.length) sys += '\n\n' + photoSkill.promptNote(photoItems);
 
   // Context the outbound finalize gate uses to judge whether an
   // off-screen activity claim is actually backed by something real,
@@ -1447,7 +1464,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
   const fullHistory = [...baseHistory, { role: 'user', content: effectiveUserMsg }];
 
   // ── BRAIN — Groq only, no fallback to another personality engine ──
-  let reply = await generateBrainReply(fullHistory, sys);
+  let reply = await generateBrainReply(fullHistory, sys, { convoId: id, photos: photoItems });
 
   // Character guard — if Groq broke Ariana's identity, retry with a hard reminder
   if (reply && hasAIBreak(reply)) {
@@ -1455,7 +1472,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
     const reinforced = sys + '\n\nCRITICAL REMINDER: You are Ariana Reyes — a real human. ' +
       'You just almost said something that would reveal you as an AI. DO NOT say that. ' +
       'Respond naturally as Ariana. Short, real, human. Never mention AI, bots, or capabilities.';
-    const fixed = await generateBrainReply(fullHistory, reinforced);
+    const fixed = await generateBrainReply(fullHistory, reinforced, { convoId: id, photos: photoItems });
     reply = (fixed && !hasAIBreak(fixed)) ? fixed : null;
   }
 
@@ -1463,7 +1480,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
   if (reply && isTruncated(reply)) {
     console.warn(`[engine] ⚠️ reply looks truncated: "${reply}" — retrying`);
     const continueSys = sys + '\n\nIMPORTANT: Your last reply got cut off. Reply again — complete sentences only. Never end mid-word or mid-phrase.';
-    const retried = await generateBrainReply(fullHistory, continueSys);
+    const retried = await generateBrainReply(fullHistory, continueSys, { convoId: id, photos: photoItems });
     if (retried && !isTruncated(retried) && !hasAIBreak(retried)) reply = retried;
   }
 
@@ -1485,7 +1502,7 @@ Make them feel like they have a real girlfriend they can text anytime.`
   if (await containsNarration(cleaned, userMsg, establishedContext)) {
     console.warn('[engine] Outbound validation failed — regenerating');
     const stricter = (systemOverride || SYSTEM_PROMPT) + '\n\n' + NARRATION_REGEN_INSTRUCTION;
-    const retried = await generateBrainReply(fullHistory, stricter);
+    const retried = await generateBrainReply(fullHistory, stricter, { convoId: id, photos: photoItems });
     if (retried && !hasAIBreak(retried)) {
       cleaned = await cleanAITells(filterLanguage(retried, userMsg), userMsg, establishedContext);
     }
@@ -2073,7 +2090,9 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
   }
   if (takenOver.has(id)) return;
 
-  const mediaType  = detectMediaRequest(finalText, id);
+  let mediaType  = detectMediaRequest(finalText, id);
+  // "send me a pic": she decides (send_photo tool) instead of being forced to send a random one.
+  if (mediaType === 'selfie' && (await photoSkill.snapshot()).length) mediaType = null;
   const wantsVoice = detectVoiceRequest(finalText);
 
   let typingInterval;
@@ -2146,6 +2165,18 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
 
     let voiceUrl = null;
     let imageUrl = null;
+
+    // She chose to send one of her own pictures (send_photo): it goes out together with her message.
+    const queuedPhoto = photoSkill.take(id);
+    if (queuedPhoto) {
+      addMessage(id, "ariana", `[sent a photo of yourself] ${reply}`);
+      lastMediaSent[id] = Date.now();
+      if (typingInterval)   clearInterval(typingInterval);
+      if (tgTypingInterval) clearInterval(tgTypingInterval);
+      await sendReply(id, platform, reply, null, queuedPhoto.url, chatId, from, phoneNumberId, reply || queuedPhoto.caption);
+      if ((platform === 'telegram' || platform === 'sms') && reply) await sendReply(id, platform, reply, null, null, chatId, from, phoneNumberId);
+      return;
+    }
 
     if (mediaType) {
       imageUrl = await getMediaUrl(mediaType);
