@@ -5,6 +5,7 @@ catch (e) { console.warn('[state-sync] restore step failed:', e.message); }
 const stateSync = require('./state_sync');
 const stickers  = require('./stickers');
 const media     = require('./media');
+const mediaLib2  = require('./media_library');
 const statusPosterMod = require('./status_poster');
 const express    = require("express");
 const http       = require("http");
@@ -813,6 +814,9 @@ function detectMediaRequest(msg, convoId) {
   const customSelfie = (t.selfie || []).filter(x => x.length >= 8);
   const allSelfie    = [...new Set([...selfieExact, ...customSelfie])];
   if (allSelfie.some(x => m.includes(x))) return "selfie";
+  // "send me a gym pic", "show me a beach photo", "send me your black dress selfie": a few descriptor words, then pic/photo/selfie.
+  // Not for "a picture of <something else>" (that is not a request for HER picture).
+  if (/\b(?:send|show|give|share)\s+me\s+(?:a|an|one|your|ur)\s+(?:(?!of\b)[a-z']+\s+){1,3}(?:pics?|photos?|pictures?|selfies?)\b/.test(m)) return "selfie";
 
   // Food/vibe: only fire when message is clearly a request (starts with action word or is short & direct)
   const isExplicitRequest = /^(show|send|share|give|got any|what (are you|did you)|post)\b/i.test(m) || m.length < 25;
@@ -835,33 +839,35 @@ async function searchUnsplash(query) {
   } catch { return null; }
 }
 
-async function getMediaUrl(type) {
+// Picks the picture AND returns its tags, so she knows what she is sending. Returns { url, tags, id, description } | null.
+async function getMediaPick(type, text = '', convoId = null) {
   if (type === "selfie") {
-    // ONLY use Supabase ariana_media (the dashboard media library).
-    // Never fall back to media_library.json — it may contain old/wrong images.
+    // ONLY use Supabase ariana_media (the dashboard media library); never media_library.json (may hold old images).
     if (supabase) {
       try {
-        // Try explicit selfie type first, then any image type, then null type
         for (const filter of [
           q => q.eq('media_type', 'selfie'),
           q => q.eq('media_type', 'image'),
           q => q.is('media_type', null),
         ]) {
-          const { data } = await filter(supabase.from('ariana_media').select('url').limit(50));
-          const urls = (data || []).map(r => r.url).filter(Boolean);
-          if (urls.length) {
-            console.log(`[media] Picking selfie from ${urls.length} dashboard photos`);
-            return urls[Math.floor(Math.random() * urls.length)];
+          const { data } = await filter(supabase.from('ariana_media').select('id,url,tags').limit(100));
+          const rows = (data || []).filter(r => r.url);
+          if (rows.length) {
+            const row = mediaLib2.pickBest(rows, text, { recentIds: mediaLib2.recentFor(convoId) });
+            mediaLib2.rememberSent(convoId, row.id);
+            const tags = mediaLib2.normalizeTags(row.tags);
+            console.log(`[media] Picking selfie from ${rows.length} dashboard photos (${tags.length ? tags.length + ' tags' : 'untagged'})`);
+            return { url: row.url, id: row.id, tags, description: mediaLib2.describe(row) };
           }
         }
       } catch (e) { console.warn('[media] Supabase query failed:', e.message); }
     }
-    // No photos found in dashboard — return null so Ariana makes an excuse
     console.warn('[media] No selfie photos in dashboard media library');
     return null;
   }
   const queries = { food: "aesthetic food photography", vibe: "aesthetic lifestyle photography" };
-  return await searchUnsplash(queries[type] || type);
+  const url = await searchUnsplash(queries[type] || type);
+  return url ? { url, id: null, tags: [type], description: `an aesthetic ${type} photo (a stock image, not one of your own pictures)` } : null;
 }
 
 // ── VOICE NOTE ENGINE ─────────────────────────────────────────
@@ -1512,15 +1518,15 @@ Make them feel like they have a real girlfriend they can text anytime.`
   return cleaned;
 }
 
-async function handleNewTexter(id, userMsg, imageBase64 = null, prepared = null) {
+async function handleNewTexter(id, userMsg, imageBase64 = null, prepared = null, extraSystem = '') {
   const convo = getConvo(id);
   if (!convo.isNew) return null;
   convo.isNew = false;
   const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
   if (friendWhitelist.has(rawPhone) || friendWhitelist.has(id)) {
-    return await getReply(id, userMsg, null, imageBase64, prepared);
+    return await getReply(id, userMsg, extraSystem ? SYSTEM_PROMPT + extraSystem : null, imageBase64, prepared);
   }
-  return await getReply(id, userMsg, NEW_TEXTER_PROMPT, imageBase64, prepared);
+  return await getReply(id, userMsg, NEW_TEXTER_PROMPT + extraSystem, imageBase64, prepared);
 }
 
 // ── WHATSAPP SENDERS ──────────────────────────────────────────
@@ -2129,6 +2135,17 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     let systemOverride = null;
     const convo = getConvo(id);
 
+    // She is about to send a picture: choose it NOW (by what was asked + its tags) so her words match it.
+    let pickedMedia = null, pictureNote = '';
+    if (mediaType) {
+      pickedMedia = await getMediaPick(mediaType, finalText, id);
+      if (pickedMedia) {
+        const note = `\n\n[PICTURE YOU ARE SENDING WITH THIS MESSAGE]: ${pickedMedia.description}. Reply as if you just sent exactly this photo. You may mention what is in it naturally, but never claim it shows anything that is not listed.`;
+        pictureNote = note;
+        systemOverride = (systemOverride || SYSTEM_PROMPT) + note;
+      }
+    }
+
     // ── REJECTED CARD — redirect naturally ───────────────────
     if (detectRejectedCard(finalText)) {
       systemOverride = `${SYSTEM_PROMPT}\n\n[PAYMENT CONTEXT]: They just mentioned a card you don't accept (Netflix/PS/Xbox etc). Redirect casually: "that one's useless to me lol" and ask if they have Apple, Amazon, or crypto instead. Short. Unbothered.`;
@@ -2153,7 +2170,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     }
 
     const replyPromise = isFirst
-      ? handleNewTexter(id, finalText, incomingImageBase64, preparedMedia)
+      ? handleNewTexter(id, finalText, incomingImageBase64, preparedMedia, pictureNote)
       : getReply(id, finalText, systemOverride, incomingImageBase64, preparedMedia);
     let [reply] = await Promise.all([replyPromise, humanDelay(preparedMedia ? finalText : text)]);
 
@@ -2179,7 +2196,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     }
 
     if (mediaType) {
-      imageUrl = await getMediaUrl(mediaType);
+      imageUrl = pickedMedia ? pickedMedia.url : null;
       if (!imageUrl) {
         // No photo configured — reply naturally in-character instead of sending "here" with nothing
         const noMediaReplies = [
@@ -2194,7 +2211,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
         return;
       }
       const textReply = reply || "here";
-      addMessage(id, "ariana", `[image: ${mediaType}]`);
+      addMessage(id, "ariana", `${textReply}\n[sent a photo: ${pickedMedia.tags.length ? pickedMedia.tags.join(', ') : 'untagged'}]`); // she can see later what she sent
       lastMediaSent[id] = Date.now();   // ← cooldown: prevent re-send within 5 min
       if (typingInterval)   clearInterval(typingInterval);
       if (tgTypingInterval) clearInterval(tgTypingInterval);
@@ -3334,7 +3351,7 @@ app.get('/api/media', async (_req, res) => {
   } catch { res.json([]); }
 });
 
-app.post('/api/media/upload', async (req, res) => {
+app.post('/api/media/upload', requireDashboardAuth, async (req, res) => {
   if (!supabase) return res.status(500).json({ ok:false, error:'Supabase not configured' });
   const { filename, mediaType, data:b64, tags } = req.body;
   if (!filename||!b64) return res.status(400).json({ ok:false, error:'filename and data required' });
@@ -3355,23 +3372,42 @@ app.post('/api/media/upload', async (req, res) => {
     const { data:{ publicUrl } } = supabase.storage.from('ariana-media').getPublicUrl(storagePath);
 
     const { data:row, error:dbErr } = await supabase.from('ariana_media').insert({
-      id:uid, filename, media_type:mediaType, url:publicUrl, storage_path:storagePath, tags:tags||[]
+      id:uid, filename, media_type:mediaType, url:publicUrl, storage_path:storagePath, tags:mediaLib2.normalizeTags(tags)
     }).select().single();
     if (dbErr) throw new Error(dbErr.message);
+    // Untagged photo: Luna looks at it and tags it in the background (best effort; editable in the dashboard).
+    if (!mediaLib2.normalizeTags(tags).length && /^image/.test(String(contentType))) {
+      mediaLib2.autoTag(publicUrl).then(async (t) => { if (t.length) await supabase.from('ariana_media').update({ tags: t }).eq('id', uid); }).catch(() => {});
+    }
 
     res.json({ ok:true, item:row });
   } catch (e) { res.status(500).json({ ok:false, error:e.message }); }
 });
 
-app.patch('/api/media/:id/tags', async (req, res) => {
+app.patch('/api/media/:id/tags', requireDashboardAuth, async (req, res) => {
   if (!supabase) return res.status(500).json({ ok:false, error:'Supabase not configured' });
   try {
-    await supabase.from('ariana_media').update({ tags:req.body.tags }).eq('id',req.params.id);
-    res.json({ ok:true });
+    const tags = mediaLib2.normalizeTags(req.body && req.body.tags);
+    const { error } = await supabase.from('ariana_media').update({ tags }).eq('id', req.params.id);
+    if (error) throw new Error(error.message);
+    res.json({ ok:true, tags });
   } catch (e) { res.status(500).json({ ok:false, error:e.message }); }
 });
 
-app.delete('/api/media/:id', async (req, res) => {
+// Luna looks at the photo and writes the tags (dashboard: leave the tag box empty and tap OK).
+app.post('/api/media/:id/autotag', requireDashboardAuth, async (req, res) => {
+  if (!supabase) return res.status(500).json({ ok:false, error:'Supabase not configured' });
+  try {
+    const { data:row } = await supabase.from('ariana_media').select('url').eq('id', req.params.id).single();
+    if (!row || !row.url) return res.status(404).json({ ok:false, error:'Photo not found' });
+    const tags = await mediaLib2.autoTag(row.url);
+    if (!tags.length) return res.status(502).json({ ok:false, error:'Could not read the photo (is OPENAI_API_KEY set?)' });
+    await supabase.from('ariana_media').update({ tags }).eq('id', req.params.id);
+    res.json({ ok:true, tags });
+  } catch (e) { res.status(500).json({ ok:false, error:e.message }); }
+});
+
+app.delete('/api/media/:id', requireDashboardAuth, async (req, res) => {
   if (!supabase) return res.status(500).json({ ok:false, error:'Supabase not configured' });
   try {
     const { data:item } = await supabase.from('ariana_media').select('storage_path').eq('id',req.params.id).single();
