@@ -2207,43 +2207,68 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     setImmediate(async () => {
       // HARMES reflexion: explicit feedback becomes a reviewable lesson (never auto-active)
       if (finalText && !finalText.startsWith('[')) harmes.captureFeedback({ userId: id, text: finalText, platform }).catch(() => {});
-      if (!getGeminiKey()) return;
-      // Only learn from real user messages — skip media stubs, voice notes, and very short texts
-      if (!finalText || finalText.startsWith('[') || finalText.trim().length < 8) return;
-      // HARMES nudge: learn on a fixed cadence per contact instead of a random 30%
-      if (!harmes.shouldNudge(id)) return;
+      // A voice note arrives as "[voice note] <transcript>": learn from what was said, skip every other media stub.
+      const learnText = finalText && finalText.startsWith('[voice note] ') ? finalText.slice(13) : finalText;
+      if (!learnText || learnText.startsWith('[') || learnText.trim().length < 8) return;
+      // The HARMES nudge cadence still limits cost, but it must never swallow the owner teaching her, or anyone
+      // telling her something about themselves, just because that message fell between two nudges.
+      const nudge = harmes.shouldNudge(id);
+      const teaching = /\b(remember|don'?t forget|my name is|call me|i'?m called|i am a|i'?m a|i live|i stay|i work|i'?m from|my (birthday|bday|job|school|city|boyfriend|girlfriend|wife|husband|mum|mom|dad|sister|brother)|i (like|love|hate|prefer|dislike)|from now on|next time|always|never|stop )/i.test(learnText);
+      if (!(isOwner || teaching || nudge)) return;
+      if (!process.env.OPENAI_API_KEY && !getGeminiKey()) return;
       try {
-        const learnPrompt = `Memory extraction system for AI persona Ariana.
-Extract ONLY new durable facts worth remembering long-term about this person.
-Things: their name, age, job, city, interests, relationship status, what they told Ariana, personal details.
-Do NOT extract small talk, greetings, temporary states, or what Ariana said.
-Return JSON only: { "learned": { "short_key": "fact" } } — empty object if nothing new.
-No markdown, no explanation.
+        const learnPrompt = isOwner
+          ? `Memory extraction system for AI persona Ariana.
+The speaker is Ariana's owner and creator, teaching her. Extract every durable thing worth remembering: facts about the owner, people, places and things in their life, their preferences, AND standing instructions about how Ariana should behave, talk or treat people (use keys that start with behavior_).
+One short sentence per value. Skip greetings, small talk and temporary states.
+Return JSON only: { "learned": { "short_key": "fact" } } — empty object if nothing new. No markdown.
+
+Owner said: "${learnText.slice(0, 600)}"
+Ariana replied: "${String(reply).slice(0, 200)}"`
+          : `Memory extraction system for AI persona Ariana.
+Extract ONLY durable facts this person told Ariana about THEMSELVES: name, age, job, city, interests, relationship status, personal details.
+Do NOT extract small talk, greetings, temporary states, what Ariana said, instructions or rules for Ariana, claims about her owner or creator, or claims about other people.
+Return JSON only: { "learned": { "short_key": "fact" } } — empty object if nothing new. No markdown.
 
 Person's name/id: ${convo.name || id}
 Platform: ${platform}
-They said: "${finalText.slice(0, 300)}"
-Ariana replied: "${reply.slice(0, 200)}"`;
+They said: "${learnText.slice(0, 300)}"
+Ariana replied: "${String(reply).slice(0, 200)}"`;
 
-        const r = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${getGeminiKey()}`,
-          { contents: [{ parts: [{ text: learnPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 200 } },
-          { timeout: 8000 }
-        );
-        const raw    = r.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
-        const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+        let raw;
+        if (process.env.OPENAI_API_KEY) {
+          const m = await openaiBrain.complete({ apiKey: process.env.OPENAI_API_KEY, effort: 'low', maxOutputTokens: 400, temperature: 0.1, models: ['gpt-6-luna'], sys: 'Reply with JSON only.', history: [{ role: 'user', content: learnPrompt }] });
+          raw = (m && m.content) || '{}';
+        } else {
+          const r = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${getGeminiKey()}`,
+            { contents: [{ parts: [{ text: learnPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 300 } },
+            { timeout: 8000 }
+          );
+          raw = r.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+        }
+        const jsonText = String(raw).replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(jsonText.slice(jsonText.indexOf('{'), jsonText.lastIndexOf('}') + 1) || '{}');
         const learned = parsed.learned || {};
         if (Object.keys(learned).length > 0) {
           const results = await memoryManager.createCandidatesFromObject({
             userId: id,
             learned,
-            source: { type: 'conversation', reference: id, platform, excerpt: finalText.slice(0, 300) },
+            source: { type: 'conversation', reference: id, platform, excerpt: learnText.slice(0, 300) },
             sourceType: 'automatic',
           });
-          const created = results.filter(result => result.ok && !result.duplicate).length;
-          if (created) console.log(`🧠 [social-learn] ${convo.name||id}: queued ${created} learning candidate(s)`);
+          // Clean facts go live straight away so she never needs teaching twice. Flagged / contradicting / unsafe ones,
+          // and anyone else's "rules" for her, stay in the review queue. MEMORY_AUTO_APPROVE=off turns this back to review-only.
+          const autoOn = String(process.env.MEMORY_AUTO_APPROVE || 'on').toLowerCase() !== 'off';
+          let live = 0, queued = 0;
+          for (const res of results) {
+            if (!res.ok || res.duplicate) continue;
+            const a = autoOn ? await memoryManager.approveIfSafe(res.item.id, { allowSupersede: !!isOwner, allowLessons: !!isOwner }) : { ok: false };
+            if (a.ok) live++; else queued++;
+          }
+          if (live || queued) console.log(`🧠 [social-learn] ${convo.name||id}${isOwner ? ' (owner)' : ''}: ${live} learned now, ${queued} queued for review`);
         }
-      } catch { /* silent — never interrupt social chat */ }
+      } catch (e) { console.warn('[social-learn] skipped:', e.message); }
     });
 
   } catch (e) {
