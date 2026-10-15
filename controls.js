@@ -1,0 +1,96 @@
+"use strict";
+/**
+ * controls.js -- the settings you change from the dashboard ("Her life" screen) instead of Render env vars.
+ * Stored in controls.json (mirrored to Supabase by state_sync, so redeploys don't reset it). Every value is validated and
+ * clamped on the way in, and anything missing falls back to a default (env vars from before still seed the first defaults).
+ */
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join(process.env.STATE_SYNC_ROOT || __dirname, "controls.json");
+const num = (v, d) => (Number.isFinite(Number(v)) && v !== "" && v !== null ? Number(v) : d);
+
+function defaults(env = process.env) {
+  return {
+    status: {
+      enabled: env.WA_STATUS_POSTS !== "off",
+      postsMin: Math.min(6, Math.max(1, num(env.STATUS_POSTS_MIN, 2))),
+      postsMax: Math.min(6, Math.max(1, num(env.STATUS_POSTS_MAX, 3))),
+      kinds: { text: true, photo: true, found: true },
+      topics: { funny: true, news: true },
+      telegramStory: env.TG_STORY_POSTS !== "off",
+    },
+    photos: {
+      enabled: true,
+      cooldownMin: Math.max(0, num(env.PHOTO_COOLDOWN_MIN, 5)),
+      dailyCap: Math.max(1, num(env.PHOTO_DAILY_CAP, 5)),
+      sendToOthers: true,
+      othersDailyCap: Math.max(1, num(env.PHOTO_OTHERS_DAILY_CAP, 6)),
+    },
+    memory: { autoApprove: String(env.MEMORY_AUTO_APPROVE || "on").toLowerCase() !== "off" },
+  };
+}
+
+const bool = (v, d) => (typeof v === "boolean" ? v : d);
+const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Math.round(num(v, d))));
+
+/** Merge an untrusted patch (or stored file) over a base, keeping only known keys with valid, clamped values. */
+function sanitize(input, base) {
+  const i = input && typeof input === "object" ? input : {};
+  const s = i.status || {}, p = i.photos || {}, m = i.memory || {};
+  const out = {
+    status: {
+      enabled: bool(s.enabled, base.status.enabled),
+      postsMin: clamp(s.postsMin, 1, 6, base.status.postsMin),
+      postsMax: clamp(s.postsMax, 1, 6, base.status.postsMax),
+      kinds: {
+        text: bool(s.kinds && s.kinds.text, base.status.kinds.text),
+        photo: bool(s.kinds && s.kinds.photo, base.status.kinds.photo),
+        found: bool(s.kinds && s.kinds.found, base.status.kinds.found),
+      },
+      topics: {
+        funny: bool(s.topics && s.topics.funny, base.status.topics.funny),
+        news: bool(s.topics && s.topics.news, base.status.topics.news),
+      },
+      telegramStory: bool(s.telegramStory, base.status.telegramStory),
+    },
+    photos: {
+      enabled: bool(p.enabled, base.photos.enabled),
+      cooldownMin: clamp(p.cooldownMin, 0, 240, base.photos.cooldownMin),
+      dailyCap: clamp(p.dailyCap, 1, 50, base.photos.dailyCap),
+      sendToOthers: bool(p.sendToOthers, base.photos.sendToOthers),
+      othersDailyCap: clamp(p.othersDailyCap, 1, 50, base.photos.othersDailyCap),
+    },
+    memory: { autoApprove: bool(m.autoApprove, base.memory.autoApprove) },
+  };
+  if (out.status.postsMax < out.status.postsMin) out.status.postsMax = out.status.postsMin;
+  // at least one kind and one topic must stay on, or the poster would have nothing to write
+  if (!out.status.kinds.text && !out.status.kinds.photo && !out.status.kinds.found) out.status.kinds.text = true;
+  if (!out.status.topics.funny && !out.status.topics.news) out.status.topics.funny = true;
+  return out;
+}
+
+function create({ file = FILE, env = process.env } = {}) {
+  const base = defaults(env);
+  let cur = base;
+  try { cur = sanitize(JSON.parse(fs.readFileSync(file, "utf8")), base); } catch { /* first run: defaults */ }
+  const get = () => cur;
+  function update(patch) {
+    cur = sanitize(mergeDeep(JSON.parse(JSON.stringify(cur)), patch), base);
+    try { fs.writeFileSync(file, JSON.stringify(cur, null, 2)); } catch (e) { console.warn("[controls] could not save:", e.message); }
+    return cur;
+  }
+  function reset() { cur = defaults(env); try { fs.writeFileSync(file, JSON.stringify(cur, null, 2)); } catch {} return cur; }
+  return { get, update, reset, defaults: () => defaults(env) };
+}
+
+function mergeDeep(a, b) {
+  if (!b || typeof b !== "object") return a;
+  for (const k of Object.keys(b)) {
+    if (b[k] && typeof b[k] === "object" && !Array.isArray(b[k])) a[k] = mergeDeep(a[k] && typeof a[k] === "object" ? a[k] : {}, b[k]);
+    else a[k] = b[k];
+  }
+  return a;
+}
+
+module.exports = { create, defaults, sanitize, FILE };
