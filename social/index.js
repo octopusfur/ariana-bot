@@ -109,15 +109,10 @@ async function startupLines() {
         : '⚠️  engine set, no accounts added yet';
   lines.push(`📣 Social actions: ${state}`);
   if (engine.configured() && r.enabled) {
-    if (engine.provider() === 'x-api') {
-      // Deliberately no request: the X service sleeps when idle and boot must not wake it.
-      lines.push('📣 X service: on-demand — not contacted at boot, wakes on the first action');
-    } else {
-      const h = await engine.health();
-      lines.push(h.ok
-        ? `📣 Engine: ${h.health.provider || 'socialcrabs'} · ${h.health.browsers_open || 0} browser(s) open`
-        : `📣 Engine unreachable: ${h.error}`);
-    }
+    const h = await engine.health();
+    lines.push(h.ok
+      ? `📣 Engine: ${h.health.provider || 'socialcrabs'} · ${h.health.browsers_open || 0} browser(s) open`
+      : `📣 Engine unreachable: ${h.error}`);
   }
   return lines;
 }

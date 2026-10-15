@@ -16,13 +16,6 @@ const fs = require('fs');
 const path = require('path');
 
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.json'), 'utf8'));
-// What X can do when it runs on the official API (the X service) instead of browser
-// automation. It replaces the base 'twitter' entry only while the service is configured.
-const X_API = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.x-api.json'), 'utf8'));
-
-function xApiActive() {
-  try { return require('./x_engine').configured(); } catch (_) { return false; }
-}
 
 function manifest() {
   return MANIFEST;
@@ -33,7 +26,6 @@ function platformIds() {
 }
 
 function platformInfo(platform) {
-  if (platform === 'twitter' && xApiActive()) return X_API.platforms.twitter;
   return MANIFEST.platforms[platform] || null;
 }
 

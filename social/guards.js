@@ -51,8 +51,6 @@ function defaultLimits() {
     engagement: envNumber('SOCIAL_MAX_ENGAGEMENT', 60),
     notifications: envNumber('SOCIAL_MAX_NOTIFICATIONS', 40),
     read_dms: envNumber('SOCIAL_MAX_READ_DMS', 40),
-    delete_post: envNumber('SOCIAL_MAX_DELETE_POST', 5),
-    delete_comment: envNumber('SOCIAL_MAX_DELETE_COMMENT', 10),
   };
 }
 

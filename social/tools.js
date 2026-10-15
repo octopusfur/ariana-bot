@@ -43,11 +43,6 @@ const TOOL_FOR_ACTION = {
   post: { name: 'social_post', needs: ['text'] },
   repost: { name: 'social_repost', needs: ['url'] },
   engagement: { name: 'social_engagement', needs: ['username'] },
-  view_feed: { name: 'social_view_feed', needs: [] },
-  notifications: { name: 'social_notifications', needs: [] },
-  read_dms: { name: 'social_read_dms', needs: [], optional: ['username'] },
-  delete_post: { name: 'social_delete_post', needs: ['url'] },
-  delete_comment: { name: 'social_delete_comment', needs: ['url'] },
 };
 
 const ACTION_FOR_TOOL = Object.fromEntries(
@@ -68,11 +63,6 @@ const ACTION_BLURB = {
   post: 'Publish a post of your own (X only). Publishing is public and permanent, so it needs your creator\'s confirmation unless they enabled autopublish.',
   repost: "Repost / retweet someone else's post.",
   engagement: 'Check follower/following counts for an account (X only).',
-  view_feed: 'Read your own home feed: the newest posts from the accounts you follow. Reads only, changes nothing.',
-  notifications: 'See recent posts that mention you. Reads only, changes nothing.',
-  read_dms: "Read your recent direct messages (optionally just the thread with one person). This is your real inbox, so it always needs your creator's confirmation first.",
-  delete_post: 'Delete one of your OWN posts. Permanent, so it always asks your creator to confirm first.',
-  delete_comment: 'Delete one of your OWN comments or replies. Permanent, so it always asks your creator to confirm first.',
 };
 
 const TOOL_ACCOUNT_PARAM = {
@@ -110,15 +100,14 @@ async function buildToolSchemas() {
   for (const action of available) {
     const def = TOOL_FOR_ACTION[action];
     const needs = def.needs;
-    const wants = [...needs, ...(def.optional || [])];
     const properties = {};
-    if (wants.includes('query')) properties.query = { type: 'string', description: 'What to search for.' };
-    if (wants.includes('url')) properties.url = { type: 'string', description: 'Full URL of the post.' };
-    if (wants.includes('username')) properties.username = { type: 'string', description: 'Handle without the @.' };
-    if (wants.includes('profile_url')) properties.profile_url = { type: 'string', description: "Full URL of the person's profile." };
-    if (wants.includes('text')) properties.text = { type: 'string', description: 'The exact text to publish. Write it as yourself — no stage directions, no hashtag spam.' };
-    if (wants.includes('message')) properties.message = { type: 'string', description: 'The message body. Write it as yourself.' };
-    if (wants.includes('note')) properties.note = { type: 'string', description: 'Optional short note.' };
+    if (needs.includes('query')) properties.query = { type: 'string', description: 'What to search for.' };
+    if (needs.includes('url')) properties.url = { type: 'string', description: 'Full URL of the post.' };
+    if (needs.includes('username')) properties.username = { type: 'string', description: 'Handle without the @.' };
+    if (needs.includes('profile_url')) properties.profile_url = { type: 'string', description: "Full URL of the person's profile." };
+    if (needs.includes('text')) properties.text = { type: 'string', description: 'The exact text to publish. Write it as yourself — no stage directions, no hashtag spam.' };
+    if (needs.includes('message')) properties.message = { type: 'string', description: 'The message body. Write it as yourself.' };
+    if (needs.includes('note')) properties.note = { type: 'string', description: 'Optional short note.' };
     properties.account = TOOL_ACCOUNT_PARAM;
 
     const b = batchParam(action);
@@ -166,11 +155,6 @@ function payloadFor(action, args) {
     case 'post': return { text: args.text };
     case 'repost': return { url: args.url };
     case 'engagement': return { username: args.username };
-    case 'view_feed':
-    case 'notifications': return {};
-    case 'read_dms': return { username: args.username || null };
-    case 'delete_post':
-    case 'delete_comment': return { url: args.url };
     default: return {};
   }
 }
@@ -342,8 +326,7 @@ function toolResultForModel(result) {
   if (result.ok) {
     const lines = [`[social action completed] ${result.summary}`];
     if (result.data && result.data.length && result.data[0].result) {
-      const READS = ['search', 'view_posts', 'view_feed', 'notifications', 'read_dms'];
-      lines.push('Engine returned: ' + JSON.stringify(result.data[0].result).slice(0, READS.includes(result.action) ? 3500 : 800));
+      lines.push('Engine returned: ' + JSON.stringify(result.data[0].result).slice(0, 800));
     }
     if (result.partial) lines.push('Note: part of the batch failed — say only what actually happened.');
     return lines.join('\n');
