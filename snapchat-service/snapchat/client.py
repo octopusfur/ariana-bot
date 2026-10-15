@@ -98,6 +98,30 @@ class GrpcError(SnapchatError):
         super().__init__(f"grpc-status={status}: {message}")
 
 
+def _parse_login_challenge(payload: bytes):
+    """Return (status, challenge_bytes) from the email-step reply: field 1 varint, field 2 bytes."""
+    status, challenge, pos = None, None, 0
+    while pos < len(payload):
+        key, pos = _read_varint(payload, pos)
+        field, wire = key >> 3, key & 7
+        if wire == 0:
+            val, pos = _read_varint(payload, pos)
+            if field == 1:
+                status = val
+        elif wire == 2:
+            n, pos = _read_varint(payload, pos)
+            if field == 2 and challenge is None:
+                challenge = payload[pos:pos + n]
+            pos += n
+        elif wire == 1:
+            pos += 8
+        elif wire == 5:
+            pos += 4
+        else:
+            break
+    return status, challenge
+
+
 class SnapchatClient:
     """Unofficial Snapchat Web API client.
 
@@ -254,14 +278,14 @@ class SnapchatClient:
         if not payload:
             raise AuthError("Empty email response")
 
-        # payload: field 1=status(varint), field 2=challenge_submessage
-        pos = 1  # skip field 1 (varint=13 = need password)
-        tag = payload[pos]
-        pos += 1
-        if (tag >> 3) != 2 or (tag & 7) != 2:
-            raise AuthError(f"Expected field 2 wire=2, got tag=0x{tag:02x}")
-        length, pos = self._decode_varint(payload, pos)
-        challenge_sub = payload[pos : pos + length]
+        # PATCHED: walk the fields. Upstream assumed the challenge tag sat at byte 1, but the reply is
+        # `08 0d 12 ..` (status 13 = "send the password", then the challenge), so it read the status value as a tag.
+        status, challenge_sub = _parse_login_challenge(payload)
+        if challenge_sub is None:
+            raise AuthError(
+                f"Snapchat did not ask for a password (status {status}). It may want a captcha or "
+                "verification first, or it refused this server."
+            )
 
         # Step 3: Submit password with challenge
         pw_bytes = password.encode()
@@ -1697,7 +1721,7 @@ class SnapchatClient:
             }
         return {"raw": r.content.hex()}
 
-    def get_messages(self, conversation_id: str, limit: int = 50) -> list:
+    def get_messages(self, conversation_id: str, limit: int = 50, data: Optional[bytes] = None) -> list:
         """Get text messages from a conversation using DeltaSync data.
 
         Searches the DeltaSync response backwards (newest first), finds
@@ -1706,12 +1730,13 @@ class SnapchatClient:
 
         Returns: list of dicts with keys: text, sender ("me"|"other")
         """
-        ds_data = self.delta_sync()
-        data = (
-            ds_data
-            if isinstance(ds_data, bytes)
-            else bytes.fromhex(ds_data.get("raw", ""))
-        )
+        if data is None:  # PATCHED: callers that check many chats pass one shared sync
+            ds_data = self.delta_sync()
+            data = (
+                ds_data
+                if isinstance(ds_data, bytes)
+                else bytes.fromhex(ds_data.get("raw", ""))
+            )
         if not data or len(data) < 16:
             return []
 

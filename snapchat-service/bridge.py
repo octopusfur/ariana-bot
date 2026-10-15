@@ -53,6 +53,59 @@ def extract_uuid_candidates(raw, exclude=()):
     return out
 
 
+def _looks_like_uuid_bytes(chunk):
+    return len(chunk) == 16 and (chunk[6] >> 4) in (4, 5) and (chunk[8] >> 6) == 2
+
+
+def extract_conversation_ids(raw, exclude=()):
+    """Conversation references in a sync payload are framed `0A 12 0A 10 <16 bytes>` (same shape send_text builds).
+
+    Best effort and unverified against a live account: it only SUGGESTS ids. Anything it finds is checked by
+    actually reading messages from it, and ids that never yield a message are simply ignored.
+    """
+    skip = {bytes.fromhex(str(e).replace("-", "")) for e in exclude if is_uuid(e)}
+    out, seen, i = [], set(), 0
+    while True:
+        i = raw.find(b"\x0a\x12\x0a\x10", i)
+        if i < 0 or i + 20 > len(raw):
+            break
+        chunk = raw[i + 4:i + 20]
+        if _looks_like_uuid_bytes(chunk) and chunk not in seen and chunk not in skip:
+            seen.add(chunk)
+            out.append(str(uuid_mod.UUID(bytes=chunk)))
+        i += 1
+    return out
+
+
+def user_id_candidates(token):
+    """Possible account ids hidden in a bearer token: UUID text, or 16-byte values with UUID bits."""
+    import base64
+    cands, seen = [], set()
+
+    def add(u):
+        u = str(u).lower()
+        if is_uuid(u) and u not in seen:
+            seen.add(u)
+            cands.append(u)
+
+    for m in re.finditer(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", token or ""):
+        add(m.group(0))
+    raw = b""
+    for decoder in (base64.urlsafe_b64decode, base64.b64decode):
+        try:
+            t = (token or "").strip()
+            raw = decoder(t + "=" * (-len(t) % 4))
+            break
+        except Exception:
+            continue
+    for m in re.finditer(rb"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", raw):
+        add(m.group(0).decode())
+    for i in range(0, max(0, len(raw) - 15)):
+        if _looks_like_uuid_bytes(raw[i:i + 16]) and (i == 0 or raw[i - 1] == 0x10 or raw[i - 2:i] == b"\x0a\x10"):
+            add(uuid_mod.UUID(bytes=raw[i:i + 16]))
+    return cands[:12]
+
+
 def text_key(conversation_id, text):
     return hashlib.sha256(f"{conversation_id}\x00{text.strip()}".encode("utf-8")).hexdigest()[:24]
 
@@ -74,7 +127,7 @@ class RateLimiter:
 
 
 class Bridge:
-    def __init__(self, on_inbound=None, my_uuid="", conversations=(), max_sends_per_hour=30, client_factory=SnapchatClient):
+    def __init__(self, on_inbound=None, my_uuid="", conversations=(), max_sends_per_hour=30, client_factory=SnapchatClient, answer_all=True):
         self.lock = threading.RLock()
         self.client_factory = client_factory
         self.client = None
@@ -88,6 +141,9 @@ class Bridge:
         self.last_poll = None
         self.last_error = None
         self.paused = False
+        self.answer_all = answer_all      # True: answer every chat found in the sync; False: only listed chats
+        self.initial_done = False         # first full pass only records history
+        self.known = set()                # chats found automatically so far
 
     # ---------------------------------------------------------------- session
     def authenticated(self):
@@ -105,6 +161,7 @@ class Bridge:
             if self.client:
                 self.client.MY_UUID = bytes.fromhex(self.my_uuid.replace("-", ""))
             self.baselined.clear()
+            self.initial_done = False
 
     def login(self, username, password):
         with self.lock:
@@ -150,6 +207,31 @@ class Bridge:
                         self.client.refresh_bearer()
                         continue
                     raise
+
+
+    def discover_user_uuid(self):
+        """Find this account's own id by trying candidates from the bearer token against a real sync.
+
+        A wrong id makes Snapchat reject the sync, so only an id that works is accepted. Returns it, or None.
+        """
+        with self.lock:
+            if not self.authenticated():
+                raise AuthError("Snapchat is not signed in")
+            previous = self.my_uuid
+            for cand in user_id_candidates(self.client.bearer_token):
+                self.my_uuid = cand
+                self.client.MY_UUID = bytes.fromhex(cand.replace("-", ""))
+                try:
+                    data = self.client.delta_sync()
+                except Exception:
+                    continue
+                if isinstance(data, (bytes, bytearray)) and len(data) > 32:
+                    self.initial_done = False
+                    self.baselined.clear()
+                    return cand
+            self.my_uuid = previous
+            self.client.MY_UUID = bytes.fromhex(previous.replace("-", "")) if previous else b""
+            return None
 
     # ---------------------------------------------------------------- sending
     def _check_conv(self, conversation_id):
@@ -209,23 +291,48 @@ class Bridge:
             return sorted(self.conversations)
 
     def poll_once(self):
-        """One polling pass. Returns the list of new inbound messages that were delivered."""
+        """One polling pass. Returns the new inbound messages that were delivered.
+
+        answer_all (default): one sync is shared across every chat found in it, plus any listed chats.
+        The first pass after start only records history (never answered); chats that appear later are new
+        conversations, so their messages are answered (newest 3 at most, in case history shows up late).
+        """
         if self.paused or not self.authenticated() or not self.my_uuid:
             return []
-        delivered = []
-        for conv in sorted(self.conversations):
+        data = None
+        convs = set(self.conversations)
+        if self.answer_all:
             try:
-                msgs = self._call("get_messages", conv, 50)
+                data = self._call("delta_sync")
+            except SnapchatError as e:
+                self.last_error = str(e)
+                return []
+            if isinstance(data, (bytes, bytearray)):
+                found = extract_conversation_ids(bytes(data), exclude=[self.my_uuid])
+                self.known.update(found)
+                convs |= set(found)
+        first_pass = not self.initial_done
+        delivered = []
+        for conv in sorted(convs):
+            try:
+                msgs = self._call("get_messages", conv, 50, data) if data is not None else self._call("get_messages", conv, 50)
             except SnapchatError as e:
                 self.last_error = str(e)
                 continue
             keys = [(m, text_key(conv, m["text"])) for m in msgs]
-            if conv not in self.baselined:
+            fresh_chat = conv not in self.baselined
+            if fresh_chat and (first_pass or conv in self.conversations or not self.answer_all):
                 for _, k in keys:
                     self.seen[conv].add(k)   # history before we started is never answered
                 self.baselined.add(conv)
                 continue
-            for m, k in reversed(keys):       # oldest first
+            self.baselined.add(conv)
+            ordered = list(reversed(keys))   # oldest first
+            if fresh_chat:                   # brand new chat found after start: answer only its newest 3
+                for _, k in ordered[:-3]:
+                    self.seen[conv].add(k)
+                ordered = ordered[-3:]
+            for m, k in ordered:
                 if k in self.seen[conv]:
                     continue
                 self.seen[conv].add(k)
@@ -239,6 +346,8 @@ class Bridge:
                         self.last_error = f"inbound delivery failed: {e}"
             if len(self.seen[conv]) > 2000:
                 self.seen[conv] = set(list(self.seen[conv])[-1000:])
+        if self.answer_all and data is not None:
+            self.initial_done = True
         self.last_poll = time.time()
         return delivered
 

@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("SNAP_API_SECRET", "test-secret")
 
 from snapchat import SnapchatClient, SnapchatError, AuthError
-from snapchat.client import _read_varint
+from snapchat.client import _read_varint, _parse_login_challenge
 import bridge as B
 
 ME = "2510ebad-9409-5ab9-bfaf-e80838f7077f"
@@ -36,13 +36,16 @@ class FakeClient:
     def __init__(self, cookies=None, bearer_token="", my_uuid=""):
         self.cookies, self.bearer_token, self.MY_UUID = cookies or {}, bearer_token, my_uuid
         self.sent, self.messages, self.refreshed = [], [], 0
+        self.messages_by_conv, self.sync_blob = {}, b""
     def is_authenticated(self): return bool(self.cookies) and bool(self.bearer_token)
     def refresh_bearer(self): self.refreshed += 1; self.bearer_token = "tok"; return "tok"
     def send_text(self, conv, text): self.sent.append((conv, text)); return {"status": "ok"}
-    def get_messages(self, conv, limit=50): return list(self.messages)
+    def delta_sync(self): return self.sync_blob
+    def get_messages(self, conv, limit=50, data=None): return list(self.messages_by_conv.get(conv, self.messages))
 
 
 def make_bridge(**kw):
+    kw.setdefault("answer_all", False)  # the classic tests use an explicit chat list
     b = B.Bridge(my_uuid=ME, conversations=[CONV], client_factory=FakeClient, **kw)
     b.load_session({"a": "b"}, "tok")
     return b
@@ -149,6 +152,104 @@ class Guards(unittest.TestCase):
         for p in ("/post-story", "/like", "/comment", "/follow"):
             code, body = server.route("POST", p, {}, "")
             self.assertEqual(code, 501); self.assertIn("error", body)
+
+
+def conv_frame(u):
+    return b"\x0a\x12\x0a\x10" + U.UUID(u).bytes
+
+
+CONV2 = str(U.uuid5(U.NAMESPACE_DNS, "second chat"))
+CONV3 = str(U.uuid5(U.NAMESPACE_DNS, "third chat"))
+
+
+class LoginParse(unittest.TestCase):
+    def test_reads_challenge_after_status_13(self):
+        # the real shape that broke upstream: field 1 = 13 ("send the password"), then field 2 = challenge
+        status, challenge = _parse_login_challenge(bytes([0x08, 0x0D, 0x12, 0x05]) + b"hello")
+        self.assertEqual((status, challenge), (13, b"hello"))
+
+    def test_no_challenge_returns_none(self):
+        self.assertEqual(_parse_login_challenge(bytes([0x08, 0x02])), (2, None))
+
+
+class AnswerEveryone(unittest.TestCase):
+    def make(self):
+        got = []
+        b = B.Bridge(my_uuid=ME, conversations=[], client_factory=FakeClient, answer_all=True, on_inbound=lambda c, t: got.append((c, t)))
+        b.load_session({"a": "b"}, "tok")
+        return b, got
+
+    def test_finds_chat_ids_without_a_list(self):
+        raw = conv_frame(CONV2) + conv_frame(ME) + b"\x00" + conv_frame(CONV3)
+        self.assertEqual(B.extract_conversation_ids(raw, exclude=[ME]), [CONV2, CONV3])
+
+    def test_answers_chats_it_was_never_told_about_but_not_old_history(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2)
+        c.messages_by_conv = {CONV2: [{"text": "old history", "sender": "other"}]}
+        self.assertEqual(b.poll_once(), [])                       # first pass: history only
+        c.messages_by_conv[CONV2] = [{"text": "hello ariana", "sender": "other"}, {"text": "old history", "sender": "other"}]
+        self.assertEqual([m["text"] for m in b.poll_once()], ["hello ariana"])
+        self.assertEqual(got, [(CONV2, "hello ariana")])
+
+    def test_a_brand_new_chat_after_start_is_answered(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2); c.messages_by_conv = {CONV2: []}
+        b.poll_once()
+        c.sync_blob = conv_frame(CONV2) + conv_frame(CONV3)       # a new friend writes for the first time
+        c.messages_by_conv[CONV3] = [{"text": "hi it is me", "sender": "other"}]
+        self.assertEqual([m["text"] for m in b.poll_once()], ["hi it is me"])
+
+    def test_her_own_replies_are_not_answered(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2); c.messages_by_conv = {CONV2: []}
+        b.poll_once()
+        b.send_text(CONV2, "my reply")
+        c.messages_by_conv[CONV2] = [{"text": "my reply", "sender": "other"}]
+        self.assertEqual(b.poll_once(), [])
+
+    def test_list_only_mode_ignores_discovered_chats(self):
+        b = B.Bridge(my_uuid=ME, conversations=[], client_factory=FakeClient, answer_all=False)
+        b.load_session({"a": "b"}, "tok")
+        b.client.sync_blob = conv_frame(CONV2)
+        b.client.messages_by_conv = {CONV2: [{"text": "hello there", "sender": "other"}]}
+        self.assertEqual(b.poll_once(), [])
+        b.client.messages_by_conv = {CONV2: [{"text": "hello there again", "sender": "other"}]}
+        self.assertEqual(b.poll_once(), [])
+
+
+class DiscoverAccountId(unittest.TestCase):
+    def test_token_candidates_include_uuid_text_and_framed_bytes(self):
+        import base64
+        raw = b"\x08\x01\x0a\x10" + U.UUID(ME).bytes + b"\xff" * 8
+        tok = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        self.assertIn(ME, B.user_id_candidates(tok))
+        self.assertIn(ME, B.user_id_candidates("prefix-" + ME + "-suffix"))
+
+    def test_only_an_id_that_makes_a_real_sync_succeed_is_accepted(self):
+        import base64
+        wrong = str(U.uuid5(U.NAMESPACE_DNS, "not me"))
+        raw = b"\x0a\x10" + U.UUID(wrong).bytes + b"\x0a\x10" + U.UUID(ME).bytes
+        tok = base64.urlsafe_b64encode(raw).decode()
+        class Picky(FakeClient):
+            def delta_sync(self):
+                if self.MY_UUID != U.UUID(ME).bytes: raise SnapchatError("grpc-status=7")
+                return b"x" * 64
+        b = B.Bridge(my_uuid="", conversations=[], client_factory=Picky)
+        b.load_session({"a": "b"}, tok)
+        self.assertEqual(b.discover_user_uuid(), ME)
+        self.assertEqual(b.my_uuid, ME)
+
+    def test_returns_none_and_changes_nothing_when_nothing_works(self):
+        class Nope(FakeClient):
+            def delta_sync(self): raise SnapchatError("denied")
+        b = B.Bridge(my_uuid="", conversations=[], client_factory=Nope)
+        b.load_session({"a": "b"}, "prefix-" + ME)
+        self.assertIsNone(b.discover_user_uuid())
+        self.assertEqual(b.my_uuid, "")
 
 
 if __name__ == "__main__":
