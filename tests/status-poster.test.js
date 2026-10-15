@@ -144,3 +144,49 @@ test("a day's plan can be 2-3 posts when asked, still 3h+ apart and in her wakin
   }
   assert.ok(Array.from({ length: 200 }, () => sp.planDay(T0, Math.random, { min: 2, max: 3 }).length).some((n) => n === 3));
 });
+
+// ---- dashboard controls ---------------------------------------------------------------------------------------------
+test("kinds switched off in the dashboard are never used by the schedule, and forced ones still work", async () => {
+  const posted = [];
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true,
+    generate: async () => "caption", post: async (x) => posted.push(typeof x === "string" ? "text" : "photo"),
+    listPhotos: async () => [{ id: "aaaaaa", tags: [] }], loadPhoto: async () => ({ base64: "x" }),
+    search: async () => ({ ok: true, output: "something funny" }),
+    kindEnabled: (k) => k === "photo",
+  });
+  for (let i = 0; i < 5; i++) await bot.postNow(undefined, {});
+  assert.deepStrictEqual([...new Set(posted)], ["photo"]);
+  await bot.postNow(undefined, { kind: "text" });
+  assert.strictEqual(posted[posted.length - 1], "text");
+});
+
+test("with every kind off she posts nothing (and says so) instead of using a disabled kind", async () => {
+  const posted = [];
+  const bot = sp.create({ now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true, generate: async () => "x", post: async (x) => posted.push(x), kindEnabled: () => false });
+  await assert.rejects(() => bot.postNow(undefined, {}));
+  assert.strictEqual(posted.length, 0);
+});
+
+test("only the enabled web topic is searched", async () => {
+  const queries = [];
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.9, enabled: () => true, isConnected: async () => true, generate: async () => "so true", post: async () => {},
+    search: async (q) => { queries.push(q); return { ok: true, output: "result" }; },
+    kindEnabled: (k) => k === "found", topicEnabled: (t) => t === "news",
+  });
+  await bot.postNow(undefined, {});
+  assert.ok(/news/i.test(queries[0]) && !/funn/i.test(queries[0]), queries[0]);
+});
+
+test("changing posts-per-day mid-day keeps what already went out and re-plans the rest", async () => {
+  let t = T0, per = { min: 1, max: 1 };
+  const bot = sp.create({ now: () => t, rand: () => 0.3, enabled: () => true, isConnected: async () => false, generate: async () => "x", post: async () => {}, postsPerDay: () => per });
+  await bot.tick();
+  const first = bot.state.slots.length;
+  per = { min: 3, max: 3 };
+  await bot.tick();
+  assert.ok(bot.state.slots.length >= first && bot.state.slots.length <= 3);
+  const s = bot.state.slots;
+  for (let k = 1; k < s.length; k++) assert.ok(s[k].at - s[k - 1].at >= 3 * H);
+});
