@@ -23,10 +23,12 @@ function tagsOf(row) {
   return (Array.isArray(t) ? t : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 6);
 }
 
-function createPhotoSkill({ fetchRows, now = Date.now, env = process.env }) {
+function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now = Date.now, env = process.env }) {
   const CACHE_MS = 60 * 1000, MAX_LIST = 40, PENDING_MS = 2 * 60 * 1000;
   const cooldownMs = Math.max(0, Number(env.PHOTO_COOLDOWN_MIN ?? 5)) * 60 * 1000;
   const dailyCap = Math.max(1, Number(env.PHOTO_DAILY_CAP ?? 5));
+  const othersDailyCap = Math.max(1, Number(env.PHOTO_OTHERS_DAILY_CAP ?? 6)); // pictures she sends to people other than the one she is chatting with
+  const sentToOthers = [];
   let cache = { at: 0, items: [] };
   const pending = new Map(); // convoId -> { url, caption, at }
   const sent = new Map();    // convoId -> [timestamps]
@@ -64,6 +66,7 @@ function createPhotoSkill({ fetchRows, now = Date.now, env = process.env }) {
           properties: {
             photo_id: { type: "string", enum: items.map((i) => i.id), description: "id of the picture from your library" },
             caption: { type: "string", description: "optional short caption, in your own voice" },
+            ...(resolveTarget && deliver ? { to: { type: "string", description: "optional: the name or number of SOMEONE ELSE you already know, if you want to send it to them instead. Leave out to send it to the person you are chatting with." } } : {}),
           },
           required: ["photo_id"],
         },
@@ -73,13 +76,35 @@ function createPhotoSkill({ fetchRows, now = Date.now, env = process.env }) {
 
   function promptNote(items) {
     const list = items.map((i) => `- ${i.id}: ${i.tags.length ? i.tags.join(", ") : "untagged"}`).join("\n");
-    return `YOUR PHOTOS: You keep a private library of your own pictures, and this person is asking to see you. Whether you send one is entirely YOUR choice. Stay yourself: you can say no, tease, make them wait or earn it, or send one if you feel like it. To send one, call send_photo with the id you want, then write your message as if you just sent it (short, don't describe the picture). Never claim you sent a picture without calling send_photo, and don't send more than one unless you really want to. You only know a picture by its tags below.\nLibrary (id: tags):\n${list}`;
+    return `YOUR PHOTOS: You keep a private library of your own pictures, and this person is asking to see you. Whether you send one is entirely YOUR choice. Stay yourself: you can say no, tease, make them wait or earn it, or send one if you feel like it. To send one, call send_photo with the id you want, then write your message as if you just sent it (short, don't describe the picture). Never claim you sent a picture without calling send_photo, and don't send more than one unless you really want to. You only know a picture by its tags below.\nIf you want to, you can also send one to someone else you already know by passing their name or number in "to" (never to a stranger).\nLibrary (id: tags):\n${list}`;
+  }
+
+  /** She chose to send a picture to someone else she already knows: goes out right away. Strangers are refused. */
+  async function sendElsewhere(convoId, item, toRaw, caption) {
+    if (!resolveTarget || !deliver) return null;
+    const target = await resolveTarget(toRaw, convoId);
+    if (!target) return { ok: false, note: `[You don't know anyone called "${toRaw}", so nothing was sent. You only send pictures to people you already talk to.]` };
+    if (target.id === convoId) return null; // that is just the current chat
+    const t = now();
+    const recent = (sent.get(target.id) || []).filter((x) => t - x < 24 * 60 * 60 * 1000);
+    sent.set(target.id, recent);
+    while (sentToOthers.length && t - sentToOthers[0] > 24 * 60 * 60 * 1000) sentToOthers.shift();
+    if (recent.length && t - recent[recent.length - 1] < cooldownMs) return { ok: false, note: `[You already sent ${target.name} a picture a moment ago. Nothing sent.]` };
+    if (recent.length >= dailyCap) return { ok: false, note: `[You've already sent ${target.name} plenty of pictures today. Nothing sent.]` };
+    if (sentToOthers.length >= othersDailyCap) return { ok: false, note: "[You've already sent enough pictures to other people today. Nothing sent.]" };
+    try { await deliver(target.id, item.url, caption); }
+    catch (e) { console.warn(`[photos] could not send to ${target.name}: ${e.message}`); return { ok: false, note: `[It didn't go through to ${target.name} (${e.message}). Nothing was sent.]` }; }
+    recent.push(t); sentToOthers.push(t);
+    console.log(`[photos] she chose to send ${item.id} to ${target.name}`);
+    return { ok: true, note: `[Done: that picture was sent to ${target.name}. Now write your reply as normal.]` };
   }
 
   async function execute(convoId, args) {
     const items = await snapshot();
     const item = items.find((i) => i.id === String((args && args.photo_id) || ""));
     if (!item) return { ok: false, note: "[That picture isn't in your library. Pick an id from your list, or just don't send one.]" };
+    const toRaw = String((args && args.to) || "").trim();
+    if (toRaw) { const r = await sendElsewhere(convoId, item, toRaw, String((args && args.caption) || "").trim().slice(0, 140)); if (r) return r; }
     const t = now();
     const recent = (sent.get(convoId) || []).filter((x) => t - x < 24 * 60 * 60 * 1000);
     sent.set(convoId, recent);
@@ -98,7 +123,7 @@ function createPhotoSkill({ fetchRows, now = Date.now, env = process.env }) {
     return p && now() - p.at < PENDING_MS ? p : null;
   }
 
-  return { snapshot, schema, promptNote, execute, take };
+  return { snapshot, schema, promptNote, execute, take, canSendToOthers: () => !!(resolveTarget && deliver) };
 }
 
 module.exports = { createPhotoSkill, looksLikePhotoRequest };
