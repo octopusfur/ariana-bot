@@ -1,0 +1,8 @@
+# Only what xmcp's server.py imports — its own requirements.txt also lists
+# xai-sdk and xdk, which only the optional Grok test client needs.
+fastmcp==4.1.0
+httpx
+python-dotenv
+requests
+requests-oauthlib
+uvicorn

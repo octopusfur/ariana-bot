@@ -77,6 +77,7 @@ function attach(app, { requireAuth } = {}) {
         error: health.ok ? null : health.error,
         health: health.ok ? health.health : null,
       },
+      x_service: { configured: engine.xe.configured(), url: engine.xe.baseUrl(), mode: 'on-demand (not polled)' },
       storage: { supabase: store_UsesSupabase(), data_dir: storeDataDir() },
       accounts: list.map((a) => ({
         account_id: a.account_id, platform: a.platform, handle: a.handle,
@@ -103,6 +104,7 @@ function attach(app, { requireAuth } = {}) {
         '4. Back in this dashboard, press Connect on the account to verify the session is live, then enable Actions.',
       ],
       x_env_bootstrap: 'X/Twitter can skip the login helper: set SOCIALCRABS_AUTH_TOKEN and SOCIALCRABS_CT0 on the engine (from a logged-in browser session) and it builds the session itself.',
+      x_api: 'For X without browser sessions: deploy x-service/ (it wraps X\'s official xmcp server), then set X_SERVICE_URL and X_SERVICE_API_KEY here. See x-service/README.md.',
       volume: 'Sessions live in the engine at SESSION_DIR (default /data/sessions on the container). Mount a volume there or every redeploy logs the accounts out.',
     };
   }
@@ -119,7 +121,9 @@ function attach(app, { requireAuth } = {}) {
     ok(res, {
       source: 'bundled',
       capabilities: caps.describe(),
-      note: engine.configured()
+      note: engine.provider() === 'x-api'
+        ? 'Showing the bundled manifest — the X service is not polled (it sleeps when idle and wakes when an action runs).'
+        : engine.configured()
         ? 'The engine is unreachable — showing the bundled manifest that ships with Ariana.'
         : 'No engine connected — this is what the integration supports once you deploy one. Nothing can act until then.',
     });
@@ -133,7 +137,9 @@ function attach(app, { requireAuth } = {}) {
     ok(res, {
       accounts: list.map((a) => ({
         ...withCapabilities(a),
-        engine_session: sessions.ok ? (byId.get(a.account_id) || { connected: false, detail: 'No session on the engine yet.' }) : { reachable: false, detail: sessions.error },
+        engine_session: engine.routesToX(a)
+          ? { on_demand: true, detail: 'Uses the X service (official API). It sleeps when idle and is only contacted when an action runs — press Connect to check it live.' }
+          : sessions.ok ? (byId.get(a.account_id) || { connected: false, detail: 'No session on the engine yet.' }) : { reachable: false, detail: sessions.error },
       })),
     });
   });
@@ -142,7 +148,13 @@ function attach(app, { requireAuth } = {}) {
     const { platform, handle, label } = req.body || {};
     const result = await accounts.add({ platform, handle, label });
     if (!result.ok) return fail(res, 400, result.error);
-    ok(res, { account: withCapabilities(result.account) });
+    let account = result.account;
+    if (engine.routesToX(account)) {
+      // X goes through the official API, so there is no "session" to provision.
+      account = (await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED,
+        'Uses the X service. Press Connect to check it — the service wakes on demand, so the first check can take a minute.')) || account;
+    }
+    ok(res, { account: withCapabilities(account) });
   });
 
   r.delete('/accounts/:id', guard, async (req, res) => {
@@ -164,7 +176,7 @@ function attach(app, { requireAuth } = {}) {
 
     // Browser Use: the creator signs in themselves on a live browser (no passwords through Ariana).
     // First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
-    if (engine.provider() === 'browser-use') {
+    if (engine.provider() === 'browser-use' && !engine.routesToX(account)) {
       const bu = engine.bu;
       if (bu.hasPendingLogin(account)) {
         const fin = await bu.finishLogin(account);

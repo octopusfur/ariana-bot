@@ -372,3 +372,17 @@ the design, not a bug in reporting.
 - Using automation on a platform can conflict with that platform's terms.
   Limits here are deliberately conservative; they are not a guarantee of
   compliance. Check each platform's rules for the actions you enable.
+
+## X through the official API (x-service)
+
+X can run on the official X API instead of browser automation: deploy `x-service/` (it wraps
+X's own xmcp server) and set `X_SERVICE_URL` + `X_SERVICE_API_KEY` on the bot. X accounts then
+go there; Instagram and LinkedIn are untouched. Setup, safety properties and the Render
+settings are in [x-service/README.md](x-service/README.md).
+
+- **Nothing polls it.** The service sleeps when idle and is contacted only when Ariana uses an X
+  tool or you press Connect. Status checks, the dashboard and boot answer locally.
+- Same abilities as the manifest lists for X (post, reply/comment, like, repost, follow, unfollow,
+  DM, profile, engagement). Search, timelines, reading DMs and deletes stay unsupported on purpose.
+- The bot refuses to act if the service is signed in as a different X account than the one
+  Ariana was told to use.

@@ -18,6 +18,7 @@
 'use strict';
 
 const bu = require('./browseruse_engine');
+const xe = require('./x_engine'); // X through the official API, via the X service (x-service/)
 
 const DEFAULT_TIMEOUT_MS = 120000; // browser actions are slow on purpose (human delays)
 
@@ -33,15 +34,25 @@ function apiKey() {
 
 // An external engine (SOCIAL_ENGINE_URL) wins. Otherwise BROWSER_USE_API_KEY alone is enough:
 // Browser Use Cloud then acts as the engine.
+//
+// X is different: when the X service is configured (X_SERVICE_URL + X_SERVICE_API_KEY),
+// X accounts go to it — the official API — whatever the other engine is, and every
+// other platform carries on exactly as before. routesToX() is that per-account rule.
 function useBU() { return !baseUrl() && bu.configured(); }
-function provider() { return baseUrl() ? 'socialcrabs' : (bu.configured() ? 'browser-use' : null); }
+function otherEngine() { return !!baseUrl() || bu.configured(); }
+function routesToX(account) { return xe.handles(account); }
+function provider() {
+  if (baseUrl()) return 'socialcrabs';
+  if (bu.configured()) return 'browser-use';
+  return xe.configured() ? 'x-api' : null;
+}
 
 function configured() {
-  return !!baseUrl() || bu.configured();
+  return !!baseUrl() || bu.configured() || xe.configured();
 }
 
 function configHint() {
-  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine.';
+  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine. For X through the official API, set X_SERVICE_URL and X_SERVICE_API_KEY (see x-service/README.md).';
 }
 
 async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
@@ -98,6 +109,7 @@ async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS }
 // ── STATUS ──────────────────────────────────────────────────────────────────
 
 async function health({ timeoutMs = 10000 } = {}) {
+  if (!otherEngine()) return xe.health(); // X service only: answered locally, never wakes it
   if (useBU()) return bu.health();
   const r = await request('GET', '/health', undefined, { timeoutMs });
   if (!r.ok) return r;
@@ -105,6 +117,7 @@ async function health({ timeoutMs = 10000 } = {}) {
 }
 
 async function capabilities() {
+  if (!otherEngine()) return { ok: false, code: 'bundled', error: 'The X service is not polled (it sleeps when idle) — showing the bundled capability manifest.' };
   if (useBU()) return bu.capabilities();
   const r = await request('GET', '/api/capabilities', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
@@ -113,6 +126,7 @@ async function capabilities() {
 
 // Engine-side view of every session it holds. Used to reconcile statuses.
 async function sessions() {
+  if (!otherEngine()) return xe.sessions(); // local — opening the dashboard must not wake the X service
   if (useBU()) return bu.sessions();
   const r = await request('GET', '/api/sessions', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
@@ -122,6 +136,7 @@ async function sessions() {
 // ── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
 async function sessionStatus(account) {
+  if (routesToX(account)) return xe.sessionStatus(account);
   if (useBU()) return bu.sessionStatus(account);
   const r = await request('GET', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 20000 });
   if (!r.ok) return r;
@@ -131,6 +146,7 @@ async function sessionStatus(account) {
 // Opens the platform in a browser and asks "am I logged in?" — the difference
 // between "a session file exists" and "the session works".
 async function verify(account) {
+  if (routesToX(account)) return xe.verify(account);
   if (useBU()) return bu.verify(account);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/verify`, {
     platform: account.platform,
@@ -144,6 +160,7 @@ async function verify(account) {
 // ops scripts — never by the dashboard. The dashboard has no route that accepts
 // credentials or cookies; this is called from the operator's own machine.
 async function importSession(account, session) {
+  if (routesToX(account)) return xe.importSession(account, session);
   if (useBU()) return bu.importSession(account, session);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/import`, {
     platform: account.platform,
@@ -155,6 +172,7 @@ async function importSession(account, session) {
 }
 
 async function disconnect(account) {
+  if (routesToX(account)) return xe.disconnect(account);
   if (useBU()) return bu.disconnect(account);
   const r = await request('DELETE', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 60000 });
   if (!r.ok) return r;
@@ -166,6 +184,7 @@ async function disconnect(account) {
 // payload is the action's platform payload: { url } | { url, text } |
 // { username } | { username, message } | { text } | { query } | { profileUrl, note }
 async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
+  if (routesToX(account)) return xe.act(account, action, payload);
   if (useBU()) return bu.act(account, action, payload);
   const r = await request('POST', `/api/accounts/${encodeURIComponent(account.account_id)}/actions/${encodeURIComponent(action)}`, {
     platform: account.platform,
@@ -189,6 +208,8 @@ async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
 module.exports = {
   provider,
   bu,
+  xe,
+  routesToX,
   configured,
   configHint,
   baseUrl,
