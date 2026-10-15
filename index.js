@@ -15,6 +15,7 @@ const naija      = require("./naija_lang");
 const wazobia    = require("./wazobia_tts");
 const messenger = require('./messenger');
 const snapchat = require('./snapchat');
+const snapPublish = require('./snapchat_publish');
 const linkRoutes = require("./link_routes");
 const Groq       = require("groq-sdk");
 const path       = require("path");
@@ -3121,6 +3122,37 @@ const messengerCtl = messenger.init({ app, requireAuth: requireDashboardAuth, ge
 // Snapchat (unofficial Web API sidecar on Fly.io): /snapchat/inbound + /api/snapchat/*, see snapchat.js
 const snapchatCtl = snapchat.init({ app, requireAuth: requireDashboardAuth, getSupabase: () => supabase, onMessage: (m) => handleMessage(m) });
 
+// Snapchat Story + Spotlight via BulkPublish (supported API, see snapchat_publish.js)
+const snapPublisher = snapPublish.createPublisher();
+const snapStoryPoster = snapPublish.createStoryPoster({
+  enabled: () => process.env.SNAPCHAT_STORY_POSTS === 'on' && snapPublisher.isConfigured(),
+  pickMedia: async (recentIds) => {
+    if (!supabase) return null;
+    const { data } = await supabase.from('ariana_media').select('id,url,media_type').limit(200);
+    const imgs = (data || []).filter((r) => r.url && (!r.media_type || r.media_type === 'image') && /\.(jpe?g|png)(\?|$)/i.test(r.url));
+    const fresh = imgs.filter((r) => !recentIds.includes(r.id));
+    const pool = fresh.length ? fresh : imgs;
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  },
+  post: (url) => snapPublisher.postStory(url),
+});
+const snapPost = (type) => async (req, res) => {
+  try {
+    const { url, mediaId, caption, title } = req.body || {};
+    let mediaUrl = url;
+    if (!mediaUrl && mediaId && supabase) { const { data } = await supabase.from('ariana_media').select('url').eq('id', mediaId).single(); mediaUrl = data && data.url; }
+    res.json({ ok: true, ...(await snapPublisher.publish({ type, url: mediaUrl, caption, title })) });
+  } catch (e) { res.status(e.status && e.status < 600 ? e.status : 400).json({ error: e.message, code: e.code }); }
+};
+app.post('/api/snapchat/story', requireDashboardAuth, snapPost('story'));
+app.post('/api/snapchat/saved-story', requireDashboardAuth, snapPost('saved_story'));
+app.post('/api/snapchat/spotlight', requireDashboardAuth, snapPost('spotlight'));
+app.get('/api/snapchat/publish-status', requireDashboardAuth, async (_req, res) => {
+  if (!snapPublisher.isConfigured()) return res.json({ configured: false, channel: false, autoStories: false });
+  try { await snapPublisher.snapchatChannel(); res.json({ configured: true, channel: true, autoStories: process.env.SNAPCHAT_STORY_POSTS === 'on' }); }
+  catch (e) { res.json({ configured: true, channel: false, error: e.message }); }
+});
+
 // Ariana's own WhatsApp Status posts (see status_poster.js)
 const statusPoster = statusPosterMod.create({
   enabled: () => process.env.WA_STATUS_POSTS !== 'off' && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
@@ -5132,6 +5164,7 @@ server.listen(PORT, async () => {
   stateSync.startMirror();
   stickers.configure({ supabase });
   stickers.load().then((n) => console.log(`🎟️ Sticker drawer: ${n} sticker(s)`)).catch(() => {});
+  setInterval(() => snapStoryPoster.tick().catch(() => {}), 5 * 60 * 1000);
   setTimeout(() => statusPoster.tick().catch(() => {}), 90 * 1000);
   setInterval(() => statusPoster.tick().catch(() => {}), 5 * 60 * 1000);
   // Re-init Groq with loaded key if it wasn't set from env
