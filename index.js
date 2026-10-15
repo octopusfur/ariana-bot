@@ -250,6 +250,28 @@ let _sleepCheckTimer = null;
 const lastMediaSent = {};
 // Her own pictures from the dashboard media library, sent only if SHE chooses to (send_photo tool).
 const photoSkill = require('./photo_skill').createPhotoSkill({
+  // she may also send a picture to someone ELSE she already knows (never to a stranger): name or number of an existing chat
+  resolveTarget: (raw) => {
+    const q = String(raw || '').trim();
+    if (!q) return null;
+    const digits = q.replace(/\D/g, '');
+    const known = Object.entries(conversations).filter(([cid]) => !blockedNumbers.has(cid) && !blockedNumbers.has(cid.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '')));
+    const hit = digits.length >= 7
+      ? known.find(([cid]) => cid.replace(/\D/g, '').endsWith(digits.slice(-9)))
+      : known.find(([, c]) => (c.name || '').toLowerCase() === q.toLowerCase()) || known.find(([, c]) => (c.name || '').toLowerCase().includes(q.toLowerCase()));
+    return hit ? { id: hit[0], name: hit[1].name || hit[0] } : null;
+  },
+  deliver: async (target, imageUrl, caption) => {
+    const platform = target.startsWith('tg_') ? 'telegram' : target.startsWith('sg_') ? 'signal' : target.startsWith('sms_') ? 'sms' : target.startsWith('fb_') ? 'messenger' : target.startsWith('sc_') ? 'snapchat' : 'whatsapp';
+    const rawId = target.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
+    if (platform === 'whatsapp')      await sendWhatsAppImage(rawId, imageUrl, caption || '');
+    else if (platform === 'telegram') await sendTelegramPhoto(rawId, imageUrl, caption || '');
+    else if (platform === 'signal')   await sendSignal(rawId, imageUrl);
+    else if (platform === 'sms')      await sendMMS(rawId, caption || '', imageUrl);
+    else if (platform === 'snapchat') await snapchat.sendImage(rawId, imageUrl, caption || '');
+    else throw new Error('pictures are not supported on ' + platform);
+    addMessage(target, 'ariana', `[sent a photo of yourself]${caption ? ' ' + caption : ''}`);
+  },
   fetchRows: async () => {
     if (!supabase) return [];
     const { data, error } = await supabase.from('ariana_media').select('id,url,tags,media_type,created_at').order('created_at', { ascending: false }).limit(80);
@@ -2019,6 +2041,19 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
       }
     }
 
+    // -- "post a status" / "post a status photo" / "post a status funny" / "post a status news" --
+    const statusCmd = finalText.match(/^(?:post|put|update)\s+(?:a\s+|your\s+)?(?:new\s+)?status(?:\s+(photo|pic|picture|funny|news|text))?\s*$/i);
+    if (statusCmd) {
+      const w = (statusCmd[1] || '').toLowerCase();
+      const opts = !w ? {} : /^(photo|pic|picture)$/.test(w) ? { kind: 'photo' } : w === 'text' ? { kind: 'text' } : { kind: 'found', topic: w };
+      let ack;
+      try { const posted = await statusPoster.postNow(undefined, opts); ack = posted === '[photo]' ? 'posted a picture to my status' : `posted to my status: ${posted}`; }
+      catch (e) { ack = `couldn't post that: ${e.message}`; }
+      addMessage(id, 'ariana', ack);
+      await sendReply(id, platform, ack, null, null, chatId, from, phoneNumberId);
+      return;
+    }
+
     // ── "text me on WhatsApp" / "text me on Signal" (no message specified) ──
     // Owner wants Ariana to proactively send them a message on a different channel
     const selfTextMatch = finalText.match(/^(?:text|message|msg|hit)\s+me(?:\s+on)?\s+(whatsapp|signal|telegram|sms|wa)\s*$/i);
@@ -3095,10 +3130,28 @@ const statusPoster = statusPosterMod.create({
     const r = await generateBrainReply([{ role: 'user', content: prompt }], sys, { attempts: 1 });
     return typeof r === 'string' ? r : (r && (r.text || r.content)) || null;
   },
-  post: (text) => waWeb('/post-status', { text }),
+  // text status, or { text, base64, mimetype } for a picture status with a caption
+  post: (p) => waWeb('/post-status', typeof p === 'string' ? { text: p } : p),
+  postsPerDay: { min: Math.max(1, Number(process.env.STATUS_POSTS_MIN) || 2), max: Math.max(1, Number(process.env.STATUS_POSTS_MAX) || 3) },
+  // her own pictures from the dashboard media library (same list she picks from when someone asks for a pic)
+  listPhotos: () => photoSkill.snapshot(),
+  loadPhoto: async (item) => {
+    const r = await axios.get(item.url, { responseType: 'arraybuffer', timeout: 20000, maxContentLength: 20 * 1024 * 1024 });
+    let buf = Buffer.from(r.data), mimetype = String(r.headers['content-type'] || 'image/jpeg').split(';')[0];
+    try { buf = await require('sharp')(buf).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer(); mimetype = 'image/jpeg'; } catch { /* send the original bytes */ }
+    return { base64: buf.toString('base64'), mimetype };
+  },
+  // picture posts also go to her Telegram Story when Telegram is linked (TG_STORY_POSTS=off to disable)
+  mirrors: [async (payload) => {
+    if (!tgClient || process.env.TG_STORY_POSTS === 'off') return;
+    await require('./telegram_story').postStory(tgClient, { buffer: Buffer.from(payload.base64, 'base64'), caption: payload.text });
+    console.log('[status] telegram story posted');
+  }],
+  // something funny / real news she found on the web (Firecrawl; needs FIRECRAWL_API_KEY)
+  search: require('./firecrawl_skill').enabled() ? (q) => require('./firecrawl_skill').webSearch(q, { limit: 5 }) : null,
 });
 app.post('/api/whatsapp/status-post', requireDashboardAuth, async (req, res) => {
-  try { res.json({ ok: true, text: await statusPoster.postNow(req.body && req.body.text) }); }
+  try { const b = req.body || {}; res.json({ ok: true, text: await statusPoster.postNow(b.text, { kind: b.kind, topic: b.topic }) }); }
   catch (e) { res.status(502).json({ error: e.message }); }
 });
 
