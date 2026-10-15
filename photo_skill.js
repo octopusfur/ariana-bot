@@ -111,7 +111,7 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
     if (pending.has(convoId) && t - pending.get(convoId).at < PENDING_MS) return { ok: false, note: "[A picture is already on its way with this message. Just write your message.]" };
     if (recent.length && t - recent[recent.length - 1] < cooldownMs) return { ok: false, note: `[You sent them a picture ${Math.max(1, Math.round((t - recent[recent.length - 1]) / 60000))} min ago. Nothing sent. Make them wait, in your own way.]` };
     if (recent.length >= dailyCap) return { ok: false, note: "[You've already sent them plenty of pictures today. Nothing sent. Tell them in your own way that's enough for today.]" };
-    pending.set(convoId, { url: item.url, caption: String((args && args.caption) || "").trim().slice(0, 140), at: t });
+    pending.set(convoId, { url: item.url, tags: item.tags, caption: String((args && args.caption) || "").trim().slice(0, 140), at: t });
     recent.push(t);
     return { ok: true, note: "[Done: that picture will arrive together with your next message. Now write your message as if you just sent it.]" };
   }

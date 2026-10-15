@@ -22,6 +22,10 @@ test.before(async () => {
     if (!req.url.endsWith("/responses")) { res.statusCode = 404; return res.end("{}"); }
     const r = JSON.parse(raw); lunaReqs.push(r);
     const names = (r.tools || []).map((t) => t.name || (t.function && t.function.name));
+    const blob = JSON.stringify(r.input);
+    if (names.includes("send_photo") && /gym pic/.test(blob) && !/Done: that picture will arrive/.test(blob)) {
+      return res.end(JSON.stringify({ output: [{ type: "function_call", call_id: "p" + lunaReqs.length, name: "send_photo", arguments: JSON.stringify({ photo_id: "m1", caption: "there" }) }] }));
+    }
     if (names.includes("send_reply") || JSON.stringify(r.tool_choice || "").includes("send_reply")) {
       return res.end(JSON.stringify({ output: [{ type: "function_call", call_id: "c" + lunaReqs.length, name: "send_reply", arguments: JSON.stringify({ message: "here you go" }) }] }));
     }
@@ -50,19 +54,17 @@ const phone = () => "23480" + String(Math.floor(Math.random() * 1e8)).padStart(8
 let n = 0;
 const instructionsOf = (r) => JSON.stringify(r.instructions || "") + JSON.stringify((r.input || []).filter((m) => m.role === "system" || m.role === "developer"));
 
-test("asking for a gym pic sends the gym photo and tells her exactly what it shows", async () => {
+test("she is shown her photos WITH their tags, picks the gym one, and remembers what she sent", async () => {
   const from = phone(), before = lunaReqs.length, sb = sidecar.length;
   await post({ from, id: "TG" + n++, type: "text", text: { body: "send me a gym pic" } });
   const sent = await until(() => sidecar.slice(sb).find((x) => x.route === "/send-media" && String(x.to) === from));
-  assert.strictEqual(sent.url, "https://cdn.example.com/gym.jpg", "the tag-matching picture was sent");
-  const told = lunaReqs.slice(before).some((r) => /PICTURE YOU ARE SENDING/.test(instructionsOf(r)) && /tagged: gym, black set, mirror selfie/.test(instructionsOf(r)));
-  assert.ok(told, "Luna was told what the picture shows before writing her reply");
-});
-
-test("an untagged picture: she is told she does not know what it shows", async () => {
-  const from = phone(), before = lunaReqs.length, sb = sidecar.length;
-  await post({ from, id: "TG" + n++, type: "text", text: { body: "send me a selfie of you in a spacesuit" } });
-  await until(() => sidecar.slice(sb).find((x) => x.route === "/send-media" && String(x.to) === from));
-  const reqs = lunaReqs.slice(before).map(instructionsOf).join("\n");
-  assert.match(reqs, /PICTURE YOU ARE SENDING/);
+  assert.strictEqual(sent.url, "https://cdn.example.com/gym.jpg", "the picture she chose was sent");
+  const shown = lunaReqs.slice(before).some((r) => /YOUR PHOTOS/.test(instructionsOf(r)) && /m1: gym, black set, mirror selfie/.test(instructionsOf(r)) && /m3: untagged/.test(instructionsOf(r)));
+  assert.ok(shown, "she saw each picture's tags (and which ones are untagged)");
+  // next turn: her history says what the picture was
+  const lb = lunaReqs.length;
+  await post({ from, id: "TG" + n++, type: "text", text: { body: "what was in the pic you just sent" } });
+  await until(() => lunaReqs.length > lb);
+  await wait(500);
+  assert.ok(lunaReqs.slice(lb).some((r) => /\[sent a photo of yourself: gym, black set, mirror selfie\]/.test(JSON.stringify(r.input))), "tags are in her conversation history");
 });

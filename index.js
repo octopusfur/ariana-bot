@@ -2234,7 +2234,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     // She chose to send one of her own pictures (send_photo): it goes out together with her message.
     const queuedPhoto = photoSkill.take(id);
     if (queuedPhoto) {
-      addMessage(id, "ariana", `[sent a photo of yourself] ${reply}`);
+      addMessage(id, "ariana", `[sent a photo of yourself${queuedPhoto.tags && queuedPhoto.tags.length ? ': ' + queuedPhoto.tags.join(', ') : ' (untagged)'}] ${reply}`); // tags stay in her history so she knows what she sent
       lastMediaSent[id] = Date.now();
       if (typingInterval)   clearInterval(typingInterval);
       if (tgTypingInterval) clearInterval(tgTypingInterval);
