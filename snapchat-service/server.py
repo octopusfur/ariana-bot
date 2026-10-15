@@ -42,6 +42,7 @@ bridge = Bridge(
     my_uuid=os.environ.get("SNAPCHAT_USER_UUID", "").strip().lower(),
     conversations=[c.strip() for c in os.environ.get("SNAPCHAT_CONVERSATIONS", "").split(",") if c.strip()],
     max_sends_per_hour=int(os.environ.get("SNAP_MAX_SENDS_PER_HOUR", "30")),
+    answer_all=os.environ.get("SNAP_ONLY_LISTED_CHATS", "").lower() not in ("1", "on", "true", "yes"),
 )
 
 
@@ -52,6 +53,8 @@ def status():
         "user_uuid_set": bool(bridge.my_uuid),
         "user_uuid": bridge.my_uuid or None,
         "conversations": sorted(bridge.conversations),
+        "answer_all": bridge.answer_all,
+        "chats_found": len(bridge.known),
         "paused": bridge.paused,
         "last_poll": bridge.last_poll,
         "last_error": bridge.last_error,
@@ -69,8 +72,18 @@ def route(method, path, body, query):
         if body.get("user_uuid"):
             bridge.set_user_uuid(body["user_uuid"])
         if body.get("cookies"):
-            return 200, {**bridge.load_session(body["cookies"], body.get("bearer_token", "")), **status()}
+            sess = bridge.load_session(body["cookies"], body.get("bearer_token", ""))
+        found = None
+        if not bridge.my_uuid:
+            try:
+                found = bridge.discover_user_uuid()
+            except Exception as e:
+                bridge.last_error = f"could not find the account id: {e}"
+        return 200, {**sess, **status(), "user_uuid_found": found}
         return fail(400, "cookies required")
+    if path == "/discover-uuid" and method == "POST":
+        found = bridge.discover_user_uuid()
+        return 200, {**status(), "user_uuid_found": found}
     if path == "/session-uuid" and method == "POST":
         bridge.set_user_uuid(body.get("user_uuid", ""))
         return 200, status()
@@ -79,7 +92,14 @@ def route(method, path, body, query):
             bridge.set_user_uuid(body["user_uuid"])
         if not body.get("username") or not body.get("password"):
             return fail(400, "username and password required")
-        return 200, {**bridge.login(body["username"], body["password"]), **status()}
+        out = bridge.login(body["username"], body["password"])
+        found = None
+        if not bridge.my_uuid:
+            try:
+                found = bridge.discover_user_uuid()
+            except Exception as e:
+                bridge.last_error = f"could not find the account id: {e}"
+        return 200, {**out, **status(), "user_uuid_found": found}
     if path == "/logout" and method == "POST":
         bridge.logout()
         return 200, status()

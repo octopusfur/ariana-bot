@@ -811,8 +811,8 @@ html.pal-vt{pointer-events:none}
             <input type="text" id="snap-user" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Ariana's Snapchat username">
             <label class="lbl" style="margin-top:10px">Password</label>
             <input type="password" id="snap-pass" class="inp" autocomplete="off" placeholder="Used once to sign in, never stored">
-            <label class="lbl" style="margin-top:10px">Snapchat user ID</label>
-            <input type="text" id="snap-uuid" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <label class="lbl" style="margin-top:10px">Snapchat user ID (optional)</label>
+            <input type="text" id="snap-uuid" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Leave empty, Ariana tries to find it">
             <button class="btn" id="snap-btn" onclick="snapLogin()" style="margin-top:12px">Sign in</button>
             <details class="st-more"><summary class="st-link">Use a pasted session instead</summary>
               <textarea id="snap-cookies" class="inp" rows="4" autocapitalize="none" autocorrect="off" placeholder="Cookie export as JSON" style="margin-top:6px"></textarea>
@@ -820,12 +820,15 @@ html.pal-vt{pointer-events:none}
             </details>
           </div>
           <div id="snap-chats" style="display:none;margin-top:16px">
-            <label class="lbl">Chats she answers</label>
-            <div id="snap-chat-list" class="st-note">None yet. She answers no one until you add a chat.</div>
-            <input type="text" id="snap-conv" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Chat ID" style="margin-top:8px">
-            <button class="btn-ghost" onclick="snapAddChat()" style="margin-top:8px">Add chat</button>
-            <button class="btn-ghost" onclick="snapFindChats()" style="margin-top:8px">Find chat IDs</button>
-            <div id="snap-cands" class="st-note" style="word-break:break-all;line-height:1.7"></div>
+            <div id="snap-reply-note" class="st-note">She answers everyone who messages her.</div>
+            <button class="btn-ghost" id="snap-pause" onclick="snapPause()" style="margin-top:8px">Pause replies</button>
+            <details class="st-more"><summary class="st-link">Advanced: add a chat by ID</summary>
+              <div id="snap-chat-list" class="st-note"></div>
+              <input type="text" id="snap-conv" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Chat ID" style="margin-top:8px">
+              <button class="btn-ghost" onclick="snapAddChat()" style="margin-top:8px">Add chat</button>
+              <button class="btn-ghost" onclick="snapFindChats()" style="margin-top:8px">Find chat IDs</button>
+              <div id="snap-cands" class="st-note" style="word-break:break-all;line-height:1.7"></div>
+            </details>
           </div>
           <button class="btn-ghost" id="snap-unlink" onclick="snapUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Sign out of Snapchat</button>
           <label class="lbl" style="margin-top:20px">Stories and Spotlight</label>
@@ -1107,13 +1110,15 @@ async function snapRefresh(){
   if(!a.ok){st.textContent='Could not reach the Snapchat service. It may be starting up, try again in a minute.';setPill('Unavailable','err');}
   else if(!d.configured){st.textContent='The Snapchat service is not set up on the server yet.';setPill('Not linked');}
   else if(!d.signed_in){st.textContent='Not signed in.'+(d.saved?' A saved session exists and will be restored on the next restart.':'');login.style.display='';chats.style.display='none';un.style.display='none';setPill('Not linked');}
-  else if(!d.user_uuid_set){st.textContent='Signed in, but the Snapchat user ID is missing, so nothing is sent or read. Enter it and sign in again.';login.style.display='';chats.style.display='none';un.style.display='';setPill('Needs ID','err');}
+  else if(!d.user_uuid_set){st.textContent='Signed in, but the account ID could not be found automatically, so nothing is sent or read. Paste the Snapchat user ID in the box and sign in again.';login.style.display='';chats.style.display='none';un.style.display='';setPill('Needs ID','err');}
   else{
     const n=(d.conversations||[]).length;
-    st.textContent='Connected. Watching '+n+' chat'+(n===1?'':'s')+'. Session saved to the database: '+(d.saved===true?'yes':d.saved===false?'NO, it will be lost on restart':'unknown')+'.'+(d.last_error?' Last error: '+plainErr(d.last_error):'');
+    window.__snapPaused=!!d.paused;
+    st.textContent='Connected. '+(d.paused?'Replies are paused. ':'She answers everyone who messages her ('+(d.chats_found||0)+' chat'+((d.chats_found||0)===1?'':'s')+' found so far). ')+'Session saved to the database: '+(d.saved===true?'yes':d.saved===false?'NO, it will be lost on restart':'unknown')+'.'+(d.last_error?' Last error: '+plainErr(d.last_error):'');
+    const pb=document.getElementById('snap-pause');if(pb)pb.textContent=d.paused?'Resume replies':'Pause replies';
     login.style.display='none';chats.style.display='';un.style.display='';setPill('Connected','on');
     const list=document.getElementById('snap-chat-list');
-    list.innerHTML=n?(d.conversations||[]).map(c=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin:4px 0"><span style="word-break:break-all">'+c+'</span><button class="btn-ghost" style="width:auto;padding:6px 12px" onclick="snapRemoveChat(\''+c+'\')">Remove</button></div>').join(''):'None yet. She answers no one until you add a chat.';
+    list.innerHTML=n?(d.conversations||[]).map(c=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin:4px 0"><span style="word-break:break-all">'+c+'</span><button class="btn-ghost" style="width:auto;padding:6px 12px" onclick="snapRemoveChat(\''+c+'\')">Remove</button></div>').join(''):'No extra chats added.';
   }
   const pub=await snapGet('/api/snapchat/publish-status'),ps=document.getElementById('snap-pub-status');
   if(!ps)return;
@@ -1128,7 +1133,7 @@ async function snapLogin(){
   b.disabled=false;b.textContent='Sign in';
   if(!ok){toast(plainErr(d.error)||'Could not sign in',6000);return;}
   document.getElementById('snap-pass').value='';
-  toast(d.saved?'Signed in. Session saved to the database.':'Signed in, but the session was NOT saved to the database.',5000);
+  toast(!d.user_uuid_set?'Signed in, but the account ID could not be found. Paste it in the ID box and sign in again.':d.saved?'Signed in. Session saved to the database.':'Signed in, but the session was NOT saved to the database.',6000);
   snapRefresh();
 }
 async function snapUseSession(){
@@ -1156,6 +1161,7 @@ async function snapFindChats(){
   const c=a.d.candidates||[];
   box.innerHTML=c.length?('Possible IDs (suggestions only, tap one to fill the box):<br>'+c.map(x=>'<a href="#" style="color:var(--acc)" onclick="document.getElementById(\'snap-conv\').value=\''+x+'\';return false">'+x+'</a>').join('<br>')):'Nothing found yet. Send a message to the account first, then try again.';
 }
+async function snapPause(){const {ok}=await jpost('/api/snapchat/pause',{paused:!window.__snapPaused});toast(ok?(window.__snapPaused?'Replies resumed':'Replies paused'):'Failed');snapRefresh();}
 async function snapUnlink(){const {ok}=await jpost('/api/snapchat/unlink',{});toast(ok?'Signed out of Snapchat':'Failed');snapRefresh();}
 async function snapPost(type){
   const url=document.getElementById('snap-media').value.trim(),caption=document.getElementById('snap-caption').value.trim();

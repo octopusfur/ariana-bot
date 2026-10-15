@@ -134,16 +134,18 @@ function init(deps) {
     const { username, password, userUuid } = req.body || {};
     if (!username || !password) { const e = new Error("username and password required"); e.status = 400; throw e; }
     const r = await call("post", "/login", { username, password, user_uuid: userUuid || undefined });
-    const saved = await persist({ cookies: r.cookies, bearer_token: r.bearer_token, ...(userUuid ? { user_uuid: String(userUuid).toLowerCase() } : {}) });
-    return { ok: true, saved, connected: r.connected, signed_in: r.signed_in, user_uuid_set: r.user_uuid_set };
+    const uuid = (userUuid ? String(userUuid).toLowerCase() : r.user_uuid_found) || null;
+    const saved = await persist({ cookies: r.cookies, bearer_token: r.bearer_token, ...(uuid ? { user_uuid: uuid } : {}) });
+    return { ok: true, saved, connected: r.connected, signed_in: r.signed_in, user_uuid_set: r.user_uuid_set, user_uuid_found: r.user_uuid_found || null };
   }));
 
   app.post("/api/snapchat/session", requireAuth, wrap(async (req) => {
     const { cookies, bearerToken, userUuid } = req.body || {};
     if (!cookies) { const e = new Error("cookies required (JSON export or name/value object)"); e.status = 400; throw e; }
     const r = await call("post", "/session", { cookies, bearer_token: bearerToken || "", user_uuid: userUuid || undefined });
-    const saved = await persist({ cookies: r.cookies, bearer_token: r.bearer_token, ...(userUuid ? { user_uuid: String(userUuid).toLowerCase() } : {}) });
-    return { ok: true, saved, connected: r.connected, signed_in: r.signed_in, user_uuid_set: r.user_uuid_set };
+    const uuid = (userUuid ? String(userUuid).toLowerCase() : r.user_uuid_found) || null;
+    const saved = await persist({ cookies: r.cookies, bearer_token: r.bearer_token, ...(uuid ? { user_uuid: uuid } : {}) });
+    return { ok: true, saved, connected: r.connected, signed_in: r.signed_in, user_uuid_set: r.user_uuid_set, user_uuid_found: r.user_uuid_found || null };
   }));
 
   app.post("/api/snapchat/user-uuid", requireAuth, wrap(async (req) => {

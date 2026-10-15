@@ -16,10 +16,12 @@ an account is against Snapchat's terms, so the account can be locked or banned. 
    - `POST /api/snapchat/login` `{ "username", "password", "userUuid" }`
    - `POST /api/snapchat/session` `{ "cookies": <browser cookie export or name/value object>, "userUuid" }`
    The session is saved in Supabase `sessions` (type `snapchat`) and re-sent to the sidecar after every redeploy. Passwords are never stored.
-4. `userUuid` is the Snapchat user id of the account Ariana uses. Until it is set the sidecar refuses to send or read, because
-   the upstream library only knows how to tell her messages from others by that id.
-5. Choose which chats she answers: `GET /api/snapchat/conversations/candidates` suggests ids found in the account's sync data,
-   then `POST /api/snapchat/conversations` `{ "add": ["<conversation-uuid>"] }`. Only listed chats are ever read or answered.
+4. The account's own Snapchat user id is optional. After sign-in the sidecar tries to find it itself (candidates from the login token,
+   each checked against a real sync). If that fails, Settings says so and you can paste the id and sign in again. Until it is known,
+   nothing is sent or read.
+5. She answers everyone who messages her. Chats are found automatically from the account's sync data (unverified against a live account);
+   the first pass after a restart only records history, and chats that appear later are answered. "Advanced" in Settings can still add a
+   chat by id, and `SNAP_ONLY_LISTED_CHATS=on` on the sidecar restricts her to listed chats only. Pause replies stops everything.
 
 ## What works
 
@@ -35,7 +37,7 @@ an account is against Snapchat's terms, so the account can be locked or banned. 
 
 ## Safety rails
 
-- Reads and answers only allowlisted chats; history before startup is never answered; her own messages are never echoed back to her.
+- History before startup is never answered; her own messages are never echoed back to her; one sync is shared across all chats.
 - Max `SNAP_MAX_SENDS_PER_HOUR` (default 30) per chat. `POST /api/snapchat/pause` stops all polling at once.
 - She does not text first on Snapchat unless `SNAPCHAT_PROACTIVE=on`.
 - Inbound reading scrapes Snapchat's sync payload heuristically, so expect misses until it has been tuned against a real account.
