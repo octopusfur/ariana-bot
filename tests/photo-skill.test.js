@@ -122,3 +122,29 @@ test("without delivery wiring the 'to' option is not offered at all", async () =
   const skill = createPhotoSkill({ fetchRows: async () => ROWS, env: {} });
   assert.strictEqual(skill.schema(await skill.snapshot()).function.parameters.properties.to, undefined);
 });
+
+// ---- dashboard controls ---------------------------------------------------------------------------------------------
+test("dashboard limits apply instantly: switch off, cooldown, daily cap, send-to-others", async () => {
+  let c = { enabled: true, cooldownMin: 0, dailyCap: 2, sendToOthers: true, othersDailyCap: 5 };
+  const delivered = [];
+  let t = 9_000_000;
+  const skill = createPhotoSkill({ fetchRows: async () => ROWS, now: () => t, controls: () => c, resolveTarget: async () => ({ id: "x1", name: "Tola" }), deliver: async (id) => { delivered.push(id); } });
+  assert.strictEqual((await skill.snapshot()).length, 2);
+  assert.ok(skill.schema(await skill.snapshot()).function.parameters.properties.to);
+
+  assert.strictEqual((await skill.execute("c1", { photo_id: "aaaaaa" })).ok, true); skill.take("c1");
+  assert.strictEqual((await skill.execute("c1", { photo_id: "aaaaaa" })).ok, true); skill.take("c1");
+  assert.strictEqual((await skill.execute("c1", { photo_id: "aaaaaa" })).ok, false, "daily cap of 2");
+  c = { ...c, dailyCap: 10 };
+  assert.strictEqual((await skill.execute("c1", { photo_id: "aaaaaa" })).ok, true, "raised cap takes effect at once"); skill.take("c1");
+
+  c = { ...c, sendToOthers: false };
+  assert.strictEqual(skill.schema(await skill.snapshot()).function.parameters.properties.to, undefined);
+  const r = await skill.execute("c2", { photo_id: "aaaaaa", to: "Tola" });
+  assert.strictEqual(r.ok, false);
+  assert.deepStrictEqual(delivered, []);
+
+  c = { ...c, enabled: false };
+  assert.deepStrictEqual(await skill.snapshot(), [], "switched off: she is not even offered the library");
+  assert.strictEqual(skill.enabled(), false);
+});
