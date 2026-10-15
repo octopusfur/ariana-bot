@@ -62,3 +62,85 @@ test("manual post uses the text given, or writes one", async () => {
   assert.strictEqual(await bot.postNow(), "writing my own");
   assert.deepStrictEqual(posted, ["hello world", "writing my own"]);
 });
+
+// ---- photo + found posts -------------------------------------------------------------------------------------------
+function mkBot(over = {}) {
+  const posted = [], prompts = [];
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true,
+    generate: async (p) => { prompts.push(p); return over.say === undefined ? "so this is me today" : over.say; },
+    post: async (x) => posted.push(x),
+    listPhotos: async () => [{ id: "aaaaaa", tags: ["mirror", "black dress"] }, { id: "bbbbbb", tags: [] }],
+    loadPhoto: async (it) => ({ base64: "IMG-" + it.id, mimetype: "image/jpeg" }),
+    search: async () => ({ ok: true, output: "o Dog learns to drive\n  https://x\n  A dog in Ohio was filmed steering a golf cart." }),
+    ...over,
+  });
+  return { bot, posted, prompts };
+}
+
+test("photo status: one of her own pictures goes out with a caption, and she cycles through the library before repeating", async () => {
+  const { bot, posted, prompts } = mkBot();
+  assert.strictEqual(await bot.postNow(undefined, { kind: "photo" }), "so this is me today");
+  assert.strictEqual(await bot.postNow(undefined, { kind: "photo" }), "so this is me today");
+  assert.strictEqual(posted.length, 2);
+  assert.deepStrictEqual(posted.map((p) => p.base64).sort(), ["IMG-aaaaaa", "IMG-bbbbbb"], "no repeat until the whole library is used");
+  assert.ok(posted.every((p) => p.mimetype === "image/jpeg" && p.text === "so this is me today"));
+  assert.match(prompts.find((p) => p.includes("mirror")), /Only mention what the tags say/);
+  assert.match(prompts.find((p) => p.includes("did not tag")), /do not describe/);
+});
+
+test("photo status can go out with no caption (NONE), and an empty library falls back to text", async () => {
+  const none = mkBot({ say: "NONE" });
+  await none.bot.postNow(undefined, { kind: "photo" });
+  assert.strictEqual(none.posted[0].text, "");
+  assert.ok(none.posted[0].base64);
+  const empty = mkBot({ listPhotos: async () => [] });
+  await assert.rejects(() => empty.bot.postNow(undefined, { kind: "photo" }), /library/);
+});
+
+test("found status: she reacts to something real from a web search, only from the results, and the results are treated as untrusted", async () => {
+  const { bot, posted, prompts } = mkBot({ say: "a dog learned to drive a golf cart in ohio and im not okay" });
+  assert.strictEqual(await bot.postNow(undefined, { kind: "found", topic: "funny" }), "a dog learned to drive a golf cart in ohio and im not okay");
+  assert.strictEqual(posted[0], "a dog learned to drive a golf cart in ohio and im not okay");
+  const p = prompts[0];
+  assert.match(p, /untrusted text from websites/);
+  assert.match(p, /Dog learns to drive/);
+  assert.match(p, /never invent details/);
+  assert.match(p, /deaths, tragedies, violence/);
+});
+
+test("found status: SKIP, AI mentions and failed searches never get posted; unforced posts fall back to a normal text status", async () => {
+  const skip = mkBot({ say: "SKIP" });
+  await assert.rejects(() => skip.bot.postNow(undefined, { kind: "found" }), /web search/);
+  assert.strictEqual(skip.posted.length, 0);
+  const ai = mkBot({ say: "as an AI i find this funny" });
+  await assert.rejects(() => ai.bot.postNow(undefined, { kind: "found" }));
+  const down = mkBot({ search: async () => ({ ok: false, error: "no key" }) });
+  await assert.rejects(() => down.bot.postNow(undefined, { kind: "found" }));
+  // not forced: she still posts something rather than going quiet
+  const mixed = mkBot({ search: async () => ({ ok: false }), listPhotos: async () => [] });
+  assert.strictEqual(await mixed.bot.postNow(), "so this is me today");
+  assert.strictEqual(mixed.posted.length, 1);
+});
+
+test("scheduled posts mix kinds and never lean on the one she just used", async () => {
+  const kinds = [];
+  let r = 0;
+  const seq = [0.05, 0.4, 0.7, 0.95, 0.2, 0.55, 0.85, 0.3];
+  const bot = sp.create({
+    now: () => T0, rand: () => seq[r++ % seq.length], enabled: () => true, isConnected: async () => true,
+    generate: async () => "a caption", post: async (x) => kinds.push(typeof x === "string" ? "text" : "photo"),
+    listPhotos: async () => [{ id: "aaaaaa", tags: [] }], loadPhoto: async () => ({ base64: "x" }),
+  });
+  for (let i = 0; i < 6; i++) await bot.postNow(undefined, {});
+  assert.ok(kinds.includes("text") && kinds.includes("photo"), kinds.join());
+});
+
+test("a day's plan can be 2-3 posts when asked, still 3h+ apart and in her waking hours", () => {
+  for (let i = 0; i < 200; i++) {
+    const slots = sp.planDay(T0, Math.random, { min: 2, max: 3 });
+    assert.ok(slots.length >= 1 && slots.length <= 3);
+    for (let k = 1; k < slots.length; k++) assert.ok(slots[k].at - slots[k - 1].at >= 3 * H);
+  }
+  assert.ok(Array.from({ length: 200 }, () => sp.planDay(T0, Math.random, { min: 2, max: 3 }).length).some((n) => n === 3));
+});
