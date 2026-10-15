@@ -67,3 +67,58 @@ test("recognises people asking to see her, not people sharing their own photo", 
   for (const m of ["send me a pic", "can i see your face", "show me yourself", "what do u look like", "got any selfies?", "send photo abeg"]) assert.ok(looksLikePhotoRequest(m), m);
   for (const m of ["[sent a photo]", "[image: my dog]", "good morning", "how was your day", ""]) assert.ok(!looksLikePhotoRequest(m), m);
 });
+
+// ---- sending to someone else she knows --------------------------------------------------------------------------------
+function makeWithTargets(env = {}) {
+  let t = 5_000_000;
+  const delivered = [];
+  const people = { "Tola": { id: "2348011111111", name: "Tola" }, "Chidi": { id: "tg_555", name: "Chidi" } };
+  const skill = createPhotoSkill({
+    fetchRows: async () => ROWS, now: () => t, env,
+    resolveTarget: async (raw) => people[raw] || null,
+    deliver: async (id, url, caption) => { if (id === "tg_555" && env.TG_DOWN) throw new Error("telegram down"); delivered.push({ id, url, caption }); },
+  });
+  return { skill, delivered, advance: (ms) => { t += ms; } };
+}
+
+test("she can send a picture to someone else she knows; it goes out right away and the tool says so", async () => {
+  const { skill, delivered } = makeWithTargets();
+  assert.ok(skill.schema(await skill.snapshot()).function.parameters.properties.to);
+  const r = await skill.execute("current-chat", { photo_id: "aaaaaa", to: "Tola", caption: "for you" });
+  assert.strictEqual(r.ok, true);
+  assert.match(r.note, /sent to Tola/);
+  assert.deepStrictEqual(delivered, [{ id: "2348011111111", url: "https://x/a.jpg", caption: "for you" }]);
+  assert.strictEqual(skill.take("current-chat"), null, "nothing extra is queued for the current chat");
+});
+
+test("strangers are refused and nothing is sent", async () => {
+  const { skill, delivered } = makeWithTargets();
+  const r = await skill.execute("c1", { photo_id: "aaaaaa", to: "Some Random Number" });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.note, /only send pictures to people you already talk to/);
+  assert.strictEqual(delivered.length, 0);
+});
+
+test("sending to others has its own cooldown per person and a daily cap across everyone", async () => {
+  const { skill, delivered, advance } = makeWithTargets({ PHOTO_OTHERS_DAILY_CAP: "2", PHOTO_COOLDOWN_MIN: "5" });
+  assert.strictEqual((await skill.execute("c", { photo_id: "aaaaaa", to: "Tola" })).ok, true);
+  assert.strictEqual((await skill.execute("c", { photo_id: "bbbbbb", to: "Tola" })).ok, false, "same person too soon");
+  assert.strictEqual((await skill.execute("c", { photo_id: "aaaaaa", to: "Chidi" })).ok, true);
+  advance(10 * 60 * 1000);
+  const capped = await skill.execute("c", { photo_id: "bbbbbb", to: "Tola" });
+  assert.strictEqual(capped.ok, false);
+  assert.match(capped.note, /enough pictures to other people/);
+  assert.strictEqual(delivered.length, 2);
+});
+
+test("a delivery failure is reported to her honestly and does not count against the limits", async () => {
+  const { skill } = makeWithTargets({ TG_DOWN: "1" });
+  const r = await skill.execute("c", { photo_id: "aaaaaa", to: "Chidi" });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.note, /didn't go through/);
+});
+
+test("without delivery wiring the 'to' option is not offered at all", async () => {
+  const skill = createPhotoSkill({ fetchRows: async () => ROWS, env: {} });
+  assert.strictEqual(skill.schema(await skill.snapshot()).function.parameters.properties.to, undefined);
+});
