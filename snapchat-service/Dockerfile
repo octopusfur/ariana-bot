@@ -1,4 +1,4 @@
-# Snapchat sidecar (Fly.io). No Playwright/Chromium: sign-in is pure HTTP or a pasted session.
+# Snapchat chat sidecar (Render). No Playwright/Chromium: sign-in is pure HTTP or a pasted session.
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
