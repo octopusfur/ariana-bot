@@ -14,6 +14,7 @@ const axios      = require("axios");
 const naija      = require("./naija_lang");
 const wazobia    = require("./wazobia_tts");
 const messenger = require('./messenger');
+const snapchat = require('./snapchat');
 const linkRoutes = require("./link_routes");
 const Groq       = require("groq-sdk");
 const path       = require("path");
@@ -736,6 +737,7 @@ function getConvo(id) {
               : id.startsWith("sg_")  ? "signal"
               : id.startsWith("sms_") ? "sms"
               : id.startsWith("fb_")  ? "messenger"
+              : id.startsWith("sc_")  ? "snapchat"
               : "whatsapp",
     };
   }
@@ -745,6 +747,7 @@ function getConvo(id) {
                                 : id.startsWith("sg_")  ? "signal"
                                 : id.startsWith("sms_") ? "sms"
                                 : id.startsWith("fb_")  ? "messenger"
+                                : id.startsWith("sc_")  ? "snapchat"
                                 : "whatsapp";
   }
   return conversations[id];
@@ -1277,7 +1280,7 @@ async function getReply(...args) {
 
 async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null, prepared = null) {
   const convo = getConvo(id);
-  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, "");
   if (!systemOverride && OWNER_PHONE && rawPhone === OWNER_PHONE) {
     systemOverride = OWNER_PROMPT;
   }
@@ -1522,7 +1525,7 @@ async function handleNewTexter(id, userMsg, imageBase64 = null, prepared = null,
   const convo = getConvo(id);
   if (!convo.isNew) return null;
   convo.isNew = false;
-  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
   if (friendWhitelist.has(rawPhone) || friendWhitelist.has(id)) {
     return await getReply(id, userMsg, extraSystem ? SYSTEM_PROMPT + extraSystem : null, imageBase64, prepared);
   }
@@ -1864,6 +1867,7 @@ async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, 
       else if (platform === "signal")   await sendSignal(from, reply);
       else if (platform === "sms")      await sendSMS(from, reply);
       else if (platform === "messenger") await messenger.sendText(from, reply);
+      else if (platform === "snapchat") await snapchat.sendText(from, reply);
     } catch (e) {
       // The voice note failed to deliver (e.g. WhatsApp Web rejected the upload). Don't go silent —
       // send what she was going to say as text instead.
@@ -1876,12 +1880,14 @@ async function sendReply(id, platform, reply, voiceUrl, imageUrl, chatId, from, 
     else if (platform === "signal")   await sendSignalImage(from, imageUrl, caption || "");
     else if (platform === "sms")      await sendMMS(from, "", imageUrl);
     else if (platform === "messenger") await messenger.sendImage(from, imageUrl, caption || "");
+    else if (platform === "snapchat") await snapchat.sendImage(from, imageUrl, caption || "");
   } else {
     if (platform === "whatsapp")      await sendWhatsApp(from, reply, phoneNumberId);
     else if (platform === "telegram") await sendTelegram(chatId, reply);
     else if (platform === "signal")   await sendSignal(from, reply);
     else if (platform === "sms")      await sendSMS(from, reply);
     else if (platform === "messenger") await messenger.sendText(from, reply);
+    else if (platform === "snapchat") await snapchat.sendText(from, reply);
   }
 }
 
@@ -1915,7 +1921,7 @@ const HONEST_AI_DISCLOSURE = "yeah, I'm AI. figured you'd rather know than keep 
 // ── CORE MESSAGE HANDLER ──────────────────────────────────────
 async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, name, mediaUrl, mediaType: incomingMediaType, preloadedImageBase64 = null, mediaPayload = null }) {
   // Silently drop messages from blocked numbers
-  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+  const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
   if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) {
     console.log(`🚫 Ignored blocked: ${id}`);
     return;
@@ -2816,6 +2822,9 @@ app.post("/api/initiate", async (req, res) => {
   } else if (platform === "messenger" || to.startsWith("fb_")) {
     id = to.startsWith("fb_") ? to : `fb_${to}`;
     from = id.replace("fb_", "");
+  } else if (platform === "snapchat" || to.startsWith("sc_")) {
+    id = to.startsWith("sc_") ? to : `sc_${to}`;
+    from = id.replace("sc_", "");
   } else if (platform === "signal" || to.startsWith("sg_")) {
     id = to.startsWith("sg_") ? to : `sg_${to}`;
     from = id.replace("sg_", "");
@@ -2830,6 +2839,7 @@ app.post("/api/initiate", async (req, res) => {
     else if (id.startsWith("sg_"))  await sendSignal(from, message);
     else if (id.startsWith("sms_")) await sendSMS(from, message);
     else if (id.startsWith("fb_"))  await messenger.sendText(from, message);
+    else if (id.startsWith("sc_"))  await snapchat.sendText(from, message);
     else                            await sendWhatsApp(from, message);
     addMessage(id, "ariana", message);
     res.json({ ok: true, id });
@@ -2841,7 +2851,7 @@ app.get("/api/blocked", (_req, res) => res.json({ blocked: [...blockedNumbers] }
 
 app.post("/api/block/:phone", async (req, res) => {
   const id = decodeURIComponent(req.params.phone);
-  const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
+  const raw = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, "");
   blockedNumbers.add(id);
   blockedNumbers.add(raw);
   if (supabase) {
@@ -2864,7 +2874,7 @@ app.post("/api/block/:phone", async (req, res) => {
 
 app.post("/api/unblock/:phone", async (req, res) => {
   const id = decodeURIComponent(req.params.phone);
-  const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, "");
+  const raw = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, "");
   blockedNumbers.delete(id);
   blockedNumbers.delete(raw);
   if (supabase) {
@@ -3005,7 +3015,7 @@ app.post("/api/owner-command", requireDashboardAuth, async (req, res) => {
   const blockMatch = command.match(/^block\s+(\+?[\w\d_\-]+)/i);
   if (blockMatch) {
     const phone = blockMatch[1];
-    const raw   = phone.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const raw   = phone.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     blockedNumbers.add(phone); blockedNumbers.add(raw);
     if (supabase) {
       try { await supabase.from("ariana_blocked").upsert({ phone }, { onConflict: "phone" }); } catch {}
@@ -3062,6 +3072,9 @@ linkRoutes.register(app, {
 
 // Facebook Messenger (Page inbox): webhook /messenger + dashboard linking, see messenger.js
 const messengerCtl = messenger.init({ app, requireAuth: requireDashboardAuth, getSupabase: () => supabase, onMessage: (m) => handleMessage(m) });
+
+// Snapchat (unofficial Web API sidecar on Fly.io): /snapchat/inbound + /api/snapchat/*, see snapchat.js
+const snapchatCtl = snapchat.init({ app, requireAuth: requireDashboardAuth, getSupabase: () => supabase, onMessage: (m) => handleMessage(m) });
 
 // Ariana's own WhatsApp Status posts (see status_poster.js)
 const statusPoster = statusPosterMod.create({
@@ -3138,6 +3151,17 @@ app.get('/api/platform-status', requireDashboardAuth, async (_req, res) => {
     ? (mg.hasAppSecret ? { status: 'connected', label: 'Linked', detail: mg.pageName || 'Facebook Page linked.' }
                        : { status: 'configured', label: 'Needs secret', detail: 'Page linked but the App secret is missing, so incoming messages are rejected.' })
     : { status: 'not_configured', label: 'Not linked', detail: 'Messenger is not linked. Dashboard → Settings → Messenger.' };
+  result.snapchat = { status: 'not_configured', label: 'Not configured', detail: 'Snapchat sidecar is not configured (SNAP_SERVICE_URL / SNAP_API_SECRET).' };
+  if (snapchat.isConfigured()) {
+    try {
+      const sc = await snapchat.getStatus();
+      result.snapchat = sc.connected
+        ? { status: 'connected', label: 'Connected', detail: `Signed in; watching ${sc.conversations.length} chat(s).` }
+        : sc.signed_in
+          ? { status: 'configured', label: 'Needs UUID', detail: 'Signed in, but the account user UUID is not set, so nothing is sent or read.' }
+          : { status: 'configured', label: 'Not signed in', detail: 'Sidecar is up but no Snapchat session is loaded.' };
+    } catch { result.snapchat = { status: 'unreachable', label: 'Unavailable', detail: 'Snapchat sidecar could not be reached.' }; }
+  }
   res.json({ ok: true, platforms: result });
 });
 
@@ -3537,8 +3561,9 @@ async function tryExecuteOwnerCommand(message) {
                    : target.startsWith('sg_') ? 'signal'
                    : target.startsWith('sms_') ? 'sms'
                    : target.startsWith('fb_') ? 'messenger'
+                   : target.startsWith('sc_') ? 'snapchat'
                    : 'whatsapp';
-    const rawId = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const rawId = target.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
 
     if (voiceBase64) {
       // Upload voice to Cloudinary then send
@@ -3547,6 +3572,7 @@ async function tryExecuteOwnerCommand(message) {
         if (platform === 'whatsapp')      await sendWhatsAppVoiceNote(rawId, voiceUrl);
         else if (platform === 'telegram') await sendTelegramVoice(rawId, voiceUrl);
         else if (platform === 'signal')   await sendSignal(rawId, text || '🎤');
+        else if (platform === 'snapchat') await snapchat.sendText(rawId, text || '[voice note]');
         else                              await sendMMS(rawId, '', voiceUrl);
         addMessage(target, 'ariana', '[voice note]');
         return;
@@ -3556,6 +3582,7 @@ async function tryExecuteOwnerCommand(message) {
       if (platform === 'whatsapp')      await sendWhatsAppImage(rawId, imageUrl, text || '');
       else if (platform === 'telegram') await sendTelegramPhoto(rawId, imageUrl, text || '');
       else if (platform === 'signal')   await sendSignal(rawId, imageUrl);
+      else if (platform === 'snapchat') await snapchat.sendImage(rawId, imageUrl, text || '');
       else                              await sendMMS(rawId, text || '', imageUrl);
       addMessage(target, 'ariana', `[image: ${imageUrl}]`);
       return;
@@ -3564,6 +3591,7 @@ async function tryExecuteOwnerCommand(message) {
       if (platform === 'whatsapp')      await sendWhatsApp(rawId, text);
       else if (platform === 'telegram') await sendTelegram(rawId, text);
       else if (platform === 'signal')   await sendSignal(rawId, text);
+      else if (platform === 'snapchat') await snapchat.sendText(rawId, text);
       else                              await sendSMS(rawId, text);
       addMessage(target, 'ariana', text);
     }
@@ -3667,7 +3695,7 @@ async function tryExecuteOwnerCommand(message) {
   const blockMatch = message.match(/^block\s+(.+)/i);
   if (blockMatch) {
     const target = resolveContact(blockMatch[1]) || blockMatch[1].trim();
-    const raw    = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const raw    = target.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     blockedNumbers.add(target); blockedNumbers.add(raw);
     if (supabase) { try { await supabase.from('ariana_blocked').upsert({ phone: target }, { onConflict: 'phone' }); } catch {} }
     return { handled: true, confirmation: `Blocked ${conversations[target]?.name || target}.` };
@@ -3725,7 +3753,7 @@ async function tryExecuteOwnerCommand(message) {
   if (callMatch) {
     const target  = resolveContact(callMatch[1]) || callMatch[1].trim();
     const text    = callMatch[2].trim();
-    const rawNum  = target.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const rawNum  = target.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     const sid     = process.env.TWILIO_ACCOUNT_SID;
     const token   = process.env.TWILIO_AUTH_TOKEN;
     const from    = process.env.TWILIO_NUMBER;
@@ -3843,7 +3871,7 @@ function buildTodayContext() {
     if (!convo.messages?.length) continue;
 
     // Skip the owner's own conversation — never include it in reports
-    const rawId = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const rawId = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     if (OWNER_PHONE && (rawId === OWNER_PHONE || id === OWNER_PHONE)) continue;
 
     const todayMsgs = convo.messages.filter(m => new Date(m.time) >= todayStart);
@@ -3872,7 +3900,7 @@ async function generateDailyReport() {
     if (!convo.messages?.length) continue;
 
     // Skip owner's own conversation
-    const rawId = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    const rawId = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     if (OWNER_PHONE && (rawId === OWNER_PHONE || id === OWNER_PHONE)) continue;
 
     const todayMsgs = convo.messages.filter(m => new Date(m.time) >= todayStart);
@@ -3881,7 +3909,7 @@ async function generateDailyReport() {
     const name     = convo.name || id;
     const platform = convo.platform || 'WhatsApp';
     const userMsgs = todayMsgs.filter(m => m.role === 'user').map(m => m.text || '').join(' | ');
-    const blocked  = blockedNumbers.has(id) || blockedNumbers.has(id.replace(/^(tg_|sg_|sms_|fb_)/, ''));
+    const blocked  = blockedNumbers.has(id) || blockedNumbers.has(id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, ''));
 
     contactReports.push({ name, platform, id, userMsgs: userMsgs.slice(0, 500), blocked, msgCount: todayMsgs.length });
   }
@@ -4216,7 +4244,7 @@ async function triggerSleep() {
   const recentIds = Object.entries(conversations)
     .filter(([id, c]) => {
       if (!c.messages?.length || takenOver.has(id)) return false;
-      const raw = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+      const raw = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
       if (blockedNumbers.has(id) || blockedNumbers.has(raw)) return false;
       const last = c.messages[c.messages.length - 1];
       if (last.role === 'ariana') return false; // she already had the last word — no need to interrupt
@@ -4230,7 +4258,7 @@ async function triggerSleep() {
       const gn   = goodnightLines[Math.floor(Math.random() * goodnightLines.length)];
       const convo = conversations[id];
       const plat  = convo?.platform || 'whatsapp';
-      const from  = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+      const from  = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
       const chatId = id.startsWith('tg_') ? from : null;
       await sendReply(id, plat, gn, null, null, chatId, from, null);
       addMessage(id, 'ariana', gn);
@@ -4725,7 +4753,8 @@ async function runProactiveCheck() {
   for (const [id, convo] of Object.entries(conversations)) {
     if (!convo.messages?.length) continue;
     if (takenOver.has(id)) continue;
-    const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+    if (id.startsWith('sc_') && process.env.SNAPCHAT_PROACTIVE !== 'on') continue; // opt-in only
+    const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
     if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) continue;
     if ((now - (proactiveLastSent[id] || 0)) < MIN_GAP) continue; // messaged recently
 
@@ -4755,7 +4784,7 @@ async function runProactiveCheck() {
 
     try {
       const platform = convo.platform || 'whatsapp';
-      const rawId    = id.replace(/^(tg_|sg_|sms_|fb_)/, '');
+      const rawId    = id.replace(/^(tg_|sg_|sms_|fb_|sc_)/, '');
       const name     = convo.name || id;
 
       // Build recent history for context
@@ -4777,6 +4806,7 @@ DO NOT be needy or desperate. One to two casual lines max. Sound like you just p
       if (platform === 'telegram') await sendTelegram(rawId, msg);
       else if (platform === 'signal')   await sendSignal(rawId, msg);
       else if (platform === 'sms')      await sendSMS(rawId, msg);
+      else if (platform === 'snapchat') await snapchat.sendText(rawId, msg);
       else                              await sendWhatsApp(rawId, msg);
 
       addMessage(id, 'ariana', msg);
@@ -5035,6 +5065,7 @@ server.listen(PORT, async () => {
   await loadKeysFromSupabase();
   await applyLinkedSessions();
   await messengerCtl.loadLinked();
+  await snapchatCtl.loadLinked();
   stateSync.startMirror();
   stickers.configure({ supabase });
   stickers.load().then((n) => console.log(`🎟️ Sticker drawer: ${n} sticker(s)`)).catch(() => {});
