@@ -1390,6 +1390,13 @@ Make them feel like they have a real girlfriend they can text anytime.`
   // Old "[voice note]" / "[image: x]" placeholders in the log are bookkeeping, not things she said.
   // Left in the prompt they teach her that her "voice notes" were never audio, so she claims she can't send them.
   const _isStub = m => m.role !== 'user' && /^\[(voice note|image[^\]]*)\]$/i.test(String(m.text || '').trim());
+  // Everything she has learned that is APPROVED, added on EVERY path (owner chat, new texters, payment/picture
+  // overrides, normal chats). Lessons the owner taught (slang, how to talk) are global; facts only reach their person.
+  try {
+    const taught = memoryManager.getApprovedContextSync(id, { maxChars: 1500 });
+    if (taught) sys += `\n\nTHINGS YOU'VE LEARNED AND BEEN TAUGHT (true for you; use them naturally, never recite them as a list):\n${taught}`;
+  } catch (_) { /* memory is best effort */ }
+
   const history = convo.messages.slice(-20)
     .filter(m => m.text && String(m.text).trim() && !_isStub(m))
     .map(m => ({
@@ -2274,7 +2281,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
         const learnPrompt = isOwner
           ? `Memory extraction system for AI persona Ariana.
 The speaker is Ariana's owner and creator, teaching her. Extract every durable thing worth remembering: facts about the owner, people, places and things in their life, their preferences, AND standing instructions about how Ariana should behave, talk or treat people (use keys that start with behavior_).
-One short sentence per value. Skip greetings, small talk and temporary states.
+One short sentence per value. Skip greetings, small talk and temporary states.\nKey naming matters: start the key with "lesson_" for slang, word meanings, language, corrections and standing rules that Ariana should use with EVERYONE; start it with "fact_" or "pref_" for facts and preferences about the owner personally.
 Return JSON only: { "learned": { "short_key": "fact" } } — empty object if nothing new. No markdown.
 
 Owner said: "${learnText.slice(0, 600)}"
@@ -2305,12 +2312,15 @@ Ariana replied: "${String(reply).slice(0, 200)}"`;
         const parsed = JSON.parse(jsonText.slice(jsonText.indexOf('{'), jsonText.lastIndexOf('}') + 1) || '{}');
         const learned = parsed.learned || {};
         if (Object.keys(learned).length > 0) {
-          const results = await memoryManager.createCandidatesFromObject({
-            userId: id,
-            learned,
-            source: { type: 'conversation', reference: id, platform, excerpt: learnText.slice(0, 300) },
-            sourceType: 'automatic',
-          });
+          // The owner's lessons (slang, language, how to talk) are for every chat; personal facts stay with the person.
+          const isLessonKey = (k) => /^lesson_/i.test(k);
+          const globalLearned = isOwner ? Object.fromEntries(Object.entries(learned).filter(([k]) => isLessonKey(k))) : {};
+          const personalLearned = Object.fromEntries(Object.entries(learned).filter(([k]) => !(isOwner && isLessonKey(k))));
+          const src = { type: 'conversation', reference: id, platform, excerpt: learnText.slice(0, 300) };
+          const results = [
+            ...(Object.keys(globalLearned).length ? await memoryManager.createCandidatesFromObject({ userId: 'global', learned: globalLearned, source: src, sourceType: 'automatic' }) : []),
+            ...(Object.keys(personalLearned).length ? await memoryManager.createCandidatesFromObject({ userId: id, learned: personalLearned, source: src, sourceType: 'automatic' }) : []),
+          ];
           // Clean facts go live straight away so she never needs teaching twice. Flagged / contradicting / unsafe ones,
           // and anyone else's "rules" for her, stay in the review queue. MEMORY_AUTO_APPROVE=off turns this back to review-only.
           const autoOn = String(process.env.MEMORY_AUTO_APPROVE || 'on').toLowerCase() !== 'off';
