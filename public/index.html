@@ -649,6 +649,42 @@ details[open]>summary .st-chev{transform:rotate(90deg)}
           </div>
         </div>
       </details>
+      <details class="st-ch" name="st-ch" id="ch-snap">
+        <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 192 192" fill="currentColor" stroke="currentColor" stroke-width="12" stroke-linejoin="round"><path d="M95.918 22.002c-11.963-.087-24.145 4.54-32.031 13.717-6.995 7.405-9.636 17.901-9.284 27.868-.03 5.119.032 10.237.05 15.355-4.901-1.217-9.873-4.624-15.063-2.937-4.422 1.313-6.267 7.088-3.596 10.791 2.876 3.761 7.346 5.907 11.08 8.71 1.837 1.5 4.313 2.571 5.68 4.499-.001 4.62-2.425 8.897-4.722 12.786-5.597 8.802-14.342 15.531-23.705 20.18-2.39 1.035-4.59 4.144-2.473 6.499 3.862 3.622 9.327 4.778 14.195 6.486 2.047.64 5.078 1.34 4.886 4.084.335 2.923 2.205 6.066 5.492 6.078 7.873.91 16.289.522 23.345 4.741 6.917 4.006 14.037 8.473 22.255 8.96 8.188.767 16.623-.888 23.642-5.255 5.23-2.884 10.328-6.477 16.456-7.061 5.155-1.206 10.702-.151 15.685-2.072 3.193-1.367 2.762-5.244 4.104-7.808 2.532-1.747 5.77-1.948 8.59-3.102 3.687-1.47 8.335-2.599 10.268-6.413 1.148-3.038-2.312-4.698-4.453-5.88-11.38-5.874-21.631-14.921-26.121-27.191-.496-1.936-2.279-4.834.084-6.255 4.953-4.176 11.413-6.575 15.514-11.715 3.103-3.884.941-10.55-4.141-11.322-4.928-.78-9.525 1.893-14.152 3.127-.404-8.53.502-17.232-.776-25.746-2.429-13.808-13.514-25.157-26.813-29.124-4.521-1.401-9.266-2.037-13.996-2Z"/></svg></span>
+          <span class="st-nm">Snapchat<span class="st-sub"><span class="s-dot" id="dot-snap"></span><span id="pill-snap">Checking…</span></span></span>
+          <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
+        <div class="st-panel">
+          <div id="snap-status" class="st-note">Checking...</div>
+          <div id="snap-login">
+            <label class="lbl">Snapchat username</label>
+            <input type="text" id="snap-user" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Ariana's Snapchat username">
+            <label class="lbl" style="margin-top:10px">Password</label>
+            <input type="password" id="snap-pass" class="inp" autocomplete="off" placeholder="Used once to sign in, never stored">
+            <label class="lbl" style="margin-top:10px">Snapchat user ID</label>
+            <input type="text" id="snap-uuid" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <button class="btn" id="snap-btn" onclick="snapLogin()" style="margin-top:12px">Sign in</button>
+            <details class="st-more"><summary class="st-link">Use a pasted session instead</summary>
+              <textarea id="snap-cookies" class="inp" rows="4" autocapitalize="none" autocorrect="off" placeholder="Cookie export as JSON" style="margin-top:6px"></textarea>
+              <button class="btn-ghost" onclick="snapUseSession()" style="margin-top:8px">Use this session</button>
+            </details>
+          </div>
+          <div id="snap-chats" style="display:none;margin-top:16px">
+            <label class="lbl">Chats she answers</label>
+            <div id="snap-chat-list" class="st-note">None yet. She answers no one until you add a chat.</div>
+            <input type="text" id="snap-conv" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Chat ID" style="margin-top:8px">
+            <button class="btn-ghost" onclick="snapAddChat()" style="margin-top:8px">Add chat</button>
+            <button class="btn-ghost" onclick="snapFindChats()" style="margin-top:8px">Find chat IDs</button>
+            <div id="snap-cands" class="st-note" style="word-break:break-all;line-height:1.7"></div>
+          </div>
+          <button class="btn-ghost" id="snap-unlink" onclick="snapUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Sign out of Snapchat</button>
+          <label class="lbl" style="margin-top:20px">Stories and Spotlight</label>
+          <div id="snap-pub-status" class="st-note">Checking...</div>
+          <input type="text" id="snap-media" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="https link to a picture or vertical video">
+          <input type="text" id="snap-caption" class="inp" autocomplete="off" placeholder="Spotlight caption (optional)" style="margin-top:8px">
+          <button class="btn" id="snap-story-btn" onclick="snapPost('story')" style="margin-top:12px">Post to Story</button>
+          <button class="btn-ghost" id="snap-spot-btn" onclick="snapPost('spotlight')" style="margin-top:8px">Post to Spotlight</button>
+        </div>
+      </details>
       <details class="st-ch" name="st-ch" id="ch-fb">
         <summary><span class="st-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.0015 2C6.36858 2 2 6.12644 2 11.7011C2 14.6169 3.1954 17.1356 5.14023 18.8751C5.30192 19.0215 5.40077 19.2238 5.40843 19.4444L5.4636 21.2245C5.46756 21.3554 5.50365 21.4833 5.56868 21.5969C5.63371 21.7106 5.7257 21.8065 5.83653 21.8762C5.94736 21.9459 6.07364 21.9873 6.20423 21.9968C6.33483 22.0062 6.46575 21.9834 6.58544 21.9303L8.57088 21.0552C8.74023 20.9816 8.92797 20.9671 9.10421 21.0146C10.0161 21.2651 10.987 21.4008 11.9985 21.4008C17.6314 21.4008 22 17.2751 22 11.7004C22 6.12644 17.6322 2 12.0015 2ZM17.2529 9.57854L14.7487 13.5502C14.6544 13.6997 14.5302 13.8281 14.3839 13.9272C14.2376 14.0263 14.0724 14.0941 13.8986 14.1262C13.7248 14.1583 13.5463 14.154 13.3742 14.1137C13.2021 14.0734 13.0403 13.9979 12.8989 13.892L10.9065 12.3992C10.8178 12.3329 10.71 12.2971 10.5992 12.2971C10.4885 12.2971 10.3807 12.3329 10.292 12.3992L7.60383 14.4398C7.24751 14.7119 6.77625 14.282 7.01533 13.9034L9.51954 9.9318C9.61378 9.7823 9.73796 9.65394 9.88427 9.55481C10.0306 9.45568 10.1958 9.38793 10.3696 9.35582C10.5434 9.32371 10.7219 9.32795 10.894 9.36826C11.0661 9.40857 11.2279 9.48408 11.3693 9.59004L13.3617 11.0828C13.4504 11.149 13.5582 11.1849 13.669 11.1849C13.7797 11.1849 13.8875 11.149 13.9762 11.0828L16.6644 9.04215C17.0245 8.76628 17.4958 9.19617 17.2529 9.57854Z"/></svg></span>
           <span class="st-nm">Messenger<span class="st-sub"><span class="s-dot" id="dot-fb"></span><span id="pill-fb">Checking…</span></span></span>
@@ -908,6 +944,76 @@ async function fbSave(){
   fbRefresh();
 }
 async function fbUnlink(){const {ok}=await jpost('/api/messenger/unlink',{});toast(ok?'Messenger unlinked':'Failed');fbRefresh();}
+// ── SNAPCHAT LINKING + POSTING (Settings) ──
+async function snapGet(url){try{const r=await fetch(url,{headers:authH()});let d={};try{d=await r.json();}catch{}return {ok:r.ok,status:r.status,d};}catch{return {ok:false,status:0,d:{}};}}
+async function snapRefresh(){
+  const st=document.getElementById('snap-status');if(!st)return;
+  const a=await snapGet('/api/snapchat/status');
+  if(a.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return;}
+  const d=a.d||{},login=document.getElementById('snap-login'),chats=document.getElementById('snap-chats'),un=document.getElementById('snap-unlink');
+  const pill=document.getElementById('pill-snap'),dot=document.getElementById('dot-snap');
+  const setPill=(t,cls)=>{if(pill)pill.textContent=t;if(dot)dot.className='s-dot'+(cls?' '+cls:'');};
+  if(!a.ok){st.textContent='Could not reach the Snapchat service. It may be starting up, try again in a minute.';setPill('Unavailable','err');}
+  else if(!d.configured){st.textContent='The Snapchat service is not set up on the server yet.';setPill('Not linked');}
+  else if(!d.signed_in){st.textContent='Not signed in.'+(d.saved?' A saved session exists and will be restored on the next restart.':'');login.style.display='';chats.style.display='none';un.style.display='none';setPill('Not linked');}
+  else if(!d.user_uuid_set){st.textContent='Signed in, but the Snapchat user ID is missing, so nothing is sent or read. Enter it and sign in again.';login.style.display='';chats.style.display='none';un.style.display='';setPill('Needs ID','err');}
+  else{
+    const n=(d.conversations||[]).length;
+    st.textContent='Connected. Watching '+n+' chat'+(n===1?'':'s')+'. Session saved to the database: '+(d.saved===true?'yes':d.saved===false?'NO, it will be lost on restart':'unknown')+'.'+(d.last_error?' Last error: '+plainErr(d.last_error):'');
+    login.style.display='none';chats.style.display='';un.style.display='';setPill('Connected','on');
+    const list=document.getElementById('snap-chat-list');
+    list.innerHTML=n?(d.conversations||[]).map(c=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin:4px 0"><span style="word-break:break-all">'+c+'</span><button class="btn-ghost" style="width:auto;padding:6px 12px" onclick="snapRemoveChat(\''+c+'\')">Remove</button></div>').join(''):'None yet. She answers no one until you add a chat.';
+  }
+  const pub=await snapGet('/api/snapchat/publish-status'),ps=document.getElementById('snap-pub-status');
+  if(!ps)return;
+  const p=pub.d||{};
+  ps.textContent=!pub.ok?'Could not check.':!p.configured?'Not set up. Add BULKPUBLISH_API_KEY on the server, and connect Snapchat inside BulkPublish.':!p.channel?(p.error||'BulkPublish has no Snapchat channel connected yet.'):'Ready. Snapchat is connected through BulkPublish.'+(p.autoStories?' She also posts her own stories.':'');
+}
+async function snapLogin(){
+  const username=document.getElementById('snap-user').value.trim(),password=document.getElementById('snap-pass').value,userUuid=document.getElementById('snap-uuid').value.trim();
+  if(!username||!password){toast('Enter the username and password');return;}
+  const b=document.getElementById('snap-btn');b.disabled=true;b.textContent='Signing in...';
+  const {ok,d}=await jpost('/api/snapchat/login',{username,password,userUuid});
+  b.disabled=false;b.textContent='Sign in';
+  if(!ok){toast(plainErr(d.error)||'Could not sign in',6000);return;}
+  document.getElementById('snap-pass').value='';
+  toast(d.saved?'Signed in. Session saved to the database.':'Signed in, but the session was NOT saved to the database.',5000);
+  snapRefresh();
+}
+async function snapUseSession(){
+  const raw=document.getElementById('snap-cookies').value.trim(),userUuid=document.getElementById('snap-uuid').value.trim();
+  if(!raw){toast('Paste the session JSON first');return;}
+  let cookies;try{cookies=JSON.parse(raw);}catch{toast('That is not valid JSON');return;}
+  const {ok,d}=await jpost('/api/snapchat/session',{cookies,userUuid});
+  if(!ok){toast(plainErr(d.error)||'Could not use that session',6000);return;}
+  document.getElementById('snap-cookies').value='';
+  toast(d.saved?'Session loaded and saved to the database.':'Session loaded, but NOT saved to the database.',5000);
+  snapRefresh();
+}
+async function snapAddChat(){
+  const id=document.getElementById('snap-conv').value.trim().toLowerCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)){toast('A chat ID looks like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');return;}
+  const {ok,d}=await jpost('/api/snapchat/conversations',{add:[id]});
+  if(!ok){toast(plainErr(d.error)||'Could not add',5000);return;}
+  document.getElementById('snap-conv').value='';toast('Chat added');snapRefresh();
+}
+async function snapRemoveChat(id){const {ok}=await jpost('/api/snapchat/conversations',{remove:[id]});toast(ok?'Chat removed':'Failed');snapRefresh();}
+async function snapFindChats(){
+  const box=document.getElementById('snap-cands');box.textContent='Looking...';
+  const a=await snapGet('/api/snapchat/conversations/candidates');
+  if(!a.ok){box.textContent=plainErr(a.d.error)||'Could not look.';return;}
+  const c=a.d.candidates||[];
+  box.innerHTML=c.length?('Possible IDs (suggestions only, tap one to fill the box):<br>'+c.map(x=>'<a href="#" style="color:var(--acc)" onclick="document.getElementById(\'snap-conv\').value=\''+x+'\';return false">'+x+'</a>').join('<br>')):'Nothing found yet. Send a message to the account first, then try again.';
+}
+async function snapUnlink(){const {ok}=await jpost('/api/snapchat/unlink',{});toast(ok?'Signed out of Snapchat':'Failed');snapRefresh();}
+async function snapPost(type){
+  const url=document.getElementById('snap-media').value.trim(),caption=document.getElementById('snap-caption').value.trim();
+  if(!/^https:\/\//i.test(url)){toast('Paste an https link to the picture or video');return;}
+  const b=document.getElementById(type==='story'?'snap-story-btn':'snap-spot-btn'),label=b.textContent;b.disabled=true;b.textContent='Posting...';
+  const {ok,d}=await jpost('/api/snapchat/'+type,{url,caption});
+  b.disabled=false;b.textContent=label;
+  toast(ok?(type==='story'?'Posted to her Story':'Posted to Spotlight'):(plainErr(d.error)||'Could not post'),6000);
+}
 // ── TELEGRAM + SIGNAL LINKING (Settings) ──
 async function jpost(url,body){const r=await fetch(url,{method:'POST',headers:authH(),body:JSON.stringify(body||{})});let d={};try{d=await r.json();}catch{}return {ok:r.ok,status:r.status,d};}
 async function tgRefresh(){
@@ -1004,7 +1110,7 @@ function go(name){
   if(name==='media')loadMedia();
   if(name==='brain')loadBrain();
   if(name==='wardrobe')loadWardrobe();
-  if(name==='settings'){loadSettingsUI();waRefresh();fbRefresh();tgRefresh();sgRefresh();}
+  if(name==='settings'){loadSettingsUI();waRefresh();snapRefresh();fbRefresh();tgRefresh();sgRefresh();}
   if(name==='social')loadSocial();
   if(name==='profile')loadProfileStats();
 }

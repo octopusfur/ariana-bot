@@ -121,7 +121,13 @@ function init(deps) {
 
   app.get("/api/snapchat/status", requireAuth, wrap(async () => {
     if (!isConfigured()) return { configured: false, connected: false };
-    return { configured: true, ...(await call("get", "/status", undefined, { timeout: 8000 })) };
+    const st = await call("get", "/status", undefined, { timeout: 8000 });
+    let saved = null; // is the session stored in Supabase (sessions table, type "snapchat")?
+    const sb = getSupabase();
+    if (sb) {
+      try { const { data } = await sb.from("sessions").select("data").eq("type", "snapchat").eq("key", "default").maybeSingle(); saved = !!(data?.data?.cookies); } catch { saved = null; }
+    }
+    return { configured: true, ...st, saved };
   }));
 
   app.post("/api/snapchat/login", requireAuth, wrap(async (req) => {
