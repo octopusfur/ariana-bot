@@ -17,6 +17,7 @@ const fake = http.createServer((req, res) => {
     calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: b ? JSON.parse(b) : null });
     const send = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url === '/status') return send(200, { connected: true, signed_in: true, conversations: [CONV] });
+    if (req.url === '/login') return send(200, { cookies: { sc_a: 'x' }, bearer_token: 'tok', connected: true, signed_in: true, user_uuid_set: true });
     if (req.url === '/like') return send(501, { error: 'The upstream library cannot like content yet', supported: false });
     if (req.url === '/send-text' && b.includes('FAIL')) return send(502, { error: 'send failed: grpc-status=7' });
     send(200, { status: 'ok' });
@@ -101,4 +102,36 @@ test('sendImage downloads the picture and uploads it to the sidecar as base64', 
   assert.equal(media.body.filename, 'selfie.jpg');
   assert.equal(media.body.data_b64, Buffer.from([1, 2, 3, 4]).toString('base64'));
   assert.ok(calls.some((c) => c.url === '/send-text' && c.body.text === 'for you'));
+});
+
+test('sign-in stores the session in Supabase (type snapchat) and never stores the password', async () => {
+  const rows = [];
+  const sb = {
+    from: (table) => {
+      assert.equal(table, 'sessions');
+      const q = { _f: {} };
+      q.select = () => q;
+      q.eq = (k, v) => { q._f[k] = v; return q; };
+      q.maybeSingle = async () => ({ data: rows.find((r) => r.type === q._f.type && r.key === q._f.key) || null });
+      q.upsert = async (row, opt) => { assert.equal(opt.onConflict, 'type,key'); const i = rows.findIndex((r) => r.type === row.type && r.key === row.key); if (i >= 0) rows[i] = row; else rows.push(row); return { error: null }; };
+      return q;
+    },
+  };
+  const app2 = express();
+  app2.use(express.json());
+  snap.init({ app: app2, requireAuth: (_q, _s, n) => n(), getSupabase: () => sb, onMessage: async () => {} });
+  const srv = await new Promise((r) => { const x = app2.listen(0, '127.0.0.1', () => r(x)); });
+  const b2 = `http://127.0.0.1:${srv.address().port}`;
+  const UUID = '2510ebad-9409-5ab9-bfaf-e80838f7077f';
+  const r = await (await fetch(b2 + '/api/snapchat/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'ari', password: 'hunter2-secret', userUuid: UUID.toUpperCase() }) })).json();
+  assert.equal(r.saved, true);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, 'snapchat');
+  assert.equal(rows[0].key, 'default');
+  assert.deepEqual(rows[0].data.cookies, { sc_a: 'x' });
+  assert.equal(rows[0].data.user_uuid, UUID);
+  assert.ok(!JSON.stringify(rows).includes('hunter2-secret'), 'password must never be persisted');
+  const st = await (await fetch(b2 + '/api/snapchat/status')).json();
+  assert.equal(st.saved, true);
+  srv.close();
 });
