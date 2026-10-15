@@ -33,10 +33,30 @@ not copied into this repo). Three things are different from running xmcp on a la
 | `/mcp` has no authentication | Every request needs `X-Api-Key` (constant-time check); `/healthz` is open but touches nothing |
 | No allowlist = **every** X API tool (deletes, blocks…) | No allowlist = the 8 tools Ariana uses (below) |
 
-Tools loaded by default: `getUsersMe`, `getUsersByUsername`, `createPosts`, `likePost`,
-`repostPost`, `followUser`, `unfollowUser`, `createDirectMessagesByParticipantId`.
-Override with `X_API_TOOL_ALLOWLIST` (comma-separated operation IDs) — but the bot only
-knows how to call these eight.
+Fifteen tools load by default — one per thing Ariana can do on X:
+
+| Ariana can… | X API operation |
+|---|---|
+| post, reply/comment | `createPosts` |
+| like / repost | `likePost`, `repostPost` |
+| follow / unfollow | `followUser`, `unfollowUser` |
+| DM someone | `createDirectMessagesByParticipantId` |
+| look someone up (profile, follower counts) | `getUsersByUsername` |
+| search recent posts (last ~7 days) | `searchPostsRecent` |
+| read someone's posts | `getUsersPosts` |
+| read her home feed | `getUsersTimeline` |
+| see who mentioned her | `getUsersMentions` |
+| read her DMs (inbox or one thread) | `getDirectMessagesEvents`, `getDirectMessagesEventsByParticipantId` |
+| delete her own posts | `deletePosts` |
+| (identity check on every action) | `getUsersMe` |
+
+Override with `X_API_TOOL_ALLOWLIST` (comma-separated operation IDs). Leaving one out
+turns that feature off ("not exposed by the service") without breaking the rest.
+
+Deliberately **not** included: media upload (photos/video on posts — the multipart upload
+flow is not something I could verify through the MCP layer), lists, bookmarks, spaces,
+trends, analytics, blocking/muting. The bot has no action for them, so loading them would
+add risk and no ability.
 
 ## Setup
 

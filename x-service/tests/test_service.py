@@ -98,10 +98,12 @@ class TestDefaults(ServiceCase):
         self.assertEqual(rpc(self.http, self.url, "tools/list", key="wrong" * 8).status_code, 401)
         self.assertEqual(rpc(self.http, self.url, "tools/list", key=KEY[:-1]).status_code, 401)
 
-    def test_only_the_eight_default_tools_load(self):
+    def test_only_the_default_tools_load(self):
         self.assertEqual(self.tool_names(), sorted(self.appmod.DEFAULT_TOOLS))
-        for dangerous in ("deletePosts", "searchPostsRecent", "blockUsersDms"):
-            self.assertNotIn(dangerous, self.tool_names())
+        self.assertEqual(len(self.appmod.DEFAULT_TOOLS), 15)
+        # in the spec, but the bot cannot use them, so they stay unloaded
+        for unused in ("blockUsersDms", "createLists"):
+            self.assertNotIn(unused, self.tool_names())
 
     def test_works_behind_a_public_hostname(self):
         r = rpc(self.http, self.url, "tools/list", headers={"host": "ariana-x.onrender.com"})

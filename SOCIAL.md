@@ -382,7 +382,11 @@ settings are in [x-service/README.md](x-service/README.md).
 
 - **Nothing polls it.** The service sleeps when idle and is contacted only when Ariana uses an X
   tool or you press Connect. Status checks, the dashboard and boot answer locally.
-- Same abilities as the manifest lists for X (post, reply/comment, like, repost, follow, unfollow,
-  DM, profile, engagement). Search, timelines, reading DMs and deletes stay unsupported on purpose.
+- Everything Ariana's action vocabulary has, X can do on the API: post, reply/comment, like, repost,
+  follow, unfollow, DM, profile, engagement — plus search, someone's posts, her home feed, mentions
+  (`notifications`), reading DMs, and deleting her own posts. Those extras come from
+  `social/capabilities.x-api.json`, which only applies while the X service is configured; without
+  it the base manifest is unchanged. Deleting and reading DMs always wait for the creator's yes.
+  Still not possible: media upload (text-only posts) and X's notifications tab (mentions only).
 - The bot refuses to act if the service is signed in as a different X account than the one
   Ariana was told to use.

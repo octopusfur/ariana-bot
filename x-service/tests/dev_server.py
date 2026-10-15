@@ -22,7 +22,7 @@ class _Logged(list):
     def append(self, item):
         method, path, headers, body = item
         scheme = (headers.get("authorization") or "NONE").split(" ")[0]
-        print(f"[fake X] {method} {path} auth={scheme} body={body}", flush=True)
+        print(f"[fake X] {method} {path}{('?' + headers.get('_query')) if headers.get('_query') else ''} auth={scheme} body={body}", flush=True)
         super().append(item)
 
 

@@ -139,7 +139,7 @@ function parseToolResult(res) {
     }
     return { ok: false, code: 'x_error', error: first.detail || first.title || 'X returned an error.' };
   }
-  return { ok: true, data: body.data !== undefined ? body.data : body };
+  return { ok: true, data: body.data !== undefined ? body.data : null, includes: body.includes || null, meta: body.meta || null };
 }
 
 // ── TRANSPORT ───────────────────────────────────────────────────────────────
@@ -299,7 +299,138 @@ function profileOf(u) {
   };
 }
 
+// ── LIST-SHAPED READS ───────────────────────────────────────────────────────
+// 20 satisfies every endpoint's minimum page size (search 10, posts/mentions 5).
+const PAGE = 20;
+const TWEET_FIELDS = ['created_at', 'author_id', 'text', 'conversation_id'];
+const TWEET_EXPANSIONS = ['author_id'];
+const AUTHOR_FIELDS = ['username', 'name'];
+
+function usersById(includes) {
+  const map = new Map();
+  for (const u of (includes && includes.users) || []) map.set(String(u.id), u);
+  return map;
+}
+
+function postsFrom(r) {
+  const users = usersById(r.includes);
+  const list = Array.isArray(r.data) ? r.data : [];
+  return list.map((t) => {
+    const a = users.get(String(t.author_id));
+    const author = a ? a.username : null;
+    return {
+      id: String(t.id),
+      url: author ? `https://x.com/${author}/status/${t.id}` : `https://x.com/i/status/${t.id}`,
+      author,
+      text: t.text,
+      at: t.created_at || null,
+    };
+  });
+}
+
+const TWEET_READ = { 'tweet.fields': TWEET_FIELDS, expansions: TWEET_EXPANSIONS, 'user.fields': AUTHOR_FIELDS, max_results: PAGE };
+
+// The handle inside a post URL, if it has one — used so Ariana can only delete her own posts.
+function urlAuthor(value) {
+  const m = String(value || '').match(/(?:twitter\.com|x\.com)\/([A-Za-z0-9_]{1,15})\/status/i);
+  return m && m[1].toLowerCase() !== 'i' ? m[1] : null;
+}
+
 const HANDLERS = {
+  search: {
+    prepare(p) {
+      const query = String(p.query || '').trim();
+      if (!query) return badTarget('There is nothing to search for — the query is empty.');
+      if (query.length > 512) return badTarget('That search is too long for X (512 characters at most).');
+      return { ok: true, args: { query } };
+    },
+    async run(conn, me, { query }) {
+      const r = await callTool(conn.client, 'searchPostsRecent', { query, ...TWEET_READ });
+      return r.ok ? { ok: true, data: { posts: postsFrom(r), query } } : r;
+    },
+  },
+
+  view_posts: {
+    prepare(p) { return HANDLERS.view_profile.prepare(p); },
+    async run(conn, me, { username }) {
+      const target = await lookupUser(conn, username);
+      if (!target.ok) return target;
+      const r = await callTool(conn.client, 'getUsersPosts', { id: String(target.data.id), ...TWEET_READ });
+      if (!r.ok) return r;
+      // A profile's posts come back without the author expansion filled for every row; the owner is known.
+      const posts = postsFrom(r).map((x) => ({ ...x, author: x.author || target.data.username, url: `https://x.com/${target.data.username}/status/${x.id}` }));
+      return { ok: true, data: { posts, username: target.data.username } };
+    },
+  },
+
+  view_feed: {
+    prepare() { return { ok: true, args: {} }; },
+    async run(conn, me) {
+      const r = await callTool(conn.client, 'getUsersTimeline', { id: me.id, ...TWEET_READ });
+      return r.ok ? { ok: true, data: { posts: postsFrom(r) } } : r;
+    },
+  },
+
+  // X has no "notifications tab" in its API; the closest real thing is who mentioned her.
+  notifications: {
+    prepare() { return { ok: true, args: {} }; },
+    async run(conn, me) {
+      const r = await callTool(conn.client, 'getUsersMentions', { id: me.id, ...TWEET_READ });
+      return r.ok ? { ok: true, data: { kind: 'mentions', items: postsFrom(r) } } : r;
+    },
+  },
+
+  read_dms: {
+    prepare(p) {
+      if (p.username === undefined || p.username === null || String(p.username).trim() === '') return { ok: true, args: { username: null } };
+      const username = normalizeUsername(p.username);
+      return username ? { ok: true, args: { username } } : badTarget('That is not a valid X handle.');
+    },
+    async run(conn, me, { username }) {
+      const fields = { 'dm_event.fields': ['created_at', 'sender_id', 'text', 'dm_conversation_id', 'event_type'], expansions: ['sender_id'], 'user.fields': AUTHOR_FIELDS, max_results: PAGE };
+      let r;
+      if (username) {
+        const target = await lookupUser(conn, username);
+        if (!target.ok) return target;
+        r = await callTool(conn.client, 'getDirectMessagesEventsByParticipantId', { participant_id: String(target.data.id), ...fields });
+      } else {
+        r = await callTool(conn.client, 'getDirectMessagesEvents', fields);
+      }
+      if (!r.ok) return r;
+      const users = usersById(r.includes);
+      const items = (Array.isArray(r.data) ? r.data : [])
+        .filter((e) => !e.event_type || e.event_type === 'MessageCreate')
+        .map((e) => {
+          const u = users.get(String(e.sender_id));
+          return { id: String(e.id), from: u ? u.username : String(e.sender_id), from_me: String(e.sender_id) === me.id, text: e.text || '', at: e.created_at || null };
+        });
+      return { ok: true, data: { items, with: username } };
+    },
+  },
+
+  delete_post: {
+    prepare(p) {
+      const tweetId = parseTweetId(p.url);
+      return tweetId ? { ok: true, args: { tweetId, author: urlAuthor(p.url) } } : badTarget('That is not a link to a post on X.');
+    },
+    async run(conn, me, { tweetId, author }) {
+      // Only her own. X would refuse anyway; refusing here means no call is made at all.
+      if (author && author.toLowerCase() !== me.username.toLowerCase()) {
+        return { ok: false, code: 'not_yours', error: `That post is by @${author}, not @${me.username} — she can only delete her own posts. Nothing was sent.` };
+      }
+      const r = await callTool(conn.client, 'deletePosts', { id: tweetId });
+      if (!r.ok) return r;
+      return r.data && r.data.deleted === true
+        ? { ok: true, data: { deleted: true, tweet_id: tweetId } }
+        : { ok: false, code: 'x_error', error: 'X did not confirm the post was deleted.' };
+    },
+  },
+
+  delete_comment: {
+    prepare(p) { return HANDLERS.delete_post.prepare(p); },
+    run(conn, me, args) { return HANDLERS.delete_post.run(conn, me, args); },
+  },
+
   view_profile: {
     prepare(p) {
       const username = normalizeUsername(p.username);
@@ -348,6 +479,12 @@ const HANDLERS = {
       if (!r.data || !r.data.id) return { ok: false, code: 'x_error', error: 'X did not confirm the reply was created.' };
       return { ok: true, data: { id: String(r.data.id), url: `https://x.com/${me.username}/status/${r.data.id}`, in_reply_to: tweetId } };
     },
+  },
+
+  // On X a comment IS a reply; the tool layer sends it under the name `comment`.
+  comment: {
+    prepare(p) { return HANDLERS.reply.prepare(p); },
+    run(conn, me, args) { return HANDLERS.reply.run(conn, me, args); },
   },
 
   like: {
@@ -487,6 +624,23 @@ const EXPECTED_TOOLS = {
   createDirectMessagesByParticipantId: ['participant_id', 'text'],
 };
 
+// Behind the extra read/delete features. If the service's allowlist leaves one out,
+// that feature reports "not exposed" when used — Connect still succeeds.
+const OPTIONAL_TOOLS = {
+  searchPostsRecent: ['query'],
+  getUsersPosts: ['id'],
+  getUsersTimeline: ['id'],
+  getUsersMentions: ['id'],
+  deletePosts: ['id'],
+  getDirectMessagesEvents: [],
+  getDirectMessagesEventsByParticipantId: ['participant_id'],
+};
+
+function missingOptional(list) {
+  const have = new Set((list || []).map((t) => t.name));
+  return Object.keys(OPTIONAL_TOOLS).filter((n) => !have.has(n));
+}
+
 function auditTools(list) {
   const byName = new Map((list || []).map((t) => [t.name, t]));
   const problems = [];
@@ -522,7 +676,9 @@ async function verify(account) {
     if (!sameHandle(who.me.username, account.handle)) {
       return { ok: true, session: { connected: false, detail: mismatch(who.me, account).error } };
     }
-    return { ok: true, session: { connected: true, detail: `Verified live: the X service is signed in as @${who.me.username}.` } };
+    const off = missingOptional(listed && listed.tools);
+    const note = off.length ? ` Not exposed by the service (those features will say so): ${off.join(', ')}.` : '';
+    return { ok: true, session: { connected: true, detail: `Verified live: the X service is signed in as @${who.me.username}.${note}` } };
   } finally {
     await conn.close();
   }
@@ -536,11 +692,13 @@ async function disconnect() {
   return { ok: false, code: 'unsupported', error: 'The X credentials live on the X service. To disconnect, remove them from that service\'s environment.' };
 }
 
+function supportedActions() { return Object.keys(HANDLERS); }
+
 function _resetForTests() { meCache = null; }
 
 module.exports = {
   configured, handles, baseUrl, apiKey, HINT,
   health, sessions, sessionStatus, verify, importSession, disconnect, act,
   // exposed for tests
-  parseToolResult, parseTweetId, normalizeUsername, auditTools, isTransient, _resetForTests,
+  supportedActions, parseToolResult, parseTweetId, normalizeUsername, auditTools, missingOptional, isTransient, _resetForTests,
 };

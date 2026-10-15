@@ -26,6 +26,17 @@ def _path(name, ptype="string"):
     return {"name": name, "in": "path", "required": True, "schema": {"type": ptype}}
 
 
+def _arr(name):
+    return {"name": name, "in": "query", "required": False, "explode": False,
+            "schema": {"type": "array", "items": {"type": "string"}}}
+
+
+READ_PARAMS = [{"name": "max_results", "in": "query", "required": False, "schema": {"type": "integer"}},
+               _arr("tweet.fields"), _arr("expansions"), _arr("user.fields")]
+DM_PARAMS = [{"name": "max_results", "in": "query", "required": False, "schema": {"type": "integer"}},
+             _arr("dm_event.fields"), _arr("expansions"), _arr("user.fields")]
+
+
 def spec():
     s = {"type": "string"}
     return {
@@ -55,6 +66,15 @@ def spec():
             "/2/dm_conversations/with/{participant_id}/messages": {"post": _op(
                 "createDirectMessagesByParticipantId", tag="Direct Messages", params=[_path("participant_id")],
                 body={"type": "object", "properties": {"text": s}})},
+            "/2/tweets/search/recent": {"get": _op("searchPostsRecent", params=[
+                {"name": "query", "in": "query", "required": True, "schema": s}] + READ_PARAMS)},
+            "/2/users/{id}/tweets": {"get": _op("getUsersPosts", tag="Users", params=[_path("id")] + READ_PARAMS)},
+            "/2/users/{id}/timelines/reverse_chronological": {"get": _op("getUsersTimeline", tag="Users", params=[_path("id")] + READ_PARAMS)},
+            "/2/users/{id}/mentions": {"get": _op("getUsersMentions", tag="Users", params=[_path("id")] + READ_PARAMS)},
+            "/2/dm_events": {"get": _op("getDirectMessagesEvents", tag="Direct Messages", params=DM_PARAMS)},
+            "/2/dm_conversations/with/{participant_id}/dm_events": {"get": _op(
+                "getDirectMessagesEventsByParticipantId", tag="Direct Messages", params=[_path("participant_id")] + DM_PARAMS)},
+            "/2/lists": {"post": _op("createLists", tag="Lists", body={"type": "object", "properties": {"name": {"type": "string"}}})},
             "/2/users/{id}/dm/block": {"post": _op("blockUsersDms", tag="Users", params=[_path("id")])},
         },
     }
@@ -81,8 +101,10 @@ class FakeX:
                 length = int(self.headers.get("content-length") or 0)
                 raw = self.rfile.read(length) if length else b""
                 body = json.loads(raw) if raw else None
-                path = self.path.split("?")[0]
-                fake.requests.append((self.command, path, {k.lower(): v for k, v in self.headers.items()}, body))
+                path, _, query = self.path.partition("?")
+                hdrs = {k.lower(): v for k, v in self.headers.items()}
+                hdrs["_query"] = query
+                fake.requests.append((self.command, path, hdrs, body))
                 if not (self.headers.get("authorization") or "").startswith("OAuth "):
                     return self._send(401, {"title": "Unauthorized", "status": 401, "detail": "Unauthorized"})
                 if (self.command, path) == ("GET", "/2/users/me"):
@@ -109,6 +131,16 @@ class FakeX:
                     return self._send(200, {"data": {"following": True, "pending_follow": False}})
                 if self.command == "DELETE" and re.fullmatch(r"/2/users/\d+/following/\d+", path):
                     return self._send(200, {"data": {"following": False}})
+                POSTS = [{"id": "1700000000000000001", "text": "a post", "author_id": "222", "created_at": "2026-10-15T08:00:00.000Z"}]
+                USERS_INC = {"users": [{"id": "222", "username": "someone", "name": "Some One"}]}
+                if self.command == "GET" and path == "/2/tweets/search/recent":
+                    return self._send(200, {"data": POSTS, "includes": USERS_INC, "meta": {"result_count": 1}})
+                if self.command == "GET" and re.fullmatch(r"/2/users/\d+/(tweets|timelines/reverse_chronological|mentions)", path):
+                    return self._send(200, {"data": POSTS, "includes": USERS_INC, "meta": {"result_count": 1}})
+                if self.command == "GET" and (path == "/2/dm_events" or re.fullmatch(r"/2/dm_conversations/with/\d+/dm_events", path)):
+                    return self._send(200, {"data": [{"id": "9001", "event_type": "MessageCreate", "sender_id": "222", "text": "hey you"}], "includes": USERS_INC})
+                if self.command == "DELETE" and re.fullmatch(r"/2/tweets/\d+", path):
+                    return self._send(200, {"data": {"deleted": True}})
                 if re.fullmatch(r"/2/dm_conversations/with/\d+/messages", path):
                     return self._send(201, {"data": {"dm_conversation_id": "222-111", "dm_event_id": "9000"}})
                 return self._send(404, {"title": "Not Found", "status": 404})

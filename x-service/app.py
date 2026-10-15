@@ -12,7 +12,7 @@ xmcp ships with three things that are fine on a laptop and wrong on a server:
   2. Its /mcp endpoint has no authentication. Anyone who finds the URL could post
      as the account. Here every request needs the shared X-Api-Key.
   3. With no allowlist it exposes the entire X API (deletes, blocks, compliance
-     jobs…). Here an unset allowlist falls back to the eight tools Ariana uses.
+     jobs…). Here an unset allowlist falls back to the fifteen tools Ariana uses.
 
 xmcp itself is not copied into this repo (it has no licence file). The Dockerfile
 downloads one pinned commit into /opt/xmcp at build time and this file imports
@@ -38,8 +38,11 @@ from oauthlib.oauth1 import Client as OAuth1Client  # noqa: E402
 
 LOG = logging.getLogger("ariana.x_service")
 
-# The only X API operations Ariana's bot calls. Anything else stays unloaded.
+# Every X API operation Ariana's bot can call — one per thing she can do. Anything
+# else (lists, bookmarks, compliance jobs, blocking…) stays unloaded: the bot has
+# no way to use it, so exposing it would only add risk.
 DEFAULT_TOOLS = (
+    # identity + core actions
     "getUsersMe",
     "getUsersByUsername",
     "createPosts",
@@ -48,6 +51,15 @@ DEFAULT_TOOLS = (
     "followUser",
     "unfollowUser",
     "createDirectMessagesByParticipantId",
+    # reading
+    "searchPostsRecent",
+    "getUsersPosts",
+    "getUsersTimeline",
+    "getUsersMentions",
+    "getDirectMessagesEvents",
+    "getDirectMessagesEventsByParticipantId",
+    # deleting (the bot only ever sends her own posts, and only after the creator confirms)
+    "deletePosts",
 )
 
 OAUTH_ENV = (

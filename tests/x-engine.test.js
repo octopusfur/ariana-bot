@@ -55,9 +55,18 @@ const TOOL_LIST = [
   { name: 'followUser', props: { id: {}, target_user_id: {} } },
   { name: 'unfollowUser', props: { source_user_id: {}, target_user_id: {} } },
   { name: 'createDirectMessagesByParticipantId', props: { participant_id: {}, text: {} } },
+  { name: 'searchPostsRecent', props: { query: {}, max_results: {}, 'tweet.fields': {}, expansions: {}, 'user.fields': {} } },
+  { name: 'getUsersPosts', props: { id: {}, max_results: {}, 'tweet.fields': {}, expansions: {}, 'user.fields': {} } },
+  { name: 'getUsersTimeline', props: { id: {}, max_results: {}, 'tweet.fields': {}, expansions: {}, 'user.fields': {} } },
+  { name: 'getUsersMentions', props: { id: {}, max_results: {}, 'tweet.fields': {}, expansions: {}, 'user.fields': {} } },
+  { name: 'deletePosts', props: { id: {} } },
+  { name: 'getDirectMessagesEvents', props: { max_results: {}, 'dm_event.fields': {}, expansions: {}, 'user.fields': {} } },
+  { name: 'getDirectMessagesEventsByParticipantId', props: { participant_id: {}, max_results: {}, 'dm_event.fields': {}, expansions: {}, 'user.fields': {} } },
 ].map((t) => ({ name: t.name, description: t.name, inputSchema: { type: 'object', properties: t.props } }));
 
-const ok = (data) => ({ content: [{ type: 'text', text: JSON.stringify({ data }) }] });
+const ok = (data, extra = {}) => ({ content: [{ type: 'text', text: JSON.stringify({ data, ...extra }) }] });
+const POST = (id, author_id = '222', text = 'a post') => ({ id, text, author_id, created_at: '2026-10-15T08:00:00.000Z' });
+const WITH_USERS = { includes: { users: [{ id: '222', username: 'someone', name: 'Some One' }, { id: '333', username: 'third', name: 'Third' }] } };
 const fail = (text) => ({ isError: true, content: [{ type: 'text', text }] });
 
 function defaultRespond(name, args) {
@@ -73,6 +82,21 @@ function defaultRespond(name, args) {
     case 'followUser': return ok({ following: true, pending_follow: false });
     case 'unfollowUser': return ok({ following: false });
     case 'createDirectMessagesByParticipantId': return ok({ dm_conversation_id: '222-111', dm_event_id: '9000' });
+    case 'searchPostsRecent':
+      return args.query === 'nothing-matches'
+        ? { content: [{ type: 'text', text: JSON.stringify({ meta: { result_count: 0 } }) }] }
+        : ok([POST('1700000000000000001'), POST('1700000000000000002', '333', 'another')], WITH_USERS);
+    case 'getUsersPosts': return ok([POST('1600000000000000001')]); // no includes: the owner is known
+    case 'getUsersTimeline': return ok([POST('1500000000000000001', '333', 'from the feed')], WITH_USERS);
+    case 'getUsersMentions': return ok([POST('1400000000000000001', '333', '@ariana_reyes hi')], WITH_USERS);
+    case 'getDirectMessagesEvents':
+    case 'getDirectMessagesEventsByParticipantId':
+      return ok([
+        { id: '9001', event_type: 'MessageCreate', sender_id: '222', text: 'hey you', created_at: '2026-10-15T07:00:00.000Z' },
+        { id: '9002', event_type: 'ParticipantsJoin', sender_id: '222' },
+        { id: '9003', event_type: 'MessageCreate', sender_id: '111', text: 'hi!', created_at: '2026-10-15T07:05:00.000Z' },
+      ], WITH_USERS);
+    case 'deletePosts': return ok({ deleted: true });
     default: return fail(`Unknown tool: ${name}`);
   }
 }
@@ -186,7 +210,8 @@ test('validation happens before the service is woken', async () => {
       assert.equal(r.ok, false, why);
       assert.equal(r.code, 'bad_target', why);
     }
-    assert.equal((await xe.act(ARIANA, 'search', { query: 'x' })).code, 'unsupported');
+    assert.equal((await xe.act(ARIANA, 'connect', { profileUrl: 'x' })).code, 'unsupported');
+    assert.equal((await xe.act(ARIANA, 'search', { query: '   ' })).code, 'bad_target');
     assert.equal(svc.state.http, 0, 'bad input must cost no request at all');
   } finally { await svc.close(); }
 });
@@ -484,5 +509,234 @@ test('end to end: Ariana\'s own like goes tools → guards → X service → X, 
     assert.equal(res.ok, true, res.error);
     assert.match(tools.toolResultForModel(res), /social action completed/);
     assert.ok(svc.state.calls.some((c) => c.name === 'likePost'));
+  } finally { await svc.close(); }
+});
+
+
+// ── COMMENT IS A REPLY ──────────────────────────────────────────────────────
+
+test('comment: the tool layer sends `comment` for X replies, and it works exactly like reply', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const r = await xe.act(ARIANA, 'comment', { url: 'https://x.com/someone/status/1850000000000000009', text: 'love this' });
+    assert.equal(r.ok, true, r.error);
+    assert.deepStrictEqual(svc.state.calls[1].args, { text: 'love this', reply: { in_reply_to_tweet_id: '1850000000000000009' } });
+  } finally { await svc.close(); }
+});
+
+// ── ALL THE READS ───────────────────────────────────────────────────────────
+
+test('search: returns post links with authors resolved from the expansion; empty results are an empty list', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const r = await xe.act(ARIANA, 'search', { query: 'ai influencers' });
+    assert.equal(r.ok, true, r.error);
+    assert.deepStrictEqual(r.result.data.posts.map((p) => [p.author, p.url]), [
+      ['someone', 'https://x.com/someone/status/1700000000000000001'],
+      ['third', 'https://x.com/third/status/1700000000000000002'],
+    ]);
+    const call = svc.state.calls.find((c) => c.name === 'searchPostsRecent');
+    assert.equal(call.args.query, 'ai influencers');
+    assert.equal(call.args.max_results, 20);
+    assert.deepStrictEqual(call.args.expansions, ['author_id']);
+
+    const none = await xe.act(ARIANA, 'search', { query: 'nothing-matches' });
+    assert.equal(none.ok, true);
+    assert.deepStrictEqual(none.result.data.posts, []);
+    assert.equal((await xe.act(ARIANA, 'search', { query: 'x'.repeat(513) })).code, 'bad_target');
+  } finally { await svc.close(); }
+});
+
+test('view_posts: resolves the handle first and links posts under that account', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const r = await xe.act(ARIANA, 'view_posts', { username: '@someone' });
+    assert.equal(r.ok, true, r.error);
+    assert.deepStrictEqual(svc.state.calls.map((c) => c.name), ['getUsersMe', 'getUsersByUsername', 'getUsersPosts']);
+    assert.equal(svc.state.calls[2].args.id, '222');
+    assert.equal(r.result.data.posts[0].url, 'https://x.com/someone/status/1600000000000000001');
+  } finally { await svc.close(); }
+});
+
+test('view_feed and notifications: read as the signed-in account', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const feed = await xe.act(ARIANA, 'view_feed', {});
+    assert.equal(feed.ok, true, feed.error);
+    assert.equal(feed.result.data.posts[0].author, 'third');
+    const mentions = await xe.act(ARIANA, 'notifications', {});
+    assert.equal(mentions.ok, true, mentions.error);
+    assert.equal(mentions.result.data.kind, 'mentions');
+    assert.match(mentions.result.data.items[0].text, /@ariana_reyes hi/);
+    for (const name of ['getUsersTimeline', 'getUsersMentions']) {
+      assert.equal(svc.state.calls.find((c) => c.name === name).args.id, '111');
+    }
+  } finally { await svc.close(); }
+});
+
+test('read_dms: whole inbox or one thread; only real messages; marks which are hers', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const inbox = await xe.act(ARIANA, 'read_dms', {});
+    assert.equal(inbox.ok, true, inbox.error);
+    assert.ok(svc.state.calls.some((c) => c.name === 'getDirectMessagesEvents'));
+    assert.deepStrictEqual(inbox.result.data.items.map((m) => [m.from, m.from_me, m.text]), [
+      ['someone', false, 'hey you'],
+      ['111', true, 'hi!'], // not in the expansion → falls back to the id, still marked as hers
+    ], 'join/leave events are dropped');
+
+    const thread = await xe.act(ARIANA, 'read_dms', { username: 'someone' });
+    assert.equal(thread.ok, true, thread.error);
+    assert.equal(svc.state.calls.find((c) => c.name === 'getDirectMessagesEventsByParticipantId').args.participant_id, '222');
+    assert.equal((await xe.act(ARIANA, 'read_dms', { username: 'no spaces!' })).code, 'bad_target');
+  } finally { await svc.close(); }
+});
+
+// ── DELETING — OWN POSTS ONLY ───────────────────────────────────────────────
+
+test('delete_post and delete_comment: her own post is deleted', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    for (const action of ['delete_post', 'delete_comment']) {
+      const r = await xe.act(ARIANA, action, { url: 'https://x.com/Ariana_Reyes/status/1850000000000000009' });
+      assert.equal(r.ok, true, r.error);
+      assert.equal(r.result.data.deleted, true);
+    }
+    assert.deepStrictEqual(svc.state.calls.filter((c) => c.name === 'deletePosts').map((c) => c.args), [{ id: '1850000000000000009' }, { id: '1850000000000000009' }]);
+  } finally { await svc.close(); }
+});
+
+test('delete: somebody else\'s post is refused and X is never asked', async () => {
+  const svc = await startService();
+  point(svc.url);
+  try {
+    const r = await xe.act(ARIANA, 'delete_post', { url: 'https://x.com/someone/status/1850000000000000009' });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'not_yours');
+    assert.match(r.error, /Nothing was sent/);
+    assert.equal(svc.state.calls.filter((c) => c.name === 'deletePosts').length, 0);
+    assert.equal((await xe.act(ARIANA, 'delete_post', { url: 'not a link' })).code, 'bad_target');
+  } finally { await svc.close(); }
+});
+
+// ── A TRIMMED ALLOWLIST DEGRADES, IT DOES NOT BREAK ─────────────────────────
+
+test('optional tools: Connect still succeeds when the service leaves some out, and says which', async () => {
+  const trimmed = TOOL_LIST.filter((t) => !['searchPostsRecent', 'deletePosts'].includes(t.name));
+  const svc = await startService({ tools: trimmed });
+  point(svc.url);
+  try {
+    const v = await xe.verify(ARIANA);
+    assert.equal(v.session.connected, true, v.session.detail);
+    assert.match(v.session.detail, /Not exposed by the service.*searchPostsRecent, deletePosts/);
+  } finally { await svc.close(); }
+});
+
+test('optional tools: using a feature the service does not expose says so plainly', async () => {
+  const svc = await startService({ respond: (n, a) => (n === 'searchPostsRecent' ? fail('Unknown tool: searchPostsRecent') : defaultRespond(n, a)) });
+  point(svc.url);
+  try {
+    const r = await xe.act(ARIANA, 'search', { query: 'anything' });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'tool_missing');
+    assert.match(r.error, /X_API_TOOL_ALLOWLIST/);
+  } finally { await svc.close(); }
+});
+
+// ── THE CAPABILITY OVERLAY CANNOT LIE ───────────────────────────────────────
+
+test('overlay: what the manifest promises for X, the engine can do — and the reverse', () => {
+  const caps = require('../social/capabilities');
+  const overlay = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'social', 'capabilities.x-api.json'), 'utf8')).platforms.twitter.actions;
+  const handlers = new Set(xe.supportedActions());
+  const supported = Object.entries(overlay).filter(([, e]) => e.supported).map(([a]) => a);
+
+  for (const a of supported) {
+    assert.ok(handlers.has(a), `overlay says X can ${a} but x_engine has no handler for it`);
+    assert.match(overlay[a].method, /^xapi\.[a-zA-Z]+\(/, `${a} must name the X API operation behind it`);
+    assert.ok(tools.TOOL_FOR_ACTION[a], `${a} is supported on X but Ariana is never offered a tool for it`);
+  }
+  for (const h of handlers) assert.ok(supported.includes(h), `x_engine can ${h} but the overlay does not claim it`);
+  for (const [a, e] of Object.entries(overlay)) {
+    if (!e.supported) assert.ok(e.reason && e.reason.length > 20, `${a} is unsupported without a readable reason`);
+    assert.ok(caps.actionNames().includes(a), `${a} is not a canonical action`);
+  }
+});
+
+test('overlay: applies only while the X service is configured, and only to X', () => {
+  const caps = require('../social/capabilities');
+  const saved = [process.env.X_SERVICE_URL, process.env.X_SERVICE_API_KEY];
+  try {
+    point('', null);
+    assert.equal(caps.supports('twitter', 'search'), false, 'without the X service the old manifest still applies');
+    assert.equal(caps.supports('twitter', 'delete_post'), false);
+    point('https://ariana-x.example');
+    for (const a of ['search', 'view_posts', 'view_feed', 'notifications', 'read_dms', 'delete_post', 'delete_comment']) {
+      assert.equal(caps.supports('twitter', a), true, a);
+    }
+    assert.equal(caps.supports('instagram', 'view_feed'), false, 'other platforms are untouched');
+    assert.equal(caps.supports('linkedin', 'read_dms'), false);
+    assert.equal(caps.supports('instagram', 'view_posts'), true);
+  } finally {
+    if (saved[0] === undefined) delete process.env.X_SERVICE_URL; else process.env.X_SERVICE_URL = saved[0];
+    if (saved[1] === undefined) delete process.env.X_SERVICE_API_KEY; else process.env.X_SERVICE_API_KEY = saved[1];
+  }
+});
+
+// ── WHAT ARIANA IS OFFERED, AND WHAT STOPS TO ASK ───────────────────────────
+
+test('tools: with the X service she is offered every X ability; Instagram alone gains nothing', async () => {
+  const svc = await startService();
+  point(svc.url);
+  for (const f of ['accounts.json', 'activity.jsonl', 'config.json']) { try { fs.rmSync(path.join(TMP, f)); } catch (_) {} }
+  accounts.invalidate();
+  try {
+    const ig = await accounts.add({ platform: 'instagram', handle: 'ariana.personal' });
+    await accounts.setActionsEnabled(ig.account.account_id, true);
+    const igOnly = (await tools.buildToolSchemas()).map((t) => t.function.name);
+    for (const n of ['social_view_feed', 'social_read_dms', 'social_notifications', 'social_delete_post', 'social_search']) {
+      assert.ok(!igOnly.includes(n), `${n} must not appear for Instagram alone`);
+    }
+
+    const x = await accounts.add({ platform: 'twitter', handle: 'ariana_reyes' });
+    await accounts.setActionsEnabled(x.account.account_id, true);
+    const schemas = await tools.buildToolSchemas();
+    const names = schemas.map((t) => t.function.name);
+    for (const n of ['social_search', 'social_view_posts', 'social_view_feed', 'social_notifications', 'social_read_dms', 'social_delete_post', 'social_delete_comment', 'social_post', 'social_repost', 'social_reply', 'social_comment']) {
+      assert.ok(names.includes(n), `${n} should be offered once X is connected`);
+    }
+    const dms = schemas.find((t) => t.function.name === 'social_read_dms').function.parameters;
+    assert.ok(dms.properties.username, 'a thread can be named');
+    assert.ok(!dms.required.includes('username'), 'but naming one is optional');
+  } finally { await svc.close(); }
+});
+
+test('safety wiring: deleting and reading DMs stop for the creator\'s yes BEFORE anything reaches X', async () => {
+  const svc = await startService();
+  point(svc.url);
+  for (const f of ['accounts.json', 'activity.jsonl', 'config.json']) { try { fs.rmSync(path.join(TMP, f)); } catch (_) {} }
+  accounts.invalidate();
+  try {
+    const x = await accounts.add({ platform: 'twitter', handle: 'ariana_reyes' });
+    await accounts.setActionsEnabled(x.account.account_id, true);
+    const ctx = { source: 'chat', actor: 'ariana' };
+
+    const del = await tools.executeTool('social_delete_post', { url: 'https://x.com/ariana_reyes/status/1850000000000000009', account: 'twitter:ariana_reyes' }, ctx);
+    assert.equal(del.ok, false);
+    assert.equal(del.code, 'needs_confirmation');
+    const dms = await tools.executeTool('social_read_dms', { account: 'twitter:ariana_reyes' }, ctx);
+    assert.equal(dms.code, 'needs_confirmation');
+    assert.equal(svc.state.http, 0, 'neither may touch the service — or wake it — without a yes');
+
+    // reads that are not sensitive just work, and she sees the whole list, not 800 characters of it
+    const feed = await tools.executeTool('social_view_feed', { account: 'twitter:ariana_reyes' }, ctx);
+    assert.equal(feed.ok, true, feed.error);
+    assert.match(tools.toolResultForModel(feed), /from the feed/);
   } finally { await svc.close(); }
 });
