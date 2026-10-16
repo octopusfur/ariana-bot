@@ -97,7 +97,8 @@ function create(deps) {
 
   async function writeFound(topic) {
     if (!deps.search) return null;
-    const funny = topic ? topic === "funny" : rand() < 0.6;
+    const topicOn = (t) => !deps.topicEnabled || deps.topicEnabled(t);
+    const funny = topic ? topic === "funny" : (topicOn("funny") && topicOn("news") ? rand() < 0.6 : topicOn("funny"));
     const queries = funny ? FUNNY : NEWS;
     const q = queries[Math.floor(rand() * queries.length)];
     const res = await deps.search(q);
@@ -117,14 +118,18 @@ function create(deps) {
   /** Mix the three kinds; never lean on the one she just used. Text is always the last resort. */
   function order(forced) {
     if (forced) return [forced];
-    const avail = ["text"];
-    if (deps.listPhotos && deps.loadPhoto) avail.push("photo");
-    if (deps.search) avail.push("found");
+    const on = (k) => !deps.kindEnabled || deps.kindEnabled(k) !== false;
+    const avail = [];
+    if (on("text")) avail.push("text");
+    if (on("photo") && deps.listPhotos && deps.loadPhoto) avail.push("photo");
+    if (on("found") && deps.search) avail.push("found");
+    if (!avail.length) return on("text") ? ["text"] : [];
     const weights = avail.map((k) => (k === st.lastKind ? 1 : 2));
     let r = rand() * weights.reduce((a, b) => a + b, 0), first = avail[avail.length - 1];
     for (let i = 0; i < avail.length; i++) { if ((r -= weights[i]) < 0) { first = avail[i]; break; } }
-    return [first, ...avail.filter((k) => k !== first && k !== "text"), ...(first === "text" ? [] : ["text"])];
+    return [first, ...avail.filter((k) => k !== first && k !== "text"), ...(first === "text" || !avail.includes("text") ? [] : ["text"])];
   }
+
 
   async function writeOne(reason, opts = {}) {
     for (const kind of order(opts.kind)) {
@@ -147,8 +152,16 @@ function create(deps) {
     if (!deps.enabled()) return false;
     const t = now();
     const today = nyDate(t);
-    const postsPerDay = deps.postsPerDay || { min: 2, max: 3 };
-    if (st.day !== today) { st = { ...st, day: today, slots: planDay(t, rand, postsPerDay), recent: st.recent || [] }; save(st); console.log(`[status] today's plan: ${st.slots.length} post(s)`); }
+    const postsPerDay = (typeof deps.postsPerDay === "function" ? deps.postsPerDay() : deps.postsPerDay) || { min: 2, max: 3 };
+    const planKey = `${postsPerDay.min}-${postsPerDay.max}`;
+    if (st.day !== today) { st = { ...st, day: today, slots: planDay(t, rand, postsPerDay), planKey, recent: st.recent || [] }; save(st); console.log(`[status] today's plan: ${st.slots.length} post(s)`); }
+    else if (st.planKey && st.planKey !== planKey) {
+      // posts-per-day was changed in the dashboard mid-day: keep what already went out, re-plan the rest of today
+      const done = (st.slots || []).filter((s) => s.done);
+      const fresh = planDay(t, rand, postsPerDay).filter((f) => done.every((d) => Math.abs(d.at - f.at) >= MIN_GAP_MS)).slice(0, Math.max(0, postsPerDay.max - done.length));
+      st.slots = [...done, ...fresh].sort((a, b) => a.at - b.at); st.planKey = planKey; save(st);
+      console.log(`[status] plan updated: ${st.slots.length} post(s) today`);
+    }
     const due = st.slots.find((s) => !s.done && s.at <= t);
     if (!due) return false;
     if (!(await deps.isConnected())) return false; // try again next tick

@@ -250,7 +250,10 @@ let _sleepCheckTimer = null;
 // Prevent sending another photo to the same person within 5 minutes
 const lastMediaSent = {};
 // Her own pictures from the dashboard media library, sent only if SHE chooses to (send_photo tool).
+// Settings changed from the dashboard ("Her life" screen); env vars only seed the first defaults.
+const controls = require('./controls').create();
 const photoSkill = require('./photo_skill').createPhotoSkill({
+  controls: () => controls.get().photos,
   // she may also send a picture to someone ELSE she already knows (never to a stranger): name or number of an existing chat
   resolveTarget: (raw) => {
     const q = String(raw || '').trim();
@@ -2147,7 +2150,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
 
   let mediaType  = detectMediaRequest(finalText, id);
   // "send me a pic": she decides (send_photo tool) instead of being forced to send a random one.
-  if (mediaType === 'selfie' && (await photoSkill.snapshot()).length) mediaType = null;
+  if (mediaType === 'selfie' && (!photoSkill.enabled() || (await photoSkill.snapshot()).length)) mediaType = null;
   const wantsVoice = detectVoiceRequest(finalText);
 
   let typingInterval;
@@ -2358,8 +2361,8 @@ Ariana replied: "${String(reply).slice(0, 200)}"`;
             ...(Object.keys(personalLearned).length ? await memoryManager.createCandidatesFromObject({ userId: id, learned: personalLearned, source: src, sourceType: 'automatic' }) : []),
           ];
           // Clean facts go live straight away so she never needs teaching twice. Flagged / contradicting / unsafe ones,
-          // and anyone else's "rules" for her, stay in the review queue. MEMORY_AUTO_APPROVE=off turns this back to review-only.
-          const autoOn = String(process.env.MEMORY_AUTO_APPROVE || 'on').toLowerCase() !== 'off';
+          // and anyone else's "rules" for her, stay in the review queue. The dashboard switch (Her life > Memory) turns this back to review-only.
+          const autoOn = controls.get().memory.autoApprove;
           let live = 0, queued = 0;
           for (const res of results) {
             if (!res.ok || res.duplicate) continue;
@@ -3155,7 +3158,7 @@ app.get('/api/snapchat/publish-status', requireDashboardAuth, async (_req, res) 
 
 // Ariana's own WhatsApp Status posts (see status_poster.js)
 const statusPoster = statusPosterMod.create({
-  enabled: () => process.env.WA_STATUS_POSTS !== 'off' && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
+  enabled: () => controls.get().status.enabled && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
   isConnected: async () => { try { return !!(await axios.get(WA_WEB_URL + '/status', { timeout: 4000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} })).data.connected; } catch { return false; } },
   generate: async (prompt) => {
     const sys = engineV2 ? await engineV2.buildBasePrompt() : '';
@@ -3164,7 +3167,9 @@ const statusPoster = statusPosterMod.create({
   },
   // text status, or { text, base64, mimetype } for a picture status with a caption
   post: (p) => waWeb('/post-status', typeof p === 'string' ? { text: p } : p),
-  postsPerDay: { min: Math.max(1, Number(process.env.STATUS_POSTS_MIN) || 2), max: Math.max(1, Number(process.env.STATUS_POSTS_MAX) || 3) },
+  postsPerDay: () => ({ min: controls.get().status.postsMin, max: controls.get().status.postsMax }),
+  kindEnabled: (k) => controls.get().status.kinds[k] !== false,
+  topicEnabled: (t) => controls.get().status.topics[t] !== false,
   // her own pictures from the dashboard media library (same list she picks from when someone asks for a pic)
   listPhotos: () => photoSkill.snapshot(),
   loadPhoto: async (item) => {
@@ -3173,14 +3178,35 @@ const statusPoster = statusPosterMod.create({
     try { buf = await require('sharp')(buf).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer(); mimetype = 'image/jpeg'; } catch { /* send the original bytes */ }
     return { base64: buf.toString('base64'), mimetype };
   },
-  // picture posts also go to her Telegram Story when Telegram is linked (TG_STORY_POSTS=off to disable)
+  // picture posts also go to her Telegram Story when Telegram is linked (switch in the dashboard: Her life)
   mirrors: [async (payload) => {
-    if (!tgClient || process.env.TG_STORY_POSTS === 'off') return;
+    if (!tgClient || !controls.get().status.telegramStory) return;
     await require('./telegram_story').postStory(tgClient, { buffer: Buffer.from(payload.base64, 'base64'), caption: payload.text });
     console.log('[status] telegram story posted');
   }],
   // something funny / real news she found on the web (Firecrawl; needs FIRECRAWL_API_KEY)
   search: require('./firecrawl_skill').enabled() ? (q) => require('./firecrawl_skill').webSearch(q, { limit: 5 }) : null,
+});
+// "Her life" dashboard screen: read / change the controls, plus a little live info for the screen
+app.get('/api/controls', requireDashboardAuth, async (req, res) => {
+  try {
+    const st = statusPoster.state || {};
+    res.json({
+      ok: true, controls: controls.get(), defaults: controls.defaults(),
+      info: {
+        statusReady: WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
+        searchAvailable: require('./firecrawl_skill').enabled(),
+        telegramLinked: !!tgClient,
+        pictures: (await photoSkill.snapshot().catch(() => [])).length,
+        today: (st.slots || []).map((s) => ({ at: s.at, done: !!s.done })),
+        recent: (st.log || []).slice(-8).reverse(),
+      },
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/controls', requireDashboardAuth, (req, res) => {
+  try { res.json({ ok: true, controls: (req.body && req.body.reset) ? controls.reset() : controls.update(req.body || {}) }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.post('/api/whatsapp/status-post', requireDashboardAuth, async (req, res) => {
   try { const b = req.body || {}; res.json({ ok: true, text: await statusPoster.postNow(b.text, { kind: b.kind, topic: b.topic }) }); }

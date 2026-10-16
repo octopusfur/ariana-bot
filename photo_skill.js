@@ -23,17 +23,23 @@ function tagsOf(row) {
   return (Array.isArray(t) ? t : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 6);
 }
 
-function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now = Date.now, env = process.env }) {
+function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, controls = null, now = Date.now, env = process.env }) {
   const CACHE_MS = 60 * 1000, MAX_LIST = 40, PENDING_MS = 2 * 60 * 1000;
-  const cooldownMs = Math.max(0, Number(env.PHOTO_COOLDOWN_MIN ?? 5)) * 60 * 1000;
-  const dailyCap = Math.max(1, Number(env.PHOTO_DAILY_CAP ?? 5));
-  const othersDailyCap = Math.max(1, Number(env.PHOTO_OTHERS_DAILY_CAP ?? 6)); // pictures she sends to people other than the one she is chatting with
+  // Limits come from the dashboard controls when given (read on every use, so changes apply instantly); env vars otherwise.
+  const L = () => {
+    const c = controls && controls();
+    return c
+      ? { enabled: c.enabled !== false, cooldownMs: c.cooldownMin * 60 * 1000, dailyCap: c.dailyCap, othersDailyCap: c.othersDailyCap, sendToOthers: c.sendToOthers !== false }
+      : { enabled: true, cooldownMs: Math.max(0, Number(env.PHOTO_COOLDOWN_MIN ?? 5)) * 60 * 1000, dailyCap: Math.max(1, Number(env.PHOTO_DAILY_CAP ?? 5)), othersDailyCap: Math.max(1, Number(env.PHOTO_OTHERS_DAILY_CAP ?? 6)), sendToOthers: true };
+  };
+  const othersOn = () => !!(resolveTarget && deliver && L().sendToOthers);
   const sentToOthers = [];
   let cache = { at: 0, items: [] };
   const pending = new Map(); // convoId -> { url, caption, at }
   const sent = new Map();    // convoId -> [timestamps]
 
   async function snapshot() {
+    if (!L().enabled) return [];
     if (cache.at && now() - cache.at < CACHE_MS) return cache.items;
     try {
       const rows = (await fetchRows()) || [];
@@ -66,7 +72,7 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
           properties: {
             photo_id: { type: "string", enum: items.map((i) => i.id), description: "id of the picture from your library" },
             caption: { type: "string", description: "optional short caption, in your own voice" },
-            ...(resolveTarget && deliver ? { to: { type: "string", description: "optional: the name or number of SOMEONE ELSE you already know, if you want to send it to them instead. Leave out to send it to the person you are chatting with." } } : {}),
+            ...(othersOn() ? { to: { type: "string", description: "optional: the name or number of SOMEONE ELSE you already know, if you want to send it to them instead. Leave out to send it to the person you are chatting with." } } : {}),
           },
           required: ["photo_id"],
         },
@@ -81,7 +87,7 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
 
   /** She chose to send a picture to someone else she already knows: goes out right away. Strangers are refused. */
   async function sendElsewhere(convoId, item, toRaw, caption) {
-    if (!resolveTarget || !deliver) return null;
+    if (!othersOn()) return { ok: false, note: "[You can't send pictures to other people right now. Nothing sent.]" };
     const target = await resolveTarget(toRaw, convoId);
     if (!target) return { ok: false, note: `[You don't know anyone called "${toRaw}", so nothing was sent. You only send pictures to people you already talk to.]` };
     if (target.id === convoId) return null; // that is just the current chat
@@ -89,9 +95,9 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
     const recent = (sent.get(target.id) || []).filter((x) => t - x < 24 * 60 * 60 * 1000);
     sent.set(target.id, recent);
     while (sentToOthers.length && t - sentToOthers[0] > 24 * 60 * 60 * 1000) sentToOthers.shift();
-    if (recent.length && t - recent[recent.length - 1] < cooldownMs) return { ok: false, note: `[You already sent ${target.name} a picture a moment ago. Nothing sent.]` };
-    if (recent.length >= dailyCap) return { ok: false, note: `[You've already sent ${target.name} plenty of pictures today. Nothing sent.]` };
-    if (sentToOthers.length >= othersDailyCap) return { ok: false, note: "[You've already sent enough pictures to other people today. Nothing sent.]" };
+    if (recent.length && t - recent[recent.length - 1] < L().cooldownMs) return { ok: false, note: `[You already sent ${target.name} a picture a moment ago. Nothing sent.]` };
+    if (recent.length >= L().dailyCap) return { ok: false, note: `[You've already sent ${target.name} plenty of pictures today. Nothing sent.]` };
+    if (sentToOthers.length >= L().othersDailyCap) return { ok: false, note: "[You've already sent enough pictures to other people today. Nothing sent.]" };
     try { await deliver(target.id, item.url, caption); }
     catch (e) { console.warn(`[photos] could not send to ${target.name}: ${e.message}`); return { ok: false, note: `[It didn't go through to ${target.name} (${e.message}). Nothing was sent.]` }; }
     recent.push(t); sentToOthers.push(t);
@@ -109,8 +115,8 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
     const recent = (sent.get(convoId) || []).filter((x) => t - x < 24 * 60 * 60 * 1000);
     sent.set(convoId, recent);
     if (pending.has(convoId) && t - pending.get(convoId).at < PENDING_MS) return { ok: false, note: "[A picture is already on its way with this message. Just write your message.]" };
-    if (recent.length && t - recent[recent.length - 1] < cooldownMs) return { ok: false, note: `[You sent them a picture ${Math.max(1, Math.round((t - recent[recent.length - 1]) / 60000))} min ago. Nothing sent. Make them wait, in your own way.]` };
-    if (recent.length >= dailyCap) return { ok: false, note: "[You've already sent them plenty of pictures today. Nothing sent. Tell them in your own way that's enough for today.]" };
+    if (recent.length && t - recent[recent.length - 1] < L().cooldownMs) return { ok: false, note: `[You sent them a picture ${Math.max(1, Math.round((t - recent[recent.length - 1]) / 60000))} min ago. Nothing sent. Make them wait, in your own way.]` };
+    if (recent.length >= L().dailyCap) return { ok: false, note: "[You've already sent them plenty of pictures today. Nothing sent. Tell them in your own way that's enough for today.]" };
     pending.set(convoId, { url: item.url, tags: item.tags, caption: String((args && args.caption) || "").trim().slice(0, 140), at: t });
     recent.push(t);
     return { ok: true, note: "[Done: that picture will arrive together with your next message. Now write your message as if you just sent it.]" };
@@ -123,7 +129,7 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, now
     return p && now() - p.at < PENDING_MS ? p : null;
   }
 
-  return { snapshot, schema, promptNote, execute, take, canSendToOthers: () => !!(resolveTarget && deliver) };
+  return { snapshot, schema, promptNote, execute, take, canSendToOthers: othersOn, enabled: () => L().enabled };
 }
 
 module.exports = { createPhotoSkill, looksLikePhotoRequest };
