@@ -25,10 +25,14 @@ Two separate pieces. Posting Stories and Spotlight does not need the chat sideca
 1. Render > New > Web Service > Docker, repo `ariana-bot`, root directory `snapchat-service`. Env: `SNAP_API_SECRET=<random>`,
    `MAIN_APP_URL=https://<main app>.onrender.com`. Keep it at 1 instance, it polls.
 2. Main app env: `SNAP_SERVICE_URL=https://<sidecar>.onrender.com` and the same `SNAP_API_SECRET`.
-3. Sign in (dashboard key required), either way:
-   - `POST /api/snapchat/login` `{ "username", "password", "userUuid" }`
-   - `POST /api/snapchat/session` `{ "cookies": <browser cookie export or name/value object>, "userUuid" }`
-   The session is saved in Supabase `sessions` (type `snapchat`) and re-sent to the sidecar after every redeploy. Passwords are never stored.
+3. Sign in. Direct username/password sign-in from the sidecar is BLOCKED by Snapchat (it comes from a server,
+   not a recognised device, and Snapchat's unofficial login flow has no way to pass whatever extra check it
+   demands). Use a browser session instead:
+   - Sign in to Snapchat at web.snapchat.com in a desktop browser.
+   - Install the "Cookie-Editor" browser extension, open it on that tab, Export, Export as JSON.
+   - `POST /api/snapchat/session` `{ "cookies": <that JSON>, "userUuid" }`, or paste it in Settings, Snapchat.
+   The dashboard card walks through these same steps. `POST /api/snapchat/login` (username/password) is kept as a
+   fallback but is not expected to work from Render; it is what the Settings "Advanced" option calls.
 4. The account's own Snapchat user id is optional. After sign-in the sidecar tries to find it itself (candidates from the login token,
    each checked against a real sync). If that fails, Settings says so and you can paste the id and sign in again. Until it is known,
    nothing is sent or read.
