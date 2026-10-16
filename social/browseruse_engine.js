@@ -21,7 +21,10 @@ const caps = require('./capabilities');
 const BASE = 'https://api.browser-use.com/api/v2';
 const PROXY = (process.env.BROWSER_USE_PROXY_COUNTRY || 'us').toLowerCase();
 const ACTION_GAP_MS = Number(process.env.SOCIAL_ACTION_GAP_MS || 10000);
-const LOGIN_MINUTES = 30;
+const LOGIN_MINUTES = Math.max(5, Number(process.env.BROWSER_USE_LOGIN_MINUTES) || 30);
+// Timings are read at call time so tests can set them to 0.
+const stopPollMs = () => Number(process.env.BU_STOP_POLL_MS ?? 2000);
+const settleMs = () => Number(process.env.BU_PROFILE_SETTLE_MS ?? 8000);
 
 const SITE = {
   instagram: { label: 'Instagram', home: 'https://www.instagram.com/', login: 'https://www.instagram.com/accounts/login/', domain: 'instagram.com' },
@@ -144,15 +147,51 @@ async function startLogin(account) {
   return { ok: true, live_url: liveUrl, navigated, login_page: site.login };
 }
 
-// Stopping the browser is what makes Browser Use save the profile's cookies.
+// Browser Use only writes a profile's cookies when the browser session ENDS (a session that is
+// left open or times out may not be saved). So finishing a login means: stop the browser, CONFIRM it
+// really stopped, then give the profile a moment to be written - before anything tests the login.
+async function browserState(id) {
+  const r = await bu('GET', `/browsers/${id}`, undefined, { timeoutMs: 15000 });
+  if (!r.ok) return r.status === 404 ? { ok: true, state: 'gone' } : r;
+  const d = r.data || {};
+  const stopped = String(d.status || '').toLowerCase() === 'stopped' || !!d.finishedAt || !!d.stoppedAt;
+  return { ok: true, state: stopped ? 'stopped' : 'active' };
+}
+
+async function waitStopped(id) {
+  const every = stopPollMs();
+  const tries = every > 0 ? Math.ceil(30000 / every) : 3;
+  for (let i = 0; i < tries; i++) {
+    const st = await browserState(id);
+    if (st.ok && (st.state === 'stopped' || st.state === 'gone')) return true;
+    if (every > 0) await sleep(every);
+  }
+  return false;
+}
+
+// Returns { ok:true, expired } - expired=true means the browser had already ended on its own
+// (timed out) before we stopped it, so the login may not have been saved.
 async function finishLogin(account) {
   const p = pendingLogins.get(account.account_id);
-  if (!p) return { ok: true };
+  if (!p) return { ok: true, expired: false };
+  const before = await browserState(p.browserId);
+  const expired = !!(before.ok && (before.state === 'stopped' || before.state === 'gone'));
+  if (!expired) {
+    const r = await bu('PATCH', `/browsers/${p.browserId}`, { action: 'stop' });
+    if (!r.ok && ['unauthorized', 'no_credits', 'unreachable', 'timeout'].includes(r.code)) return r; // keep it pending; the user can retry
+    let stopped = await waitStopped(p.browserId);
+    if (!stopped) { // older API shape
+      await bu('PATCH', `/browsers/${p.browserId}`, { status: 'stopped' });
+      stopped = await waitStopped(p.browserId);
+    }
+    if (!stopped) {
+      return { ok: false, code: 'stop_failed', error: 'Could not stop the sign-in browser, so your login was not saved yet. Wait a minute and tap Connect again.' };
+    }
+  }
   pendingLogins.delete(account.account_id);
-  const r = await bu('PATCH', `/browsers/${p.browserId}`, { action: 'stop' });
-  if (!r.ok && r.status !== 404 && r.status !== 400) return r;
-  await sleep(4000); // let the profile finish saving
-  return { ok: true };
+  const wait = settleMs();
+  if (wait > 0) await sleep(wait); // let the profile finish saving
+  return { ok: true, expired };
 }
 
 // ── TASKS ───────────────────────────────────────────────────────────────────
@@ -303,6 +342,24 @@ async function verify(account) {
   return { ok: true, session: { connected: false, detail: (r.parsed && r.parsed.error) || 'The saved login is not signed in. Tap Connect and sign in again.' } };
 }
 
+// Verify right after a sign-in. A "not signed in" answer straight after saving is often just the profile
+// not being readable yet, so check once more before telling the creator to sign in again.
+async function verifyAfterLogin(account, fin) {
+  let v = await verify(account);
+  const wrongAccount = v.ok && /not @/.test((v.session && v.session.detail) || '');
+  if (v.ok && !v.session.connected && !wrongAccount && !(fin && fin.expired) && process.env.SOCIAL_VERIFY_RETRY !== 'off') {
+    await sleep(settleMs());
+    v = await verify(account);
+  }
+  if (v.ok && !v.session.connected && !wrongAccount) {
+    const hint = fin && fin.expired
+      ? ` The sign-in browser had already timed out (${LOGIN_MINUTES} min), so Browser Use most likely did not save the login. Tap Connect, sign in, and tap Connect again within ${LOGIN_MINUTES} minutes.`
+      : ' Make sure you reached your home feed in the sign-in browser before tapping Connect.';
+    v.session.detail = String(v.session.detail || '').replace(/\s+$/, '') + hint;
+  }
+  return v;
+}
+
 async function importSession() {
   return { ok: false, code: 'unsupported', error: 'Browser Use signs in through its live browser. Tap Connect on the account instead of importing cookies.' };
 }
@@ -337,5 +394,5 @@ async function act(account, action, payload) {
 
 module.exports = {
   configured, health, capabilities, sessions, sessionStatus, verify, importSession, disconnect, act,
-  hasPendingLogin, startLogin, finishLogin,
+  hasPendingLogin, startLogin, finishLogin, verifyAfterLogin,
 };

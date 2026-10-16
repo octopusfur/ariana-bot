@@ -174,8 +174,9 @@ function attach(app, { requireAuth } = {}) {
     // First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
     if (engine.provider() === 'browser-use') {
       const bu = engine.bu;
+      let fin = null;
       if (bu.hasPendingLogin(account)) {
-        const fin = await bu.finishLogin(account);
+        fin = await bu.finishLogin(account);
         if (!fin.ok) return fail(res, 502, fin.error);
       } else {
         const st = await bu.sessionStatus(account);
@@ -201,11 +202,11 @@ function attach(app, { requireAuth } = {}) {
           instructions: [
             'A live browser just opened. Sign in to ' + account.platform + ' as @' + account.handle + ' yourself.',
             login.navigated ? 'It is already on the login page.' : 'Go to ' + login.login_page + ' in that browser.',
-            'When you are signed in and can see your feed, come back here and tap Connect again.',
+            'Wait until you can see your home feed, then close the browser and tap Connect again right away. The browser expires 30 minutes after it opened, and an expired browser loses the login.',
           ],
         });
       }
-      const v = await bu.verify(account);
+      const v = await (fin ? bu.verifyAfterLogin(account, fin) : bu.verify(account));
       if (!v.ok) {
         const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.error);
         return fail(res, 502, v.error, { account: updated });
