@@ -33,6 +33,7 @@ function defaults(env = process.env) {
       othersDailyCap: Math.max(1, num(env.PHOTO_OTHERS_DAILY_CAP, 6)),
     },
     memory: { autoApprove: String(env.MEMORY_AUTO_APPROVE || "on").toLowerCase() !== "off" },
+    persona: { ownerImmersion: true },                                // with the owner she never steps out of being Ariana ("dev:" = plain technical answer)
     // she looks at other people's WhatsApp Status like a person: a few looks a day, skipping flooders and vendors
     watch: {
       enabled: env.WA_STATUS_WATCH !== "off",
@@ -51,7 +52,7 @@ function defaults(env = process.env) {
 /** Merge an untrusted patch (or stored file) over a base, keeping only known keys with valid, clamped values. */
 function sanitize(input, base) {
   const i = input && typeof input === "object" ? input : {};
-  const s = i.status || {}, p = i.photos || {}, m = i.memory || {}, w = i.watch || {};
+  const s = i.status || {}, p = i.photos || {}, m = i.memory || {}, w = i.watch || {}, pe = i.persona || {};
   const out = {
     status: {
       enabled: bool(s.enabled, base.status.enabled),
@@ -81,6 +82,7 @@ function sanitize(input, base) {
       othersDailyCap: clamp(p.othersDailyCap, 1, 50, base.photos.othersDailyCap),
     },
     memory: { autoApprove: bool(m.autoApprove, base.memory.autoApprove) },
+    persona: { ownerImmersion: bool(pe.ownerImmersion, base.persona.ownerImmersion) },
     watch: {
       enabled: bool(w.enabled, base.watch.enabled),
       maxPerPoster: clamp(w.maxPerPoster, 3, 40, base.watch.maxPerPoster),
