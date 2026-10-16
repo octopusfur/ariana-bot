@@ -34,7 +34,7 @@ test.before(async () => {
   });
   const side = await server(async (req, res) => { const b = JSON.parse((await body(req)) || "{}"); sent.push({ route: req.url, ...b }); res.setHeader("content-type", "application/json"); res.end("{}"); });
   const port = 22000 + Math.floor(Math.random() * 15000);
-  const env = (extra) => ({ PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), WA_API_SECRET: "s", WA_PROVIDER: "wwebjs", WA_WEB_PORT: String(side.port), OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: `http://127.0.0.1:${luna.port}`, HUMAN_DELAY_SCALE: "0", SIGNAL_CLI_URL: "http://127.0.0.1:9", ...extra });
+  const env = (extra) => ({ PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), WA_API_SECRET: "s", WA_PROVIDER: "wwebjs", WA_WEB_PORT: String(side.port), OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: `http://127.0.0.1:${luna.port}`, HUMAN_DELAY_SCALE: "0.001", SIGNAL_CLI_URL: "http://127.0.0.1:9", ...extra });
   const child = spawn(process.execPath, [path.join(__dirname, "..", "index.js")], { env: env({ FIRECRAWL_API_KEY: "fc-test", FIRECRAWL_API_URL: `http://127.0.0.1:${fc.port}` }), stdio: ["ignore", "pipe", "pipe"] });
   let log = ""; child.stdout.on("data", (d) => (log += d)); child.stderr.on("data", (d) => (log += d));
   for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/webhook`)).ok) break; } catch {} await wait(200); }
