@@ -17,6 +17,7 @@ const fake = http.createServer((req, res) => {
     calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: b ? JSON.parse(b) : null });
     const send = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url === '/status') return send(200, { connected: true, signed_in: true, conversations: [CONV] });
+    if (req.url === '/login' && b.includes('BADLOGIN')) return send(401, { error: 'Snapchat did not sign this account in (its answer to the password was code 4). Usual causes: wrong password, a captcha.' });
     if (req.url === '/login') return send(200, { cookies: { sc_a: 'x' }, bearer_token: 'tok', connected: true, signed_in: true, user_uuid_set: true });
     if (req.url === '/like') return send(501, { error: 'The upstream library cannot like content yet', supported: false });
     if (req.url === '/send-text' && b.includes('FAIL')) return send(502, { error: 'send failed: grpc-status=7' });
@@ -135,4 +136,12 @@ test('sign-in stores the session in Supabase (type snapchat) and never stores th
   assert.equal(st.saved, true);
   srv.closeAllConnections?.();
   srv.close();
+});
+
+test('a refused Snapchat sign-in reaches the dashboard as a readable message, not as a dashboard-key 401', async () => {
+  const res = await post('/api/snapchat/login', { username: 'u', password: 'BADLOGIN' });
+  assert.equal(res.status, 422);
+  const body = await res.json();
+  assert.match(body.error, /did not sign this account in/);
+  assert.match(body.error, /code 4/);
 });
