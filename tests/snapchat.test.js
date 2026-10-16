@@ -37,7 +37,7 @@ test.before(async () => {
   await new Promise((r) => (server = app.listen(0, '127.0.0.1', r)));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-test.after(() => { server.close(); fake.close(); });
+test.after(() => { for (const x of [server, fake]) { x.closeAllConnections?.(); x.close(); } });
 
 const post = (path, body, headers = {}) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
@@ -133,5 +133,6 @@ test('sign-in stores the session in Supabase (type snapchat) and never stores th
   assert.ok(!JSON.stringify(rows).includes('hunter2-secret'), 'password must never be persisted');
   const st = await (await fetch(b2 + '/api/snapchat/status')).json();
   assert.equal(st.saved, true);
+  srv.closeAllConnections?.();
   srv.close();
 });
