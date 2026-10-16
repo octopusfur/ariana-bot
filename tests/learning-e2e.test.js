@@ -42,7 +42,7 @@ test.before(async () => {
   const port = 24000 + Math.floor(Math.random() * 14000);
   const child = spawn(process.execPath, [path.join(__dirname, "..", "index.js")], {
     env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), WA_API_SECRET: "s", WA_PROVIDER: "wwebjs", WA_WEB_PORT: String(side.port), OWNER_PHONE: OWNER,
-      OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: `http://127.0.0.1:${luna.port}`, HUMAN_DELAY_SCALE: "0", HARMES_NUDGE_EVERY: "1", SIGNAL_CLI_URL: "http://127.0.0.1:9" }, stdio: ["ignore", "pipe", "pipe"] });
+      OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: `http://127.0.0.1:${luna.port}`, HUMAN_DELAY_SCALE: "0.001", HARMES_NUDGE_EVERY: "1", SIGNAL_CLI_URL: "http://127.0.0.1:9" }, stdio: ["ignore", "pipe", "pipe"] });
   let log = ""; child.stdout.on("data", (d) => (log += d)); child.stderr.on("data", (d) => (log += d));
   for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/webhook`)).ok) break; } catch {} await wait(200); }
   ctx = { child, port, luna, side, logs: () => log };
