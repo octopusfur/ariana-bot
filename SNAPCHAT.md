@@ -28,8 +28,10 @@ Two separate pieces. Posting Stories and Spotlight does not need the chat sideca
 3. Sign in. Direct username/password sign-in from the sidecar is BLOCKED by Snapchat (it comes from a server,
    not a recognised device, and Snapchat's unofficial login flow has no way to pass whatever extra check it
    demands). Use a browser session instead:
-   - Sign in to Snapchat at web.snapchat.com in a desktop browser.
-   - Install the "Cookie-Editor" browser extension, open it on that tab, Export, Export as JSON.
+   - On iPhone: install the free "Cookie Editor For Safari" app, turn it on under iPhone Settings > Apps > Safari >
+     Extensions, then sign in to web.snapchat.com in Safari (not the Snapchat app) and export as JSON from the
+     extensions icon in the address bar. On a computer: sign in to web.snapchat.com, install the "Cookie-Editor"
+     browser extension, Export, Export as JSON.
    - `POST /api/snapchat/session` `{ "cookies": <that JSON>, "userUuid" }`, or paste it in Settings, Snapchat.
    The dashboard card walks through these same steps. `POST /api/snapchat/login` (username/password) is kept as a
    fallback but is not expected to work from Render; it is what the Settings "Advanced" option calls.

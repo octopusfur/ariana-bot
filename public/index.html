@@ -880,13 +880,13 @@ html.pal-vt{pointer-events:none}
         <div class="st-panel">
           <div id="snap-status" class="st-note">Checking...</div>
           <div id="snap-login">
-            <div class="st-note" style="margin-bottom:10px">Signing in directly from here does not work: Snapchat blocks it from a server. Use a session from a browser where you are already signed in instead.</div>
-            <label class="lbl">1. Sign in to Snapchat in a browser</label>
-            <div class="st-note">On a computer, go to <b>web.snapchat.com</b> and sign in as Ariana. Approve it on the phone if Snapchat asks.</div>
-            <label class="lbl" style="margin-top:14px">2. Install a cookie-export extension</label>
-            <div class="st-note">Chrome or Edge, search the web store for <b>"Cookie-Editor"</b> by cgagnier and add it. Needed because Snapchat's sign-in cookies cannot be copied by hand.</div>
+            <div class="st-note" style="margin-bottom:10px">Signing in directly from here does not work: Snapchat blocks it from a server. This uses a signed-in session from Safari instead, all on your phone.</div>
+            <label class="lbl">1. Get the "Cookie Editor For Safari" app</label>
+            <div class="st-note">Free on the App Store. After installing, go to iPhone Settings &gt; Apps &gt; Safari &gt; Extensions, turn Cookie Editor on, and allow it for web.snapchat.com.</div>
+            <label class="lbl" style="margin-top:14px">2. Sign in to Snapchat in Safari</label>
+            <div class="st-note">In Safari (not the Snapchat app), go to <b>web.snapchat.com</b> and sign in as Ariana. Approve it in the Snapchat app if asked.</div>
             <label class="lbl" style="margin-top:14px">3. Export the cookies</label>
-            <div class="st-note">On the web.snapchat.com tab, open Cookie-Editor, tap <b>Export</b>, then <b>Export as JSON</b>. This copies them to your clipboard.</div>
+            <div class="st-note">Still on that tab, tap the extensions icon (puzzle piece) in Safari's address bar, open Cookie Editor, and export as JSON.</div>
             <label class="lbl" style="margin-top:14px">4. Paste them here</label>
             <textarea id="snap-cookies" class="inp" rows="4" autocapitalize="none" autocorrect="off" placeholder="Paste the exported cookie JSON here" style="margin-top:4px"></textarea>
             <label class="lbl" style="margin-top:10px">Snapchat user ID (optional)</label>
