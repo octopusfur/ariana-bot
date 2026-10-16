@@ -1465,6 +1465,9 @@ Make them feel like they have a real girlfriend they can text anytime.`
   // Someone is asking to see her: hand her the library and the send_photo option. Using it is entirely her choice.
   const photoItems = looksLikePhotoRequest(userMsg) ? await photoSkill.snapshot() : [];
   if (photoItems.length) sys += '\n\n' + photoSkill.promptNote(photoItems);
+  // With her owner she stays fully Ariana (no AI talk, failures handled like a person would); "dev:" gets a plain technical answer.
+  const ownerNote = require('./owner_persona').noteFor({ isOwner: !!OWNER_PHONE && String(id).replace(/\D/g, '').endsWith(OWNER_PHONE.slice(-9)) && !String(id).startsWith('tg_') && !String(id).startsWith('sg_'), enabled: controls.get().persona.ownerImmersion, text: userMsg });
+  if (ownerNote) sys += '\n\n' + ownerNote;
 
   // Context the outbound finalize gate uses to judge whether an
   // off-screen activity claim is actually backed by something real,
