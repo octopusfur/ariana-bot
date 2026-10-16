@@ -240,7 +240,7 @@ function instruction(action, p, platform) {
       : `Create a new post with exactly this text: ${q(p.text)}, and publish it. Put the post URL in data.url if you can see it.`;
     case 'repost': return `Open ${q(p.url)} and repost / share it to your own profile with no added text.`;
     case 'notifications': return 'Open notifications and put the latest 10 in data.items as [{"text","url"}]. Do not interact with anything.';
-    case 'read_dms': return 'Open the inbox and put the 10 most recent conversations in data.items as [{"from","last_message"}]. Do not reply and do not open requests.';
+    case 'read_dms': return 'Open the inbox and put the 10 most recent conversations in data.items as [{"from","last_message","last_from_me"}]. "from" is the other person\'s @handle without the @. "last_message" is the text of the newest message. "last_from_me" is true if that newest message was sent by this account and false if the other person sent it. Skip group chats, message requests and anything that is not plain text. Do not reply and do not open requests.';
     case 'engagement': return `Open the profile of ${q(p.username)} and put the likes/comments counts of their 5 latest posts in data.items.`;
     case 'delete_post': return `Open ${q(p.url)} and delete your own post.`;
     case 'delete_comment': return `Open ${q(p.url)} and delete your own comment.`;

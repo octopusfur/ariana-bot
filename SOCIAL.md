@@ -372,3 +372,25 @@ the design, not a bug in reporting.
 - Using automation on a platform can conflict with that platform's terms.
   Limits here are deliberately conservative; they are not a guarantee of
   compliance. Check each platform's rules for the actions you enable.
+
+## X as a chat channel (like WhatsApp, through this engine)
+
+X shows up next to WhatsApp, Telegram and Snapchat: a home tile, a Settings card, and X chats in the chat list
+(conversation ids look like `x_<handle>`). It uses the social engine above for both directions, so there is no extra
+service and no paid X API.
+
+1. Social Accounts: add your X account (platform **X**), sign in, and turn **Actions** on.
+2. Settings -> X -> **Check messages now**.
+
+How it behaves:
+- **Out:** her reply is sent as a normal social `dm`, so every guard applies (creator switch, daily ceiling
+  `X_CHANNEL_MAX_REPLIES_PER_DAY`, dry run, activity log). Text only: X messages carry a picture's caption, not the picture.
+- **In:** X cannot tell us a DM arrived unless you pay for its API, so incoming DMs are pulled with one `read_dms`
+  run of the engine **when you press the button**. Nothing runs on a timer unless you set `X_INBOX_POLL_MINUTES`
+  (each check is one engine run, which Browser Use bills).
+- **Receiving needs the Browser Use engine.** SocialCrabs can send DMs but has no X inbox reader; the Settings card says so.
+- **First check answers nothing**: it only learns what is already in the inbox, so she never replies to old history.
+- She only answers a conversation when the engine says the **last message was not hers**; if it cannot tell, she stays
+  quiet. Each message is marked answered before she replies, so a failure can never produce a double reply.
+- At most `X_INBOX_MAX_PER_CHECK` (default 5) new conversations per check. She does not message first on X unless `X_PROACTIVE=on`.
+- Reading is built on a Browser Use agent driving X's inbox, so expect it to need tuning against a real account.
