@@ -822,6 +822,8 @@ html.pal-vt{pointer-events:none}
           <div id="snap-chats" style="display:none;margin-top:16px">
             <div id="snap-reply-note" class="st-note">She answers everyone who messages her.</div>
             <button class="btn-ghost" id="snap-pause" onclick="snapPause()" style="margin-top:8px">Pause replies</button>
+            <button class="btn-ghost" id="snap-diag-btn" onclick="snapDiagnose()" style="margin-top:8px">Check connection</button>
+            <div id="snap-diag" class="st-note" style="white-space:pre-wrap;word-break:break-word"></div>
             <details class="st-more"><summary class="st-link">Advanced: add a chat by ID</summary>
               <div id="snap-chat-list" class="st-note"></div>
               <input type="text" id="snap-conv" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Chat ID" style="margin-top:8px">
@@ -1160,6 +1162,22 @@ async function snapFindChats(){
   if(!a.ok){box.textContent=plainErr(a.d.error)||'Could not look.';return;}
   const c=a.d.candidates||[];
   box.innerHTML=c.length?('Possible IDs (suggestions only, tap one to fill the box):<br>'+c.map(x=>'<a href="#" style="color:var(--acc)" onclick="document.getElementById(\'snap-conv\').value=\''+x+'\';return false">'+x+'</a>').join('<br>')):'Nothing found yet. Send a message to the account first, then try again.';
+}
+async function snapDiagnose(){
+  const box=document.getElementById('snap-diag'),b=document.getElementById('snap-diag-btn');
+  box.textContent='Checking...';b.disabled=true;
+  const a=await snapGet('/api/snapchat/diagnose');b.disabled=false;
+  if(!a.ok){box.textContent=plainErr(a.d.error)||'Could not check.';return;}
+  const d=a.d,L=[];
+  L.push('Signed in: '+(d.signed_in?'yes':'no'));
+  L.push('Account ID: '+(d.user_uuid||'not found'));
+  if(d.note)L.push(d.note);
+  if(d.sync_bytes!=null)L.push('Data received from Snapchat: '+d.sync_bytes+' bytes');
+  if(d.chats_found!=null)L.push('Chats found: '+d.chats_found);
+  (d.chats||[]).forEach(c=>{L.push('');L.push('Chat '+c.id.slice(0,8)+':');(c.messages||[]).forEach(m=>L.push('  '+(m.sender==='me'?'her/you':'them')+': '+m.text));if(!(c.messages||[]).length)L.push('  no messages read');});
+  if(d.sync_sample_hex)L.push('','No chats found. Sample for debugging:',d.sync_sample_hex);
+  if(d.last_error)L.push('','Last error: '+plainErr(d.last_error));
+  box.textContent=L.join('\n');
 }
 async function snapPause(){const {ok}=await jpost('/api/snapchat/pause',{paused:!window.__snapPaused});toast(ok?(window.__snapPaused?'Replies resumed':'Replies paused'):'Failed');snapRefresh();}
 async function snapUnlink(){const {ok}=await jpost('/api/snapchat/unlink',{});toast(ok?'Signed out of Snapchat':'Failed');snapRefresh();}

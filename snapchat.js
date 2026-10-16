@@ -176,6 +176,7 @@ function init(deps) {
   // Everything else the library can do, passed straight through (unsupported actions answer 501 with the reason).
   // Stories and Spotlight are NOT here: they go through the supported BulkPublish route, see snapchat_publish.js.
   const passthrough = [
+    ["get", "/api/snapchat/diagnose", "/diagnose"],
     ["get", "/api/snapchat/friends", "/friends"],
     ["get", "/api/snapchat/friend-requests", "/friend-requests"],
     ["post", "/api/snapchat/add-friend", "/add-friend"],

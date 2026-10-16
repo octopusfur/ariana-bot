@@ -81,6 +81,8 @@ def route(method, path, body, query):
                 bridge.last_error = f"could not find the account id: {e}"
         return 200, {**sess, **status(), "user_uuid_found": found}
         return fail(400, "cookies required")
+    if path == "/diagnose" and method == "GET":
+        return 200, bridge.diagnose()
     if path == "/discover-uuid" and method == "POST":
         found = bridge.discover_user_uuid()
         return 200, {**status(), "user_uuid_found": found}

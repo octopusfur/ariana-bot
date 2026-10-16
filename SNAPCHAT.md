@@ -34,7 +34,7 @@ Two separate pieces. Posting Stories and Spotlight does not need the chat sideca
    nothing is sent or read.
 5. She answers everyone who messages her. Chats are found automatically from the account's sync data (unverified against a live account);
    the first pass after a restart only records history, and chats that appear later are answered. "Advanced" in Settings can still add a
-   chat by id, and `SNAP_ONLY_LISTED_CHATS=on` on the sidecar restricts her to listed chats only. Pause replies stops everything.
+   chat by id, and `SNAP_ONLY_LISTED_CHATS=on` on the sidecar restricts her to listed chats only. Pause replies stops everything. "Check connection" in the same card shows what she can see: whether she is signed in, the account id, the chats found and the latest messages read from each, which is the first thing to look at if a reply is missing.
 
 ## What works
 
