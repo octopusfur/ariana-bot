@@ -2108,6 +2108,10 @@ function renderLife(){
     ${lfRow('Most pictures to other people a day','Across everyone',lfStep('photos.othersDailyCap',p.othersDailyCap,1,20),!p.enabled||!p.sendToOthers)}
   </div>
   <div class="lf-card">
+    <div class="lf-h">With you</div>
+    ${lfRow('Stay fully in character with me','She never talks about being an AI, models or limits with you, even when something fails. Start a message with <b>dev:</b> when you want a plain technical answer.',lfSw('persona.ownerImmersion',c.persona.ownerImmersion))}
+  </div>
+  <div class="lf-card">
     <div class="lf-h">Memory</div>
     ${lfRow('Learn from chats automatically','Clean facts go live right away. Anything suspicious waits in Brain for you.',lfSw('memory.autoApprove',m.autoApprove))}
   </div>
