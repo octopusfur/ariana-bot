@@ -1758,7 +1758,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#wp-menu,#wp-btn'))d
 // Connected accounts, their real capabilities, and what Ariana actually did.
 // Every state below maps to something the backend reported: nothing here shows
 // "Online", "Completed" or a capability the engine did not confirm.
-let soc={status:null,accounts:[],activity:[],autonomy:null,caps:null,details:{},adding:{},busy:false,error:null};
+let soc={status:null,accounts:[],activity:[],autonomy:null,caps:null,details:{},adding:{},busy:false,error:null,login:{}};
 
 async function loadSocial(manual){
   try{
@@ -1819,27 +1819,51 @@ function socEngineStrip(){
   const dry=st.dry_run?' · dry run':'';
   return `<div class="s-act" style="border-color:var(--bdr2)">
     <div class="s-act-top"><span class="s-dot on"></span>Engine connected${socEsc(dry)}</div>
-    <div class="s-act-err">${st.engine.health?('provider '+socEsc(st.engine.health.provider||'')+' · '+(st.engine.health.browsers_open||0)+' browser(s) open'):''}${st.storage&&st.storage.supabase?' · state in Supabase':' · state in local files'}</div>
+    <div class="s-act-err">${socEngineLine(st)}</div>
   </div>`;
 }
 
+function socEngineLine(st){
+  const h=st.engine&&st.engine.health,bits=[];
+  if(h){
+    bits.push(socEsc(h.provider||h.engine||'engine'));
+    if(typeof h.browsers_open==='number')bits.push(h.browsers_open+' browser(s) open');
+    if(h.billing&&typeof h.billing.credits==='number')bits.push('$'+Number(h.billing.credits).toFixed(2)+' credit');
+  }
+  bits.push(st.storage&&st.storage.supabase?'state in Supabase':'state in local files');
+  return bits.join(' · ');
+}
+
+// The platform list the Add rows are built from. If the engine's list is missing or in a shape
+// we can't draw, fall back to the three platforms Ariana supports — adding an account must
+// never depend on the capability list being well-formed.
+const SOC_FALLBACK_PLATFORMS=[
+  {id:'instagram',label:'Instagram',handle_label:'instagram handle'},
+  {id:'linkedin',label:'LinkedIn',handle_label:'linkedin handle'},
+  {id:'twitter',label:'X',handle_label:'x handle'}
+];
+function socUsablePlatforms(){
+  const caps=soc.caps&&soc.caps.capabilities;
+  const list=caps&&Array.isArray(caps.platforms)?caps.platforms.filter(p=>p&&typeof p==='object'&&p.id):[];
+  return list.length?list:SOC_FALLBACK_PLATFORMS;
+}
+
 function socPlatformBlocks(){
-  const caps=(soc.caps&&soc.caps.capabilities)||null;
-  if(!caps)return '<div class="s-act-err">Capability manifest unavailable.</div>';
-  return caps.platforms.map(p=>{
-    const mine=soc.accounts.filter(a=>a.platform===p.id);
-    const can=p.supported.map(s=>s.action).join(' · ');
-    const cannot=p.unsupported.map(u=>u.action).join(' · ');
+  return socUsablePlatforms().map(p=>{
+    const sup=Array.isArray(p.supported)?p.supported:[],uns=Array.isArray(p.unsupported)?p.unsupported:[];
+    const mine=(soc.accounts||[]).filter(a=>a.platform===p.id);
+    const can=sup.map(s=>s.action).join(' · ');
+    const cannot=uns.map(u=>u.action).join(' · ');
     const accounts=mine.length?mine.map(socAccountCard).join(''):'';
     const platKey='plat-'+p.id;
-    const reasons=p.unsupported.filter(u=>u.reason).map(u=>socEsc(u.action)+' — '+socEsc(u.reason)).join('\n\n');
+    const reasons=uns.filter(u=>u.reason).map(u=>socEsc(u.action)+' — '+socEsc(u.reason)).join('\n\n');
     return `<div class="s-plat"><span class="s-plat-name">${socEsc(p.label)}</span><span class="s-plat-sub">${mine.length?mine.length+' connected':'not connected'}</span></div>
       ${accounts}
-      <div class="s-cap"><b>Can:</b> ${socEsc(can)||'—'}<br><b>Cannot:</b> ${socEsc(cannot)||'—'}</div>
+      ${sup.length||uns.length?`<div class="s-cap"><b>Can:</b> ${socEsc(can)||'—'}<br><b>Cannot:</b> ${socEsc(cannot)||'—'}</div>`:''}
       ${reasons?`<button class="s-link" onclick="socToggleDetail('${platKey}')" style="margin-top:6px">${soc.details[platKey]?'Hide reasons':'Why not'}</button>`:''}
       ${reasons&&soc.details[platKey]?`<div class="s-details">${reasons}</div>`:''}
       <div class="s-addrow" style="margin-top:10px">
-        <input class="inp" id="soc-add-${p.id}" placeholder="@${p.handle_label}" autocapitalize="off" autocorrect="off">
+        <input class="inp" id="soc-add-${p.id}" placeholder="@${socEsc(p.handle_label||'handle')}" autocapitalize="off" autocorrect="off">
         <button class="s-mini" onclick="socAdd('${p.id}')">Add</button>
       </div>`;
   }).join('');
@@ -1859,6 +1883,7 @@ function socAccountCard(a){
       <span class="s-chip ${state==='online'?'ok':(state==='error'?'err':'')}" style="margin-left:auto">${label}</span>
     </div>
     ${detail?`<div class="s-acct-note">${socEsc(socReasonText(detail,300))}</div>`:''}
+    ${(soc.login&&soc.login[a.account_id]&&state!=='online')?`<div class="s-acct-note"><a class="s-link" href="${socEsc(soc.login[a.account_id])}" target="_blank" rel="noopener">Open the sign-in browser</a> — sign in there, then tap Connect again.</div>`:''}
     <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
       <div style="font-size:12px;color:var(--txt2);flex:1">Actions ${a.actions_enabled?'enabled':'disabled'}${a.actions_enabled?' — Ariana can act through this account':''}</div>
       <button class="tgl ${a.actions_enabled?'on':''}" onclick="socToggleActions('${socEsc(a.account_id)}',${a.actions_enabled?false:true})"><span class="tgl-k"></span></button>
@@ -1926,10 +1951,11 @@ function renderSocial(){
     el.innerHTML=`<div class="s-act" style="border-color:var(--bdr2)"><div class="s-act-top"><span class="s-dot warn"></span>Couldn't load Social</div><div class="s-act-err">Check your connection and try again.</div><button class="s-link" onclick="loadSocial(true)" style="margin-top:8px">Try again</button></div>`;
     return;
   }
-  el.innerHTML=socEngineStrip();
-  document.getElementById('social-accounts').innerHTML=socPlatformBlocks();
-  document.getElementById('social-activity').innerHTML=socActivityList();
-  document.getElementById('social-autonomy').innerHTML=socAutonomyBlock();
+  const part=(id,fn)=>{const t=document.getElementById(id);if(!t)return;try{t.innerHTML=fn();}catch(e){console.error('[social] '+id,e);t.innerHTML='<div class="s-act-err">Could not draw this part ('+socEsc(e&&e.message||'error')+'). Tap refresh to try again.</div>';}};
+  part('social-engine',socEngineStrip);
+  part('social-accounts',socPlatformBlocks);
+  part('social-activity',socActivityList);
+  part('social-autonomy',socAutonomyBlock);
 }
 
 async function socPost(url,body){
@@ -1949,10 +1975,13 @@ async function socConnect(id){
   toast('Checking the session on the engine…');
   const r=await socPost('/api/social/accounts/'+encodeURIComponent(id)+'/connect');
   if(!r.ok){soc.details[id]=true;toast((r.error||'Connect failed').slice(0,140));}
-  else if(r.login_url){window.open(r.login_url,'_blank');toast('Sign in on the browser that just opened, then tap Connect again',6000);}
+  else if(r.login_url){
+    if(/^https:\/\//i.test(r.login_url)){soc.login[id]=r.login_url;try{window.open(r.login_url,'_blank');}catch{}}
+    toast('Sign-in browser ready. If it did not open, tap "Open the sign-in browser" on the account, sign in, then tap Connect again.',7000);
+  }
   else if(r.needs_provisioning)toast('No session yet — see Social → setup steps');
   else if(r.connected===false)toast((r.error||'Not signed in yet. Tap Connect and sign in.').slice(0,140),5000);
-  else toast('Connected');
+  else{delete soc.login[id];toast('Connected');}
   loadSocial();
 }
 async function socReconnect(id){ await socConnect(id); }

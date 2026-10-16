@@ -29,6 +29,14 @@ function fail(res, status, error, extra = {}) { res.status(status).json({ ok: fa
 
 // Where to send someone who wants to actually log the account in. Kept in one
 // place so the dashboard, the docs and the error messages never drift.
+// Only a capability list the dashboard can actually draw may be passed through from an
+// engine: a list of platform objects that each carry supported/unsupported lists.
+// Anything else (a keyed object, a bare list of names…) would blank the Social screen.
+function usableManifest(m) {
+  return !!(m && Array.isArray(m.platforms) && m.platforms.length
+    && m.platforms.every((p) => p && typeof p === 'object' && p.id && Array.isArray(p.supported) && Array.isArray(p.unsupported)));
+}
+
 function provisioningSteps(platform) {
   const label = caps.platformLabel(platform);
   const info = caps.platformInfo(platform) || {};
@@ -113,7 +121,7 @@ function attach(app, { requireAuth } = {}) {
   // backend is not connected.
   r.get('/capabilities', guard, async (_req, res) => {
     const live = engine.configured() ? await engine.capabilities() : { ok: false };
-    if (live.ok && live.capabilities && live.capabilities.platforms) {
+    if (live.ok && usableManifest(live.capabilities)) {
       return ok(res, { source: 'engine', capabilities: live.capabilities, note: 'Reported by the running social engine.' });
     }
     ok(res, {
@@ -349,4 +357,4 @@ function attach(app, { requireAuth } = {}) {
   return r;
 }
 
-module.exports = { attach, provisioningSteps };
+module.exports = { attach, provisioningSteps, usableManifest };

@@ -252,13 +252,15 @@ function instruction(action, p, platform) {
 async function health() {
   const r = await bu('GET', '/billing/account', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
-  return { ok: true, health: { engine: 'browser-use-cloud', status: 'ok', billing: r.data && { credits: r.data.totalCreditsBalanceUsd, concurrent_limit: r.data.concurrentSessionLimit } } };
+  return { ok: true, health: { provider: 'browser-use', engine: 'browser-use-cloud', status: 'ok', billing: r.data && { credits: r.data.totalCreditsBalanceUsd, concurrent_limit: r.data.concurrentSessionLimit } } };
 }
 
+// The dashboard draws the accounts screen from this, so it must be the described shape
+// (a list of platforms, each with supported/unsupported) — Ariana's own capability list,
+// which is what her tools obey. (It used to return the raw manifest or a bare list of
+// site names, which crashed the Social screen into a blank page.)
 async function capabilities() {
-  const manifest = typeof caps.manifest === 'function' ? caps.manifest() : (caps.raw || null);
-  if (manifest) return { ok: true, capabilities: manifest };
-  return { ok: true, capabilities: { provider: 'browser-use-cloud', platforms: Object.keys(SITE) } };
+  return { ok: true, capabilities: { ...caps.describe(), provider: 'browser-use-cloud' } };
 }
 
 async function sessions() {
