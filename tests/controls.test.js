@@ -69,3 +69,11 @@ test("new switches: videos, internet GIFs and Instagram are on by default and ca
   assert.deepStrictEqual([c.get().status.kinds.video, c.get().status.instagram], [true, true], "non-booleans fall back to the default");
   assert.strictEqual(create({ file: tmp(), env: { IG_POSTS: "off" } }).get().status.instagram, false);
 });
+
+test("owner immersion defaults on, can be switched off, and persists", () => {
+  const f = tmp();
+  const a = create({ file: f, env: {} });
+  assert.strictEqual(a.get().persona.ownerImmersion, true);
+  a.update({ persona: { ownerImmersion: false } });
+  assert.strictEqual(create({ file: f, env: {} }).get().persona.ownerImmersion, false);
+});
