@@ -98,7 +98,7 @@ async function add({ platform, handle, label = null, actionsEnabled = false }) {
     label: label || (caps.platformInfo(platformId).label + ' @' + clean),
     provider: 'socialcrabs',
     actions_enabled: !!actionsEnabled,
-    autopublish: false,
+    autopublish: platformId === 'instagram', // she posts on Instagram without asking each time; the creator can switch it off
     status: STATUS.NOT_CONNECTED,
     status_detail: 'No session on the engine yet — provision one to connect.',
     last_checked: null,

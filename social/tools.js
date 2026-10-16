@@ -59,8 +59,8 @@ const ACTION_BLURB = {
   follow: 'Follow an account.',
   unfollow: 'Unfollow an account. This one always asks your creator to confirm first.',
   connect: 'Send a LinkedIn connection request, optionally with a short note.',
-  dm: 'Send a direct message to someone.',
-  post: 'Publish a post of your own (X only). Publishing is public and permanent, so it needs your creator\'s confirmation unless they enabled autopublish.',
+  dm: 'Send a direct message to someone. On Instagram and TikTok you only ever reply to people who already messaged you — you never start a conversation, and the tool refuses if they have not written first.',
+  post: 'Publish a post of your own (X as text; Instagram as a picture + caption — pass image_url). Publishing is public and permanent, so it needs your creator\'s confirmation unless autopublish is on for that account.',
   repost: "Repost / retweet someone else's post.",
   engagement: 'Check follower/following counts for an account (X only).',
 };
@@ -107,6 +107,7 @@ async function buildToolSchemas() {
     if (needs.includes('profile_url')) properties.profile_url = { type: 'string', description: "Full URL of the person's profile." };
     if (needs.includes('text')) properties.text = { type: 'string', description: 'The exact text to publish. Write it as yourself — no stage directions, no hashtag spam.' };
     if (needs.includes('message')) properties.message = { type: 'string', description: 'The message body. Write it as yourself.' };
+    if (action === 'post') properties.image_url = { type: 'string', description: 'Public https link to the picture to post. Required on Instagram (it has no text-only posts); ignored where posts are text.' };
     if (needs.includes('note')) properties.note = { type: 'string', description: 'Optional short note.' };
     properties.account = TOOL_ACCOUNT_PARAM;
 
@@ -152,7 +153,7 @@ function payloadFor(action, args) {
     case 'unfollow': return { username: args.username };
     case 'connect': return { profileUrl: args.profile_url, note: args.note };
     case 'dm': return { username: args.username, message: args.message };
-    case 'post': return { text: args.text };
+    case 'post': return { text: args.text, image_url: args.image_url };
     case 'repost': return { url: args.url };
     case 'engagement': return { username: args.username };
     default: return {};

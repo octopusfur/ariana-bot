@@ -60,7 +60,12 @@ three has an inbox reader. Where the dashboard shows a platform, it also shows
 this list — including the reasons, under **"Why not"** — rather than greying out
 a button that would do nothing.
 
-**Platforms:** Instagram, X, LinkedIn only. Facebook, TikTok, Threads, YouTube,
+**Platforms:** Instagram, X, LinkedIn — plus **TikTok** while Browser Use Cloud is the engine (a cloud
+browser; no memory used on Ariana's server). Instagram can instead run through the Instagram service
+(`ig-service/`, instagrapi — no browser, low RAM) when `IG_SERVICE_URL` is set; its capability list is
+`social/capabilities.ig-api.json` and replaces the table's Instagram column. TikTok: view profile / videos,
+search, like, comment, follow / unfollow, DM; no posting, feed or inbox
+(`social/capabilities.tiktok.json`). Facebook, Threads, YouTube,
 Reddit, Snapchat, Pinterest, WhatsApp and Telegram have no adapter in the
 engine, so no Connect button is offered for them. Adding one means writing a new
 adapter in the engine (`socialcrabs-service/src/engine.js` → `DISPATCH`) plus

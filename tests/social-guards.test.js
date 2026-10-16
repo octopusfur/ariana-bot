@@ -126,7 +126,7 @@ test('guard: things that were blocked or skipped do not consume the daily budget
 
 test('guard: unfollowing always needs a human yes — and the token is single-use', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'careful');
+  const account = await seededAccount('twitter', 'careful');
 
   const first = await guards.check({ account, action: 'unfollow', count: 1 });
   assert.equal(first.ok, false);
@@ -141,15 +141,23 @@ test('guard: unfollowing always needs a human yes — and the token is single-us
   assert.equal(replay.ok, false, 'a confirmation must not be reusable');
 });
 
+test('guard: on Instagram and TikTok her creator has handed over unfollowing — no yes needed each time', async () => {
+  resetStore();
+  const account = await seededAccount('instagram', 'selfrun');
+  assert.equal((await guards.check({ account, action: 'unfollow', count: 1 })).ok, true);
+  const x = await seededAccount('twitter', 'stillcareful');
+  assert.equal((await guards.check({ account: x, action: 'unfollow', count: 1 })).ok, false);
+});
+
 test('guard: a confirmation is bound to its account, its action and its size', async () => {
   resetStore();
-  const a = await seededAccount('instagram', 'one');
-  const b = await seededAccount('instagram', 'two');
+  const a = await seededAccount('twitter', 'one');
+  const b = await seededAccount('twitter', 'two');
 
   const { token } = guards.createConfirmation({ accountId: a.account_id, action: 'unfollow', maxTargets: 1 });
   const wrongAccount = await guards.check({ account: b, action: 'unfollow', count: 1, confirmationToken: token });
   assert.equal(wrongAccount.ok, false);
-  assert.match(wrongAccount.error, /issued for instagram:one/);
+  assert.match(wrongAccount.error, /issued for twitter:one/);
 
   const { token: t2 } = guards.createConfirmation({ accountId: a.account_id, action: 'unfollow', maxTargets: 1 });
   const wrongAction = await guards.check({ account: a, action: 'unfollow', count: 2, confirmationToken: t2 });

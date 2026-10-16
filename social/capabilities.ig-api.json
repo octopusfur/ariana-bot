@@ -1,0 +1,96 @@
+{
+  "$schema": "ariana-social-capabilities-ig-api/1",
+  "note": "Replaces the 'instagram' entry of capabilities.json ONLY while the Instagram service is configured (IG_SERVICE_URL + IG_SERVICE_API_KEY). Every supported action has a handler in ig-service/app.py and a case in social/ig_engine.js \u2014 tests/ig-engine.test.js fails if they ever drift. Without the service the base manifest applies unchanged.",
+  "platforms": {
+    "instagram": {
+      "label": "Instagram",
+      "handle_label": "username",
+      "session_cookie": null,
+      "env_bootstrap": false,
+      "actions": {
+        "search": {
+          "supported": false,
+          "reason": "The Instagram service has no keyword post search."
+        },
+        "view_profile": {
+          "supported": true,
+          "method": "instagrapi.user_info_by_username_v1(username)",
+          "returns": "name, bio, followers, following, posts, private/verified"
+        },
+        "view_posts": {
+          "supported": true,
+          "method": "instagrapi.user_medias_v1(pk, amount)",
+          "returns": "recent posts: URL, caption, likes, comments, date",
+          "limit": "up to 12, default 5"
+        },
+        "view_feed": {
+          "supported": true,
+          "method": "instagrapi.get_timeline_feed()",
+          "returns": "her home feed: URL, author, caption (up to 10)"
+        },
+        "like": {
+          "supported": true,
+          "method": "instagrapi.media_like(media_id)"
+        },
+        "comment": {
+          "supported": true,
+          "method": "instagrapi.media_comment(media_id, text)",
+          "notes": "Comment on a post or reel."
+        },
+        "reply": {
+          "supported": false,
+          "reason": "Replying to one specific comment is not implemented in the Instagram service \u2014 it can comment on a post, not reply to a comment."
+        },
+        "follow": {
+          "supported": true,
+          "method": "instagrapi.user_follow(pk)"
+        },
+        "unfollow": {
+          "supported": true,
+          "method": "instagrapi.user_unfollow(pk)"
+        },
+        "connect": {
+          "supported": false,
+          "reason": "Connection requests are a LinkedIn concept; Instagram has no equivalent."
+        },
+        "dm": {
+          "supported": true,
+          "method": "instagrapi.direct_send(text, user_ids)",
+          "notes": "Replies only: she answers people who already messaged her and never starts a conversation (the service checks the inbox and refuses otherwise)."
+        },
+        "read_dms": {
+          "supported": true,
+          "method": "instagrapi.direct_threads(amount=10)",
+          "returns": "latest 10 conversations: who and the last message"
+        },
+        "post": {
+          "supported": true,
+          "method": "instagrapi.photo_upload(path, caption)",
+          "returns": "the new post's URL",
+          "notes": "A picture plus caption (pass image_url, https). The picture is converted to a JPEG and cropped into Instagram's feed ratio. No text-only posts, no video."
+        },
+        "repost": {
+          "supported": false,
+          "reason": "Not implemented in the Instagram service."
+        },
+        "notifications": {
+          "supported": false,
+          "reason": "Not implemented in the Instagram service."
+        },
+        "engagement": {
+          "supported": true,
+          "method": "instagrapi.user_info_by_username_v1(username)",
+          "returns": "followers, following, post count"
+        },
+        "delete_post": {
+          "supported": false,
+          "reason": "Not implemented \u2014 deleting is deliberately left out."
+        },
+        "delete_comment": {
+          "supported": false,
+          "reason": "Not implemented \u2014 deleting is deliberately left out."
+        }
+      }
+    }
+  }
+}

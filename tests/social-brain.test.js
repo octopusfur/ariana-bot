@@ -442,16 +442,29 @@ test('api: Connect without an engine is a 503 with the setup, never a fake succe
 test('api: the creator switch is per account and reported back', async () => {
   const { base, stop } = await startDashboard();
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.personal' } });
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.creator' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-personal' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-creator' } });
 
-    const on = await api(base, '/api/social/accounts/instagram:ariana.creator/enable', { method: 'POST' });
+    const on = await api(base, '/api/social/accounts/linkedin:ariana-creator/enable', { method: 'POST' });
     assert.equal(on.json.account.actions_enabled, true);
-    const other = (await api(base, '/api/social/accounts')).json.accounts.find((a) => a.account_id === 'instagram:ariana.personal');
+    const other = (await api(base, '/api/social/accounts')).json.accounts.find((a) => a.account_id === 'linkedin:ariana-personal');
     assert.equal(other.actions_enabled, false, 'switching one account on leaves the other alone');
 
-    const off = await api(base, '/api/social/accounts/instagram:ariana.creator/disable', { method: 'POST' });
+    const off = await api(base, '/api/social/accounts/linkedin:ariana-creator/disable', { method: 'POST' });
     assert.equal(off.json.account.actions_enabled, false);
+  } finally { stop(); }
+});
+
+test('api: Instagram and TikTok accounts start ready to act (her creator handed them over); Instagram can post', async () => {
+  const { base, stop } = await startDashboard();
+  try {
+    const ig = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.ig' } });
+    assert.equal(ig.json.account.actions_enabled, true);
+    assert.equal(ig.json.account.autopublish, true);
+    const tt = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'tiktok', handle: 'ariana.tt' } });
+    if (tt.status === 200) assert.equal(tt.json.account.actions_enabled, true);
+    const x = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'someone' } });
+    assert.equal(x.json.account.actions_enabled, false);
   } finally { stop(); }
 });
 

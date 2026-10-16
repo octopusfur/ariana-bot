@@ -141,16 +141,49 @@ function attach(app, { requireAuth } = {}) {
     ok(res, {
       accounts: list.map((a) => ({
         ...withCapabilities(a),
-        engine_session: sessions.ok ? (byId.get(a.account_id) || { connected: false, detail: 'No session on the engine yet.' }) : { reachable: false, detail: sessions.error },
+        engine_session: engine.routesToIG(a)
+          ? { on_demand: true, detail: 'Uses the Instagram service (no browser). It is only contacted when an action runs — press Connect to check it live.' }
+          : sessions.ok ? (byId.get(a.account_id) || { connected: false, detail: 'No session on the engine yet.' }) : { reachable: false, detail: sessions.error },
       })),
     });
   });
 
+  // Instagram and TikTok are Ariana's own to run: adding one turns her actions on straight away
+  // (she likes, follows, unfollows, posts and replies to DMs; she never starts a DM — that rule is in
+  // engine_client). The creator can still switch Actions off per account.
+  const SELF_RUN = new Set(['instagram', 'tiktok']);
+
   r.post('/accounts', guard, async (req, res) => {
     const { platform, handle, label } = req.body || {};
-    const result = await accounts.add({ platform, handle, label });
+    const result = await accounts.add({ platform, handle, label, actionsEnabled: SELF_RUN.has(String(platform || '').toLowerCase()) });
     if (!result.ok) return fail(res, 400, result.error);
     ok(res, { account: withCapabilities(result.account), ...(result.warning ? { warning: result.warning } : {}) });
+  });
+
+  // Easy connect for Instagram: sign in once with the account's username + password (+ a security code if
+  // Instagram asks). The password is used for this one call and never stored; only the session is kept,
+  // in Supabase. On success the account is created (if new), turned online and ready to act.
+  r.post('/instagram/connect', guard, async (req, res) => {
+    const { username, password, code } = req.body || {};
+    if (!engine.ig.configured()) {
+      return fail(res, 503, 'The Instagram service is not connected yet — ' + engine.ig.HINT);
+    }
+    const out = await engine.ig.login(username, password, code);
+    if (!out.ok) return fail(res, out.code === 'bad_input' ? 400 : 502, out.error);
+    if (!out.connected) {
+      return ok(res, { connected: false, code: out.code, detail: out.detail, needs_code: out.code === 'two_factor' });
+    }
+    const id = 'instagram:' + out.handle;
+    let account = await accounts.get(id);
+    if (!account) {
+      const added = await accounts.add({ platform: 'instagram', handle: out.handle, actionsEnabled: true });
+      if (!added.ok) return fail(res, 500, added.error);
+      account = added.account;
+    }
+    await accounts.setActionsEnabled(id, true);
+    await accounts.setAutopublish(id, true);
+    account = await accounts.setStatus(id, accounts.STATUS.ONLINE, out.detail) || account;
+    ok(res, { connected: true, detail: out.detail, account: withCapabilities(account) });
   });
 
   r.delete('/accounts/:id', guard, async (req, res) => {
@@ -172,7 +205,7 @@ function attach(app, { requireAuth } = {}) {
 
     // Browser Use: the creator signs in themselves on a live browser (no passwords through Ariana).
     // First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
-    if (engine.provider() === 'browser-use') {
+    if (engine.provider() === 'browser-use' && !engine.routesToIG(account)) {
       const bu = engine.bu;
       let fin = null;
       if (bu.hasPendingLogin(account)) {
@@ -217,6 +250,15 @@ function attach(app, { requireAuth } = {}) {
       }
       const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.session.detail);
       return ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.session.detail });
+    }
+
+    // Instagram through its own service: the session was saved by Settings → Connect Instagram.
+    if (engine.routesToIG(account)) {
+      const have = await engine.sessionStatus(account);
+      if (have.ok && !(have.session && (have.session.exists || have.session.has_session))) {
+        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, 'Not signed in yet. Open Settings → Connect Instagram.');
+        return ok(res, { account: updated, connected: false, error: 'Not signed in yet. Open Settings → Connect Instagram.' });
+      }
     }
 
     // Cheap check first: is there a session at all? Only run the browser if so —

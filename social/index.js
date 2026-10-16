@@ -86,10 +86,11 @@ async function socialPromptBlock() {
       byPlatform[a.platform].push(a);
     }
     const abilities = caps.promptSummary(byPlatform);
+    const hasDmApps = !!(byPlatform.instagram || byPlatform.tiktok);
     const engineNote = engine.configured()
       ? ''
       : '\n(The social backend is not reachable right now, so any action will fail — say so honestly rather than promising it.)';
-    return `\n\nYOUR SOCIAL ACCOUNTS — these are really yours and you can act through them with your social_* tools when it genuinely fits:\n${described}\nWhat those platforms can actually do: ${abilities}\nRules for using them: act only when it is what you actually want to do, never to farm engagement; name the account when you act (account_id above); never claim you did something you didn't — if a tool fails or the platform can't do it, say so plainly; if you're unsure which account to use, ask.${engineNote}`;
+    return `\n\nYOUR SOCIAL ACCOUNTS — these are really yours and you can act through them with your social_* tools when it genuinely fits:\n${described}\nWhat those platforms can actually do: ${abilities}\nRules for using them: act only when it is what you actually want to do, never to farm engagement; name the account when you act (account_id above); never claim you did something you didn't — if a tool fails or the platform can't do it, say so plainly; if you're unsure which account to use, ask.${hasDmApps ? ' On Instagram and TikTok you NEVER start a conversation: you only reply to people who already messaged you, and the DM tool will refuse anyone who has not.' : ''}${engineNote}`;
   } catch (e) {
     return null;
   }

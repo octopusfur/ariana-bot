@@ -30,6 +30,9 @@ const SITE = {
   instagram: { label: 'Instagram', home: 'https://www.instagram.com/', login: 'https://www.instagram.com/accounts/login/', domain: 'instagram.com' },
   twitter:   { label: 'X (Twitter)', home: 'https://x.com/home', login: 'https://x.com/i/flow/login', domain: 'x.com' },
   linkedin:  { label: 'LinkedIn', home: 'https://www.linkedin.com/feed/', login: 'https://www.linkedin.com/login', domain: 'linkedin.com' },
+  // TikTok has no self-hosted adapter and no safe unofficial API, so it runs only here: a real
+  // cloud browser, which means it costs no memory on Ariana's own server.
+  tiktok:    { label: 'TikTok', home: 'https://www.tiktok.com/foryou', login: 'https://www.tiktok.com/login', domain: 'tiktok.com' },
 };
 
 const apiKey = () => (process.env.BROWSER_USE_API_KEY || '').trim();
@@ -260,8 +263,26 @@ const RULES = (site, handle) => [
   'Reply ONLY with JSON: {"success": true|false, "code": "...", "error": "...", "data": {...}}.',
 ].join(' ');
 
+// TikTok's wording: videos, not posts, and a few things the web app does differently.
+function tiktokInstruction(action, p, q) {
+  switch (action) {
+    case 'search': return `Search TikTok for videos about ${q(p.query)}. Put up to 8 results in data.posts as [{"url","author","text"}] (text = the caption).`;
+    case 'view_profile': return `Open the TikTok profile of ${q(p.username)}. Put name, bio, followers, following and total likes (as shown) in data.`;
+    case 'view_posts': return `Open the TikTok profile of ${q(p.username)} and put the URLs of their 10 most recent videos in data.posts as an array of strings. Do not play any video for longer than needed.`;
+    case 'like': return `Open the TikTok video ${q(p.url)} and like it with the heart button. If it is already liked, leave it liked. Do nothing else.`;
+    case 'comment': return `Open the TikTok video ${q(p.url)} and post this exact text as a comment: ${q(p.text)}. Do not change the wording. If comments are off or the comment is held for review, report success=false with code "comment_blocked".`;
+    case 'follow': return `Open the TikTok profile of ${q(p.username)} and follow them. If you already follow them, change nothing.`;
+    case 'unfollow': return `Open the TikTok profile of ${q(p.username)} and unfollow them (use Following, then confirm if asked).`;
+    case 'dm': return `Open the existing TikTok conversation with ${q(p.username)} in the inbox and send this exact reply there: ${q(p.message)}. NEVER start a new conversation: if no conversation with them exists yet, report success=false with code "no_first_dm". If TikTok does not let you reply, report success=false with code "dm_blocked".`;
+    case 'read_dms': return `Open the TikTok inbox. Put up to 10 conversations in data.items as [{"from": their username without @, "last_message": the text of the most recent message}] — include ONLY conversations where the most recent message was sent by the other person, not by me. Do not reply, do not open message requests, do not change anything.`;
+    case 'engagement': return `Open the TikTok profile of ${q(p.username)} and put the like and comment counts of their 5 latest videos in data.items.`;
+    default: return null;
+  }
+}
+
 function instruction(action, p, platform) {
   const q = (v) => JSON.stringify(String(v == null ? '' : v));
+  if (platform === 'tiktok') return tiktokInstruction(action, p, q);
   switch (action) {
     case 'search': return `Search for posts about ${q(p.query)}. Put up to 8 results in data.posts as [{"url","author","text"}].`;
     case 'view_profile': return `Open the profile of ${q(p.username)}. Put name, bio/headline, followers and following/connections (when shown) in data.`;

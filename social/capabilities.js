@@ -17,16 +17,43 @@ const path = require('path');
 
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.json'), 'utf8'));
 
+// What Instagram can do when it runs through the Instagram service (ig-service/, instagrapi)
+// instead of browser automation. It replaces the base 'instagram' entry only while that
+// service is configured.
+const IG_API = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.ig-api.json'), 'utf8'));
+// TikTok exists only through Browser Use Cloud. It is ADDED to the platform list only while
+// that is the engine — the self-hosted SocialCrabs engine has no TikTok handler.
+const TIKTOK = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.tiktok.json'), 'utf8'));
+
+function igApiActive() {
+  try { return require('./ig_engine').configured(); } catch (_) { return false; }
+}
+
+function tiktokActive() {
+  const selfHosted = (process.env.SOCIAL_ENGINE_URL || '').trim();
+  return !selfHosted && !!(process.env.BROWSER_USE_API_KEY || '').trim();
+}
+
+// The platforms as they are right now: base manifest, with whichever overlays are live.
+function effectivePlatforms() {
+  const out = { ...MANIFEST.platforms };
+  if (igApiActive()) out.instagram = IG_API.platforms.instagram;
+  if (tiktokActive()) out.tiktok = TIKTOK.platforms.tiktok;
+  return out;
+}
+
 function manifest() {
-  return MANIFEST;
+  const unsupported = { ...MANIFEST.unsupported_platforms };
+  if (tiktokActive()) delete unsupported.tiktok;
+  return { ...MANIFEST, platforms: effectivePlatforms(), unsupported_platforms: unsupported };
 }
 
 function platformIds() {
-  return Object.keys(MANIFEST.platforms);
+  return Object.keys(effectivePlatforms());
 }
 
 function platformInfo(platform) {
-  return MANIFEST.platforms[platform] || null;
+  return effectivePlatforms()[platform] || null;
 }
 
 function platformLabel(platform) {
@@ -67,7 +94,7 @@ function unsupportedReason(platform, action) {
 }
 
 function unsupportedPlatformReason(platform) {
-  const why = MANIFEST.unsupported_platforms[platform];
+  const why = manifest().unsupported_platforms[platform];
   if (why) return `${platform}: ${why}`;
   return `"${platform}" has no adapter in this integration. Supported platforms: ${platformIds().join(', ')}.`;
 }
@@ -122,7 +149,7 @@ function describe() {
       supported: supportedActions(id),
       unsupported: unsupportedActions(id),
     })),
-    unsupported_platforms: Object.entries(MANIFEST.unsupported_platforms).map(([id, reason]) => ({ id, reason })),
+    unsupported_platforms: Object.entries(manifest().unsupported_platforms).map(([id, reason]) => ({ id, reason })),
   };
 }
 

@@ -18,6 +18,8 @@
 'use strict';
 
 const bu = require('./browseruse_engine');
+const inbound = require('./dm_inbound');
+const ig = require('./ig_engine'); // Instagram through the Instagram service (ig-service/, instagrapi) — no browser
 
 const DEFAULT_TIMEOUT_MS = 120000; // browser actions are slow on purpose (human delays)
 
@@ -34,14 +36,22 @@ function apiKey() {
 // An external engine (SOCIAL_ENGINE_URL) wins. Otherwise BROWSER_USE_API_KEY alone is enough:
 // Browser Use Cloud then acts as the engine.
 function useBU() { return !baseUrl() && bu.configured(); }
-function provider() { return baseUrl() ? 'socialcrabs' : (bu.configured() ? 'browser-use' : null); }
+// Instagram, when the Instagram service is configured, goes to it (instagrapi, no browser, low RAM);
+// every other platform carries on exactly as before.
+function routesToIG(account) { return ig.handles(account); }
+function otherEngine() { return !!baseUrl() || bu.configured(); }
+function provider() {
+  if (baseUrl()) return 'socialcrabs';
+  if (bu.configured()) return 'browser-use';
+  return ig.configured() ? 'instagrapi' : null;
+}
 
 function configured() {
-  return !!baseUrl() || bu.configured();
+  return !!baseUrl() || bu.configured() || ig.configured();
 }
 
 function configHint() {
-  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine.';
+  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine. For Instagram without a browser, set IG_SERVICE_URL and IG_SERVICE_API_KEY (see ig-service/README.md).';
 }
 
 async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
@@ -98,6 +108,7 @@ async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS }
 // ── STATUS ──────────────────────────────────────────────────────────────────
 
 async function health({ timeoutMs = 10000 } = {}) {
+  if (!otherEngine()) return ig.health(); // Instagram service only: answered locally, never wakes it
   if (useBU()) return bu.health();
   const r = await request('GET', '/health', undefined, { timeoutMs });
   if (!r.ok) return r;
@@ -105,6 +116,7 @@ async function health({ timeoutMs = 10000 } = {}) {
 }
 
 async function capabilities() {
+  if (!otherEngine()) return { ok: false, code: 'bundled', error: 'No engine to ask; the bundled capability list applies.' };
   if (useBU()) return bu.capabilities();
   const r = await request('GET', '/api/capabilities', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
@@ -113,6 +125,7 @@ async function capabilities() {
 
 // Engine-side view of every session it holds. Used to reconcile statuses.
 async function sessions() {
+  if (!otherEngine()) return { ok: true, sessions: [] }; // local — opening the dashboard must not wake the Instagram service
   if (useBU()) return bu.sessions();
   const r = await request('GET', '/api/sessions', undefined, { timeoutMs: 15000 });
   if (!r.ok) return r;
@@ -122,6 +135,7 @@ async function sessions() {
 // ── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
 async function sessionStatus(account) {
+  if (routesToIG(account)) return ig.sessionStatus(account);
   if (useBU()) return bu.sessionStatus(account);
   const r = await request('GET', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 20000 });
   if (!r.ok) return r;
@@ -131,6 +145,7 @@ async function sessionStatus(account) {
 // Opens the platform in a browser and asks "am I logged in?" — the difference
 // between "a session file exists" and "the session works".
 async function verify(account) {
+  if (routesToIG(account)) return ig.verify(account);
   if (useBU()) return bu.verify(account);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/verify`, {
     platform: account.platform,
@@ -144,6 +159,7 @@ async function verify(account) {
 // ops scripts — never by the dashboard. The dashboard has no route that accepts
 // credentials or cookies; this is called from the operator's own machine.
 async function importSession(account, session) {
+  if (routesToIG(account)) return ig.importSession(account, session);
   if (useBU()) return bu.importSession(account, session);
   const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/import`, {
     platform: account.platform,
@@ -155,6 +171,7 @@ async function importSession(account, session) {
 }
 
 async function disconnect(account) {
+  if (routesToIG(account)) return ig.disconnect(account);
   if (useBU()) return bu.disconnect(account);
   const r = await request('DELETE', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 60000 });
   if (!r.ok) return r;
@@ -165,7 +182,18 @@ async function disconnect(account) {
 
 // payload is the action's platform payload: { url } | { url, text } |
 // { username } | { username, message } | { text } | { query } | { profileUrl, note }
-async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
+// She never starts a conversation on Instagram or TikTok: a DM goes out only to someone who already
+// wrote to her. `reply: true` is for the DM poller answering an inbound message itself.
+const NEVER_FIRST = new Set(['instagram', 'tiktok']);
+
+async function act(account, action, payload, { timeoutMs = 180000, reply = false } = {}) {
+  if (action === 'dm' && account && NEVER_FIRST.has(account.platform) && !reply) {
+    const who = payload && payload.username;
+    if (!(await inbound.hasInbound(account.platform, who))) {
+      return { ok: false, code: 'no_first_dm', error: `@${String(who || '').replace(/^@/, '')} has not messaged her first, and she never starts a conversation. Nothing was sent.` };
+    }
+  }
+  if (routesToIG(account)) return ig.act(account, action, payload);
   if (useBU()) return bu.act(account, action, payload);
   const r = await request('POST', `/api/accounts/${encodeURIComponent(account.account_id)}/actions/${encodeURIComponent(action)}`, {
     platform: account.platform,
@@ -189,6 +217,8 @@ async function act(account, action, payload, { timeoutMs = 180000 } = {}) {
 module.exports = {
   provider,
   bu,
+  ig,
+  routesToIG,
   configured,
   configHint,
   baseUrl,
