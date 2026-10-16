@@ -20,6 +20,7 @@ const ROOT = process.env.STATE_SYNC_ROOT || __dirname;
 const FILES = [
   "universal_memory.json", "emotional_ledger.json", "attraction_matrix.json", "human_state.json",
   "wants.json", "boundaries.json", "mood_system.json", "status_posts.json", "snap_story_posts.json", "status_watch.json", "controls.json",
+  "social_data/accounts.json", "social_data/config.json",
   "brain/relationships.json", "brain/memory_registry.json", "brain/memory_registry.json.outbox.json", "brain/harmes_jobs.json",
 ];
 const URL_BASE = (process.env.SUPABASE_URL || "").replace(/\/$/, "");

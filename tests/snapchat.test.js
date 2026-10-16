@@ -1,5 +1,8 @@
 'use strict';
 // Snapchat channel adapter against a fake sidecar (no network, no Snapchat account).
+// The adapter logs one emoji line per inbound message; Node's test runner can mis-parse that chunk from a test file
+// ("Unable to deserialize cloned data"), so keep it out of the runner's output.
+const _log = console.log; console.log = (...a) => { if (!String(a[0]).includes('\u{1F47B}')) _log(...a); };
 const SECRET = 'sc-test-secret';
 const CONV = '6e609ac8-04ed-45b8-9dee-002cdaf13db5';
 process.env.SNAP_API_SECRET = SECRET;

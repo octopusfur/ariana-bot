@@ -64,7 +64,7 @@ async function persist(account) {
   // Keep Supabase/file copies in step with the in-memory cache. Status fields
   // are cache-worthy (they drive the dashboard) but never authoritative — the
   // engine is asked directly before anything is shown as "Connected".
-  await store.saveAccount(account);
+  return store.saveAccount(account);
 }
 
 async function list() {
@@ -106,8 +106,8 @@ async function add({ platform, handle, label = null, actionsEnabled = false }) {
   };
   accounts.push(account);
   cache = accounts;
-  await persist(account);
-  return { ok: true, account: { ...account } };
+  const saved = await persist(account);
+  return { ok: true, account: { ...account }, ...(saved && saved.persisted === false ? { warning: `Added, but it could not be saved to the database (${saved.error}). It will be gone after the next restart until this is fixed.` } : {}) };
 }
 
 async function remove(accountId) {

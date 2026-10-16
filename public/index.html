@@ -2064,11 +2064,18 @@ function renderLife(){
     ${lfRow('Things she finds online','Funny or news, in her own words'+(webOff?'<br><b>Needs web search (FIRECRAWL_API_KEY) to be set up.</b>':''),lfSw('status.kinds.found',s.kinds.found,webOff),!s.enabled||webOff)}
     ${lfRow('&nbsp;&nbsp;Funny things','',lfSw('status.topics.funny',s.topics.funny,webOff),!s.enabled||!s.kinds.found||webOff)}
     ${lfRow('&nbsp;&nbsp;News','',lfSw('status.topics.news',s.topics.news,webOff),!s.enabled||!s.kinds.found||webOff)}
+    ${lfRow('Her own videos','From your media library'+` (${i.videos||0} in library)`,lfSw('status.kinds.video',s.kinds.video),!s.enabled)}
+    ${lfRow('Funny GIFs from the internet','WhatsApp status only'+(i.giphyOn?'':'<br><b>Needs GIPHY_API_KEY on Render.</b>'),lfSw('status.kinds.gif',s.kinds.gif,!i.giphyOn),!s.enabled||!i.giphyOn)}
     ${lfRow('Plain thoughts and moods','',lfSw('status.kinds.text',s.kinds.text),!s.enabled)}
-    ${lfRow('Also post pictures to her Telegram story',i.telegramLinked?'':'<b>Telegram is not linked.</b>',lfSw('status.telegramStory',s.telegramStory,!i.telegramLinked),!s.enabled||!i.telegramLinked)}
+    ${lfRow('Also post her pictures and videos to her Telegram story','Only her own media, never things from the internet'+(i.telegramLinked?'':'<br><b>Telegram is not linked.</b>'),lfSw('status.telegramStory',s.telegramStory,!i.telegramLinked),!s.enabled||!i.telegramLinked)}
+    ${lfRow('Also post her pictures to her Instagram','Pictures only, from her own library'+(i.instagramOn?'':'<br><b>Not set up: add INSTAGRAM_USER_ID and INSTAGRAM_ACCESS_TOKEN on Render.</b>'),lfSw('status.instagram',s.instagram,!i.instagramOn),!s.enabled||!i.instagramOn)}
+    ${lfRow('Also post her pictures and videos to her Snapchat story','Only her own media'+(i.snapchatOn?'':'<br><b>Not set up: add BULKPUBLISH_API_KEY on Render.</b>'),lfSw('status.snapchatStory',s.snapchatStory,!i.snapchatOn),!s.enabled||!i.snapchatOn)}
+    ${lfRow('Also post her vertical videos to Snapchat Spotlight','Her own videos only, 6 to 60 seconds'+(i.snapchatOn?'':'<br><b>Not set up: add BULKPUBLISH_API_KEY on Render.</b>'),lfSw('status.snapchatSpotlight',s.snapchatSpotlight,!i.snapchatOn),!s.enabled||!i.snapchatOn)}
     <div class="lf-h" style="padding-top:12px">Post one now</div>
     <div class="lf-btns">
       <button class="lf-btn" onclick="lifePost('photo')">Picture</button>
+      <button class="lf-btn" onclick="lifePost('video')">Video</button>
+      <button class="lf-btn" onclick="lifePost('gif')">Funny GIF</button>
       <button class="lf-btn" onclick="lifePost('found','funny')" ${webOff?'disabled':''}>Funny find</button>
       <button class="lf-btn" onclick="lifePost('found','news')" ${webOff?'disabled':''}>News</button>
       <button class="lf-btn" onclick="lifePost('text')">Thought</button>

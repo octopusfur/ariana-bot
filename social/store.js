@@ -33,6 +33,7 @@ const ACTIVITY_MAX_LINES = 2000;
 let supabase = null;
 let supabaseTried = false;
 let warnedNoTable = false;
+let lastSaveError = null;
 
 function init() {
   if (supabaseTried) return supabase;
@@ -112,46 +113,69 @@ async function writeJsonFile(file, value) {
 
 async function loadAccounts() {
   const sb = init();
+  const local = await readJsonFile(ACCOUNTS_FILE, []);
   if (sb) {
     const { data, error } = await sb.from('ariana_social_accounts').select('*').order('created_at', { ascending: true });
-    if (!error) return data || [];
+    if (!error) {
+      const rows = data || [];
+      // An account saved only to the local file (the database write failed, or the file was restored from the state mirror)
+      // is still her account: show it, and try to put it back into the database.
+      const have = new Set(rows.map((r) => r.account_id));
+      const extra = (local || []).filter((r) => r && r.account_id && !have.has(r.account_id));
+      if (extra.length) {
+        console.warn(`[social] ${extra.length} account(s) were only in the local copy, not in the database; using them and re-saving`);
+        for (const a of extra) saveAccount(a).catch(() => {});
+      }
+      return [...rows, ...extra];
+    }
     if (!tableMissing(error)) console.warn('[social] loadAccounts failed:', error.message);
     else tableWarning(error);
   }
-  return readJsonFile(ACCOUNTS_FILE, []);
+  return local;
 }
 
 async function saveAccount(account) {
   const sb = init();
+  let persisted = !sb; // no database configured: the local file is the store
   if (sb) {
-    const { error } = await sb.from('ariana_social_accounts').upsert({
+    const row = {
       account_id: account.account_id,
       platform: account.platform,
       handle: account.handle,
       label: account.label,
       provider: account.provider,
       actions_enabled: account.actions_enabled,
+      autopublish: !!account.autopublish,
       status: account.status,
       status_detail: account.status_detail,
       last_checked: account.last_checked,
       created_at: account.created_at,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'account_id' });
-    if (error && tableMissing(error)) tableWarning(error);
+    };
+    let { error } = await sb.from('ariana_social_accounts').upsert(row, { onConflict: 'account_id' });
+    if (error && /autopublish/i.test(error.message || '')) { // older table without that column: save everything else
+      delete row.autopublish;
+      ({ error } = await sb.from('ariana_social_accounts').upsert(row, { onConflict: 'account_id' }));
+    }
+    if (error) {
+      if (tableMissing(error)) tableWarning(error);
+      else console.warn(`[social] could not save account ${account.account_id} to the database: ${error.message}`);
+      lastSaveError = error.message || 'unknown error';
+    } else { persisted = true; lastSaveError = null; }
   }
   const rows = await readJsonFile(ACCOUNTS_FILE, []);
   const idx = rows.findIndex((r) => r.account_id === account.account_id);
   if (idx === -1) rows.push(account);
   else rows[idx] = account;
   await writeJsonFile(ACCOUNTS_FILE, rows);
-  return account;
+  return { account, persisted, error: persisted ? null : lastSaveError };
 }
 
 async function deleteAccount(accountId) {
   const sb = init();
   if (sb) {
     const { error } = await sb.from('ariana_social_accounts').delete().eq('account_id', accountId);
-    if (error && tableMissing(error)) tableWarning(error);
+    if (error) { if (tableMissing(error)) tableWarning(error); else console.warn(`[social] could not delete account ${accountId} from the database: ${error.message}`); }
   }
   const rows = await readJsonFile(ACCOUNTS_FILE, []);
   await writeJsonFile(ACCOUNTS_FILE, rows.filter((r) => r.account_id !== accountId));
@@ -242,6 +266,7 @@ async function saveConfig(patch) {
 }
 
 module.exports = {
+  _setSupabaseForTest: (sb) => { supabase = sb; supabaseTried = true; },
   DATA_DIR,
   usingSupabase,
   loadAccounts,

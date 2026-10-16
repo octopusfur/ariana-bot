@@ -18,9 +18,12 @@ function defaults(env = process.env) {
       enabled: env.WA_STATUS_POSTS !== "off",
       postsMin: Math.min(6, Math.max(1, num(env.STATUS_POSTS_MIN, 2))),
       postsMax: Math.min(6, Math.max(1, num(env.STATUS_POSTS_MAX, 3))),
-      kinds: { text: true, photo: true, found: true },
+      kinds: { text: true, photo: true, found: true, video: true, gif: true },
       topics: { funny: true, news: true },
       telegramStory: env.TG_STORY_POSTS !== "off",
+      instagram: env.IG_POSTS !== "off",
+      snapchatStory: env.SNAP_STORY_MIRROR !== "off",
+      snapchatSpotlight: env.SNAP_SPOTLIGHT !== "off",
     },
     photos: {
       enabled: true,
@@ -58,12 +61,17 @@ function sanitize(input, base) {
         text: bool(s.kinds && s.kinds.text, base.status.kinds.text),
         photo: bool(s.kinds && s.kinds.photo, base.status.kinds.photo),
         found: bool(s.kinds && s.kinds.found, base.status.kinds.found),
+        video: bool(s.kinds && s.kinds.video, base.status.kinds.video),
+        gif: bool(s.kinds && s.kinds.gif, base.status.kinds.gif),
       },
       topics: {
         funny: bool(s.topics && s.topics.funny, base.status.topics.funny),
         news: bool(s.topics && s.topics.news, base.status.topics.news),
       },
       telegramStory: bool(s.telegramStory, base.status.telegramStory),
+      instagram: bool(s.instagram, base.status.instagram),
+      snapchatStory: bool(s.snapchatStory, base.status.snapchatStory),
+      snapchatSpotlight: bool(s.snapchatSpotlight, base.status.snapchatSpotlight),
     },
     photos: {
       enabled: bool(p.enabled, base.photos.enabled),
@@ -88,7 +96,7 @@ function sanitize(input, base) {
   };
   if (out.status.postsMax < out.status.postsMin) out.status.postsMax = out.status.postsMin;
   // at least one kind and one topic must stay on, or the poster would have nothing to write
-  if (!out.status.kinds.text && !out.status.kinds.photo && !out.status.kinds.found) out.status.kinds.text = true;
+  if (!out.status.kinds.text && !out.status.kinds.photo && !out.status.kinds.found) out.status.kinds.text = true; // video / gif posts depend on what exists, so they do not count
   if (!out.status.topics.funny && !out.status.topics.news) out.status.topics.funny = true;
   return out;
 }

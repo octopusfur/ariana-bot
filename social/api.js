@@ -150,7 +150,7 @@ function attach(app, { requireAuth } = {}) {
     const { platform, handle, label } = req.body || {};
     const result = await accounts.add({ platform, handle, label });
     if (!result.ok) return fail(res, 400, result.error);
-    ok(res, { account: withCapabilities(result.account) });
+    ok(res, { account: withCapabilities(result.account), ...(result.warning ? { warning: result.warning } : {}) });
   });
 
   r.delete('/accounts/:id', guard, async (req, res) => {

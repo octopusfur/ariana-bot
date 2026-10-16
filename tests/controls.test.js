@@ -57,3 +57,15 @@ test("reset restores the defaults", () => {
   c.update({ photos: { dailyCap: 20 } });
   assert.strictEqual(c.reset().photos.dailyCap, 5);
 });
+
+test("new switches: videos, internet GIFs and Instagram are on by default and can be turned off; junk falls back to the default", () => {
+  const c = create({ file: tmp(), env: {} });
+  const d = c.get().status;
+  assert.strictEqual(d.kinds.video, true); assert.strictEqual(d.kinds.gif, true); assert.strictEqual(d.instagram, true);
+  c.update({ status: { kinds: { video: false, gif: false }, instagram: false } });
+  const s = c.get().status;
+  assert.deepStrictEqual([s.kinds.video, s.kinds.gif, s.instagram], [false, false, false]);
+  c.update({ status: { kinds: { video: "yes" }, instagram: 5 } });
+  assert.deepStrictEqual([c.get().status.kinds.video, c.get().status.instagram], [true, true], "non-booleans fall back to the default");
+  assert.strictEqual(create({ file: tmp(), env: { IG_POSTS: "off" } }).get().status.instagram, false);
+});

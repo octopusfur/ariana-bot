@@ -2066,6 +2066,18 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
       return;
     }
 
+    // "post it to your status" / "post a gym pic on your story" / "post a funny gif to your status" / "put that on your instagram"
+    // (the OWNER only). She posts for real and says plainly what went where; the policy decides what may go to which place.
+    const postIntent = ownerPost.parse(finalText);
+    if (postIntent) {
+      let ack;
+      try { ack = await runOwnerPost(postIntent, { id, mediaPayload }); }
+      catch (e) { ack = `couldn't post that: ${String(e.message).slice(0, 140)}`; }
+      addMessage(id, 'ariana', ack);
+      await sendReply(id, platform, ack, null, null, chatId, from, phoneNumberId);
+      return;
+    }
+
     // ── "text me on WhatsApp" / "text me on Signal" (no message specified) ──
     // Owner wants Ariana to proactively send them a message on a different channel
     const selfTextMatch = finalText.match(/^(?:text|message|msg|hit)\s+me(?:\s+on)?\s+(whatsapp|signal|telegram|sms|wa)\s*$/i);
@@ -3171,6 +3183,79 @@ app.get('/api/snapchat/publish-status', requireDashboardAuth, async (_req, res) 
 // X (Twitter) through the social engine — no extra service: /api/x/status + /api/x/check, see x_channel.js
 const xCtl = xchannel.init({ app, requireAuth: requireDashboardAuth, onMessage: (m) => handleMessage(m) });
 
+// ── where her posts go (post_policy.js decides, story_publish.js fans out, status_destinations.js holds the real senders) ──
+const storyPublish = require('./story_publish');
+const igPublish = require('./instagram_publish');
+// Instagram needs a PUBLIC JPEG link: re-host the picture we already prepared in her media bucket, then delete it again.
+async function hostPublicJpeg(base64) {
+  if (!supabase) throw new Error('no storage configured');
+  const name = `ig-tmp/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+  const { error } = await supabase.storage.from('ariana-media').upload(name, Buffer.from(base64, 'base64'), { contentType: 'image/jpeg', upsert: false });
+  if (error) throw new Error(`could not host the picture: ${error.message}`);
+  const { data: { publicUrl } } = supabase.storage.from('ariana-media').getPublicUrl(name);
+  return { url: publicUrl, remove: () => supabase.storage.from('ariana-media').remove([name]).catch(() => {}) };
+}
+const statusDest = require('./status_destinations').create({
+  waWeb: (p, body) => waWeb(p, body),
+  getTgClient: () => tgClient,
+  telegramStory: require('./telegram_story'),
+  instagram: igPublish,
+  hostPublicJpeg,
+  snapchat: snapPublisher,
+  controls: () => controls.get(),
+});
+function publishStatusItem(item, only = null) {
+  const d = statusDest.destinations();
+  return storyPublish.publish(item, { destinations: Object.fromEntries(Object.entries(d).filter(([, f]) => f)), enabled: statusDest.enabled }, { only });
+}
+
+// ── the owner asks her, in chat, to post something ──
+const ownerPost = require('./owner_post');
+async function runOwnerPost(intent, { id, mediaPayload }) {
+  const sm = require('./status_media');
+  const caption = intent.caption || '';
+  let item;
+  const attached = mediaPayload && mediaPayload.base64 && (mediaPayload.kind === 'image' || mediaPayload.kind === 'animation');
+  if (attached) { // something the owner just sent: posted to the WhatsApp status (the policy keeps it off every other place)
+    const buf = Buffer.from(mediaPayload.base64, 'base64');
+    if (mediaPayload.kind === 'image') {
+      const jpg = await require('sharp')(buf).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer();
+      item = { source: 'owner', type: 'image', payload: { text: caption, base64: jpg.toString('base64'), mimetype: 'image/jpeg' } };
+    } else {
+      const v = await sm.prepareVideo(buf);
+      item = { source: 'owner', type: 'video', payload: { text: caption, base64: v.base64, mimetype: 'video/mp4', video: { duration: v.durationSec, width: v.width, height: v.height } } };
+    }
+  } else if (intent.what === 'funny') {
+    if (!process.env.GIPHY_API_KEY) throw new Error('I need GIPHY_API_KEY set to find funny GIFs');
+    const g = await require('./funny_media').findFunnyGif({ recentIds: statusPoster.state.recentGifs || [] });
+    if (!g) throw new Error("couldn't find a good funny one right now");
+    const v = await sm.loadVideo(g.url);
+    item = { source: 'internet', type: 'video', payload: { text: caption, base64: v.base64, mimetype: 'video/mp4', video: { duration: v.durationSec, width: v.width, height: v.height } } };
+    statusPoster.state.recentGifs = [...(statusPoster.state.recentGifs || []), g.id].slice(-30);
+  } else if (intent.what === 'video') {
+    const vids = await photoSkill.snapshotVideos();
+    if (!vids.length) throw new Error('there are no videos in my media library');
+    const pick = vids.length > 1 ? require('./media_library').pickBest(vids, intent.query, {}) : vids[0];
+    const v = await sm.loadVideo(pick.url);
+    item = { source: 'library', type: 'video', url: pick.url, payload: { text: caption, base64: v.base64, mimetype: 'video/mp4', video: { duration: v.durationSec, sourceDuration: v.sourceDurationSec, width: v.width, height: v.height } } };
+  } else {
+    let pick;
+    if (intent.what === 'last') {
+      pick = photoSkill.lastSent(id);
+      if (!pick) throw new Error("I haven't sent you a picture lately, tell me which one, like \"post a gym pic to your status\"");
+    } else {
+      const rows = await photoSkill.snapshot();
+      if (!rows.length) throw new Error('there are no pictures in my media library');
+      pick = ownerPost.pickPicture(rows, intent.query);
+    }
+    const img = await sm.loadImage(pick.url);
+    item = { source: 'library', type: 'image', url: pick.url, payload: { text: caption, base64: img.base64, mimetype: 'image/jpeg' } };
+  }
+  const results = await publishStatusItem(item, intent.only);
+  console.log(`[post] owner request -> ${results.map((r) => `${r.dest}:${r.ok ? 'ok' : (r.skipped || r.error || 'failed')}`).join(', ')}`);
+  return ownerPost.summarize(results, { what: intent.what });
+}
+
 // Ariana's own WhatsApp Status posts (see status_poster.js)
 const statusPoster = statusPosterMod.create({
   enabled: () => controls.get().status.enabled && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
@@ -3193,12 +3278,15 @@ const statusPoster = statusPosterMod.create({
     try { buf = await require('sharp')(buf).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer(); mimetype = 'image/jpeg'; } catch { /* send the original bytes */ }
     return { base64: buf.toString('base64'), mimetype };
   },
-  // picture posts also go to her Telegram Story when Telegram is linked (switch in the dashboard: Her life)
-  mirrors: [async (payload) => {
-    if (!tgClient || !controls.get().status.telegramStory) return;
-    await require('./telegram_story').postStory(tgClient, { buffer: Buffer.from(payload.base64, 'base64'), caption: payload.text });
-    console.log('[status] telegram story posted');
-  }],
+  // Where each finished post may go is decided by post_policy.js (her own media: WhatsApp status, Telegram story, Instagram (pictures);
+  // internet finds and owner-sent media: WhatsApp status only). WhatsApp goes first; the rest are best effort.
+  publish: (item) => publishStatusItem(item),
+  listVideos: () => photoSkill.snapshotVideos(),
+  loadVideo: async (item) => {
+    const v = await require('./status_media').loadVideo(item.url);
+    return v;
+  },
+  findFunny: require('./funny_media') && process.env.GIPHY_API_KEY ? (recentIds) => require('./funny_media').findFunnyGif({ recentIds }) : null,
   // something funny / real news she found on the web (Firecrawl; needs FIRECRAWL_API_KEY)
   search: require('./firecrawl_skill').enabled() ? (q) => require('./firecrawl_skill').webSearch(q, { limit: 5 }) : null,
 });
@@ -3246,6 +3334,10 @@ app.get('/api/controls', requireDashboardAuth, async (req, res) => {
         searchAvailable: require('./firecrawl_skill').enabled(),
         telegramLinked: !!tgClient,
         pictures: (await photoSkill.snapshot().catch(() => [])).length,
+        videos: (await photoSkill.snapshotVideos().catch(() => [])).length,
+        giphyOn: !!process.env.GIPHY_API_KEY,
+        instagramOn: igPublish.isConfigured(),
+        snapchatOn: snapPublisher.isConfigured(),
         today: (st.slots || []).map((s) => ({ at: s.at, done: !!s.done })),
         recent: (st.log || []).slice(-8).reverse(),
         watch: { ready: WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR, today: statusWatcher.state.today, log: (statusWatcher.state.log || []).slice(-10).reverse() },

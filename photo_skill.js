@@ -117,7 +117,7 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, con
     if (pending.has(convoId) && t - pending.get(convoId).at < PENDING_MS) return { ok: false, note: "[A picture is already on its way with this message. Just write your message.]" };
     if (recent.length && t - recent[recent.length - 1] < L().cooldownMs) return { ok: false, note: `[You sent them a picture ${Math.max(1, Math.round((t - recent[recent.length - 1]) / 60000))} min ago. Nothing sent. Make them wait, in your own way.]` };
     if (recent.length >= L().dailyCap) return { ok: false, note: "[You've already sent them plenty of pictures today. Nothing sent. Tell them in your own way that's enough for today.]" };
-    pending.set(convoId, { url: item.url, tags: item.tags, caption: String((args && args.caption) || "").trim().slice(0, 140), at: t });
+    pending.set(convoId, { id: item.id, url: item.url, tags: item.tags, caption: String((args && args.caption) || "").trim().slice(0, 140), at: t });
     recent.push(t);
     return { ok: true, note: "[Done: that picture will arrive together with your next message. Now write your message as if you just sent it.]" };
   }
@@ -126,10 +126,33 @@ function createPhotoSkill({ fetchRows, resolveTarget = null, deliver = null, con
   function take(convoId) {
     const p = pending.get(convoId);
     pending.delete(convoId);
-    return p && now() - p.at < PENDING_MS ? p : null;
+    const ok = p && now() - p.at < PENDING_MS ? p : null;
+    if (ok) lastSentMap.set(convoId, { url: ok.url, tags: ok.tags, id: ok.id, at: now() }); // so "post it to your status" knows which picture
+    return ok;
+  }
+  const lastSentMap = new Map();
+  /** The picture she most recently sent in this chat (within `withinMs`), or null. */
+  const lastSent = (convoId, withinMs = 60 * 60 * 1000) => { const l = lastSentMap.get(convoId); return l && now() - l.at < withinMs ? l : null; };
+
+  /** Her own videos from the media library (same rows as the pictures, other media type). */
+  async function snapshotVideos() {
+    try {
+      const rows = (await fetchRows()) || [];
+      const seen = new Set(), items = [];
+      for (const r of rows) {
+        if (!r || !r.url || !r.id) continue;
+        if (!(String(r.media_type || "").toLowerCase() === "video" || /\.(mp4|mov|webm|m4v)(\?|$)/i.test(r.url))) continue;
+        const id = String(r.id).replace(/-/g, "").slice(0, 6);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        items.push({ id, url: r.url, tags: tagsOf(r) });
+        if (items.length >= MAX_LIST) break;
+      }
+      return items;
+    } catch { return []; }
   }
 
-  return { snapshot, schema, promptNote, execute, take, canSendToOthers: othersOn, enabled: () => L().enabled };
+  return { snapshot, snapshotVideos, lastSent, schema, promptNote, execute, take, canSendToOthers: othersOn, enabled: () => L().enabled };
 }
 
 module.exports = { createPhotoSkill, looksLikePhotoRequest };

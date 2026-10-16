@@ -190,3 +190,71 @@ test("changing posts-per-day mid-day keeps what already went out and re-plans th
   const s = bot.state.slots;
   for (let k = 1; k < s.length; k++) assert.ok(s[k].at - s[k - 1].at >= 3 * H);
 });
+
+// ── video / GIF posts and the posting policy ──────────────────
+const { publish } = require("../story_publish");
+const pol = require("../post_policy");
+const poster = (extra = {}) => {
+  const posted = [], seen = [];
+  const destinations = Object.fromEntries(pol.DESTINATIONS.map((d) => [d, async (it) => { seen.push([d, it.source, it.type]); if (d === "whatsapp_status") posted.push(it.payload); }]));
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true,
+    generate: async () => "mood",
+    post: async (p) => posted.push(p),
+    publish: (item) => publish(item, { destinations, enabled: () => true }),
+    ...extra,
+  });
+  return { bot, posted, seen };
+};
+
+test("her own video from the library goes to WhatsApp, Telegram, Snapchat; never Instagram", async () => {
+  const { bot, posted, seen } = poster({
+    listVideos: async () => [{ id: "v1", url: "u", tags: ["gym"] }],
+    loadVideo: async () => ({ base64: "VID", durationSec: 6, width: 540, height: 960 }),
+  });
+  const out = await bot.postNow(undefined, { kind: "video" });
+  assert.ok(out);
+  assert.strictEqual(posted[0].mimetype, "video/mp4");
+  assert.deepStrictEqual(seen.map((x) => x[0]), ["whatsapp_status", "telegram_story", "snapchat_story", "snapchat_spotlight"]);
+  assert.ok(seen.every((x) => x[1] === "library" && x[2] === "video"));
+});
+
+test("a funny GIF from the internet is posted to the WhatsApp status ONLY", async () => {
+  const { bot, posted, seen } = poster({
+    findFunny: async () => ({ id: "g1", title: "cat falls off table", url: "https://media.giphy.com/x.mp4" }),
+    loadVideo: async (item) => { assert.strictEqual(item.url, "https://media.giphy.com/x.mp4"); return { base64: "GIF", durationSec: 3, width: 480, height: 480 }; },
+  });
+  await bot.postNow(undefined, { kind: "gif" });
+  assert.strictEqual(posted.length, 1);
+  assert.deepStrictEqual(seen, [["whatsapp_status", "internet", "video"]]);
+  assert.deepStrictEqual(bot.state.recentGifs, ["g1"], "she will not repeat the same GIF soon");
+});
+
+test("her picture reaches Instagram too, and a failing Instagram never fails the WhatsApp post", async () => {
+  const seen = [];
+  const destinations = {
+    whatsapp_status: async () => seen.push("wa"),
+    instagram_post: async () => { throw new Error("token expired"); },
+    telegram_story: async () => seen.push("tg"),
+  };
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true, generate: async () => "gym day",
+    post: async () => {}, listPhotos: async () => [{ id: "p1", url: "u", tags: ["gym"] }], loadPhoto: async () => ({ base64: "IMG", mimetype: "image/jpeg" }),
+    publish: (item) => publish(item, { destinations, enabled: () => true }),
+  });
+  assert.ok(await bot.postNow(undefined, { kind: "photo" }));
+  assert.deepStrictEqual(seen, ["wa", "tg"]);
+  assert.strictEqual(bot.state.lastResults.find((r) => r.dest === "instagram_post").ok, false);
+});
+
+test("if the WhatsApp status itself fails, the post fails and nothing is mirrored", async () => {
+  const seen = [];
+  const destinations = { whatsapp_status: async () => { throw new Error("not connected"); }, telegram_story: async () => seen.push("tg") };
+  const bot = sp.create({
+    now: () => T0, rand: () => 0.1, enabled: () => true, isConnected: async () => true, generate: async () => "x",
+    post: async () => {}, listPhotos: async () => [{ id: "p1", url: "u", tags: [] }], loadPhoto: async () => ({ base64: "IMG", mimetype: "image/jpeg" }),
+    publish: (item) => publish(item, { destinations, enabled: () => true }),
+  });
+  await assert.rejects(bot.postNow(undefined, { kind: "photo" }), /couldn't make/);
+  assert.deepStrictEqual(seen, []);
+});
