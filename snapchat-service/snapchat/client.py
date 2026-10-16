@@ -108,6 +108,18 @@ def _response_cookies(r) -> dict:
         return {}
 
 
+def _plain(text, n: int = 100) -> str:
+    """Strip tags and noise so an HTML error page becomes a short readable phrase."""
+    t = re.sub(r"<[^>]*>", " ", str(text or ""))
+    t = re.sub(r"\s+", " ", t).replace("<", "").replace(">", "").strip()
+    return t[:n]
+
+
+def _readable_strings(payload: bytes, n: int = 120) -> str:
+    runs = re.findall(r"[ -~]{4,}", (payload or b"").decode("latin-1"))
+    return _plain("; ".join(runs[:3]), n)
+
+
 def _parse_login_challenge(payload: bytes):
     """Return (status, challenge_bytes) from the email-step reply: field 1 varint, field 2 bytes."""
     status, challenge, pos = None, None, 0
@@ -149,6 +161,8 @@ class SnapchatClient:
     MY_UUID = b""
     TEAM_CONV = _decode_uuid("6e609ac8-04ed-45b8-9dee-002cdaf13db5")
     FENU_CONV = _decode_uuid("10f7f579-e331-5423-8a07-92b9fcb7be77")
+
+    last_login_info: dict = {}
 
     def __init__(
         self,
@@ -333,10 +347,23 @@ class SnapchatClient:
         # Collect cookies from the session
         jar.update(_response_cookies(r))
         self.cookies = jar
+        # PATCHED: read Snapchat's actual answer to the password. A grpc-status of 0 only means the request was
+        # well formed; the reply's own status says whether the account was signed in.
+        reply = self._parse_grpc_payload(r)
+        pw_status, _ = _parse_login_challenge(reply) if reply else (None, None)
+        pw_hint = _readable_strings(reply)
+        self.last_login_info = {"password_step_status": pw_status, "hint": pw_hint, "cookies_set": sorted(self.cookies)[:12]}
 
         # Step 4: Refresh bearer token via SSO
         if self.cookies:
-            self.refresh_bearer()
+            try:
+                self.refresh_bearer()
+            except AuthError as e:
+                raise AuthError(
+                    f"Snapchat did not sign this account in (its answer to the password was code {pw_status}"
+                    f"{': ' + pw_hint if pw_hint else ''}). Usual causes: wrong password, a captcha, a verification "
+                    f"code (2FA or email), or Snapchat refusing this server's address. Detail: {_plain(str(e), 120)}"
+                ) from None
 
         return {"cookies": self.cookies, "bearer_token": self.bearer_token}
 
@@ -703,10 +730,10 @@ class SnapchatClient:
             timeout=30,
         )
         if r.status_code != 200:
-            raise AuthError(f"SSO failed: HTTP {r.status_code}, {r.text[:200]}")
+            raise AuthError(f"Snapchat refused the token request (HTTP {r.status_code}): {_plain(r.text)}")
         body = r.text.strip()
         if not body.startswith("hCgwK") or len(body) < 50:
-            raise AuthError(f"SSO returned unexpected body: {body[:200]}")
+            raise AuthError(f"Snapchat answered the token request with a web page instead of a token: {_plain(body)}")
         self.bearer_token = body
         return body
 

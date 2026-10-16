@@ -116,7 +116,7 @@ function init(deps) {
 
   const wrap = (fn) => async (req, res) => {
     try { res.json(await fn(req)); }
-    catch (e) { res.status(e.status && e.status < 600 ? e.status : 502).json({ error: e.message }); }
+    catch (e) { res.status(e.status === 401 ? 422 : e.status && e.status < 600 ? e.status : 502).json({ error: e.message }); } // a sidecar 401 is a Snapchat refusal, not a dashboard-key problem
   };
 
   app.get("/api/snapchat/status", requireAuth, wrap(async () => {

@@ -119,6 +119,22 @@ class RealClientThroughRoutes(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(out["signed_in"]); self.assertFalse(out["user_uuid_set"]); self.assertIsNone(out["user_uuid_found"])
 
+    def test_a_refused_sign_in_reports_snapchats_own_answer_and_never_a_web_page(self):
+        from snapchat import AuthError
+        Base = make_client_class(self.net)
+        class Refused(Base):
+            def refresh_bearer(self):
+                raise AuthError("Snapchat answered the token request with a web page instead of a token: <!DOCTYPE html><html><body>Sign in to Snapchat</body></html>")
+        self.net.login_replies[1] = FakeResp(bytes([0x08, 0x04]) + b"\x12\x0cCaptcha needed")   # status 4 plus a readable hint
+        server.bridge = B.Bridge(client_factory=Refused, answer_all=True)
+        with self.assertRaises(AuthError) as cm:
+            server.route("POST", "/login", {"username": "u", "password": "p"}, "")
+        msg = str(cm.exception)
+        self.assertNotIn("<", msg); self.assertNotIn(">", msg)
+        self.assertIn("code 4", msg)
+        self.assertIn("Captcha needed", msg)
+        self.assertIn("captcha", msg.lower())
+
     def test_pasted_session_route(self):
         code, out = server.route("POST", "/session", {"cookies": [{"name": "a", "value": "b"}], "user_uuid": ME}, "")
         self.assertEqual(code, 200)
