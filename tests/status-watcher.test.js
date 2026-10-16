@@ -126,3 +126,25 @@ test("tick: waits before the first look, stays quiet at night, and does nothing 
   const night = bot({ posters }); night.setClock(Date.UTC(2026, 9, 13, 7, 0)); // 3am in New York
   night.b.state.nextAt = 1; assert.strictEqual(await night.b.tick(), false);
 });
+
+test("when nothing happens she says why: nothing received, nothing new, all skipped; and 'look now' ignores the clock", async () => {
+  const empty = bot({ posters: [] });
+  assert.match((await empty.b.session()).note, /no statuses have arrived/);
+
+  const flood = bot({ posters: [{ jid: "a", number: "100", name: "Flood", items: items(200) }] });
+  assert.match((await flood.b.session()).note, /skipped/);
+  assert.match((await flood.b.session()).note, /nothing new/);
+
+  const night = bot({ posters: [{ jid: "c", number: "300", name: "F", items: items(1, "hello") }] });
+  night.setClock(Date.UTC(2026, 9, 13, 7, 0));           // 3am: the normal tick would stay quiet
+  const rep = await night.b.lookNow();
+  assert.strictEqual(rep.viewed, 1);
+  assert.match(night.b.state.lastTick.result, /manual look/);
+});
+
+test("tick records the reason when it does nothing", async () => {
+  const { b } = bot({ posters: [] });
+  b.state.nextAt = 0;                                    // a fresh start (state file is shared between tests)
+  await b.tick();
+  assert.match(b.state.lastTick.result, /waiting before her first look/);
+});

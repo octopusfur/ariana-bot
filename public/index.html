@@ -2050,6 +2050,9 @@ function renderLife(){
   const tm=(ms)=>new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'});
   const ready=i.statusReady;
   const wt=c.watch||{},wi=(i&&i.watch)||{};wt.ready=!!wi.ready;
+  const wcol=wi.collected;
+  const wdiag=!wi.ready?`Not running. The WhatsApp status engine is off on this server (engine: ${escHTML(String(wi.engine||'unknown'))}). It needs <b>WA_ENGINE=whatsmeow</b>.`
+    :[`Engine: ${escHTML(String(wi.engine))}`,wcol?`Statuses her WhatsApp has received: ${wcol.items} from ${wcol.posters} people`:'Could not read her status inbox',wi.nextAt?`Next look: ${new Date(wi.nextAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:'Next look: not planned yet',wi.lastTick?`Last check: ${escHTML(wi.lastTick.result)}`:''].filter(Boolean).join('<br>');
   const wlog=(wi.log||[]).length?(wi.log||[]).map(x=>`<div class="lf-post"><small>${escHTML(x.kind)} · ${new Date(x.at).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small>${escHTML((x.who||'')+(x.detail?' — '+x.detail:''))}</div>`).join(''):'<div class="lf-s">Nothing yet.</div>';
   const webOff=!i.searchAvailable;
   const plan=(i.today||[]).length?`<div class="lf-chips">${i.today.map(x=>`<span class="lf-chip${x.done?' done':''}">${tm(x.at)}${x.done?' ✓':''}</span>`).join('')}</div><div class="lf-s" style="padding-bottom:6px">Her time (Miami). Plan for today.</div>`:'<div class="lf-s" style="padding:6px 0">Nothing left planned for today.</div>';
@@ -2095,6 +2098,9 @@ function renderLife(){
     ${lfRow('&nbsp;&nbsp;Reactions a day','',lfStep('watch.reactCap',wt.reactCap,0,30),!wt.enabled||!wt.react)}
     ${lfRow('Reply to a status','Short, in her own words, rarer than reactions',lfSw('watch.reply',wt.reply),!wt.enabled)}
     ${lfRow('&nbsp;&nbsp;Replies a day','',lfStep('watch.replyCap',wt.replyCap,0,20),!wt.enabled||!wt.reply)}
+    <div class="lf-h" style="padding-top:10px">Right now</div>
+    <div class="lf-s" style="padding-bottom:6px">${wdiag}</div>
+    <div class="lf-btns"><button class="lf-btn" onclick="lifeWatchNow()">Look at statuses now</button></div>
     <div class="lf-h" style="padding-top:10px">Today</div>
     <div class="lf-s" style="padding-bottom:6px">${wi.today?`${wi.today.posters} people · ${wi.today.items} items watched · ${wi.today.reactions} reactions · ${wi.today.replies} replies · ${wi.today.skipped} skipped`:'Nothing yet'}</div>
     <div class="lf-h" style="padding-top:10px">What she did lately</div>${wlog}
@@ -2133,6 +2139,15 @@ async function lifePost(kind,topic){
     if(!ok||!d.ok)throw new Error(d.error||'failed');
     toast('Posted',2000);loadLife();
   }catch(e){toast("Couldn't post: "+(e.message||'error'),4500);}
+}
+async function lifeWatchNow(){
+  toast('She is looking…',5000);
+  try{
+    const {ok,d}=await jpost('/api/whatsapp/status-watch-now',{});
+    if(!ok||!d.ok)throw new Error(d.error||'failed');
+    const r=d.report||{};
+    toast(r.note?r.note:`Watched ${r.viewed||0}, skipped ${r.skipped||0}, reacted ${r.reacted||0}, replied ${r.replied||0}`,6000);loadLife();
+  }catch(e){toast("Couldn't look: "+(e.message||'error'),5000);}
 }
 async function lifeReset(){
   if(!confirm('Reset all of these to their defaults?'))return;

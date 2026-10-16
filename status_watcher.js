@@ -164,9 +164,10 @@ function create(deps) {
   /** One "look at statuses" session. Returns a short report (also used by tests). */
   async function session() {
     const cfg = deps.cfg();
-    const report = { viewed: 0, reacted: 0, replied: 0, skipped: 0 };
+    const report = { viewed: 0, reacted: 0, replied: 0, skipped: 0, note: "" };
     let snap = [];
-    try { snap = (await deps.snapshot()) || []; } catch (e) { console.warn("[watch] could not read statuses:", e.message); return report; }
+    try { snap = (await deps.snapshot()) || []; } catch (e) { console.warn("[watch] could not read statuses:", e.message); report.note = "could not read statuses from WhatsApp: " + e.message; return report; }
+    if (!snap.length) { report.note = "no statuses have arrived on her WhatsApp yet"; return report; }
 
     // 1) throw away what's too old / already dealt with, then decide who is even worth opening
     const fresh = [];
@@ -176,6 +177,7 @@ function create(deps) {
       if (!unseen.length) continue;
       fresh.push({ ...p, items, unseen });
     }
+    if (!fresh.length) { report.note = "nothing new since the last look"; return report; }
     const eligible = [];
     for (const p of fresh) {
       let info = {};
@@ -187,12 +189,14 @@ function create(deps) {
         note("skipped", p.name || p.number, v.reason);
       } else eligible.push(p);
     }
-    if (!eligible.length) return report;
+    if (!eligible.length) { report.note = `${report.skipped} skipped (flooders, vendors, or people she doesn't know), none left to watch`; return report; }
 
     // 2) like a person: only some of them, only a few at a time, within the daily limit
     const room = Math.max(0, cfg.dailyPosters - st.today.posters);
     const howMany = Math.min(room, 1 + Math.floor(rand() * 3));
+    if (!room) { report.note = "daily limit of people reached"; return report; }
     const chosen = shuffle(eligible, rand).filter(() => rand() < 0.65).slice(0, howMany);
+    if (!chosen.length) report.note = "she scrolled past everyone this time";
     for (const p of chosen) {
       const first = p.unseen.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
       const take = Math.max(1, Math.min(cfg.maxItems, 1 + Math.floor(rand() * cfg.maxItems)));
@@ -227,26 +231,44 @@ function create(deps) {
     return report;
   }
 
+  const why = (result) => { st.lastTick = { at: now(), result }; };
+
   async function tick() {
     if (running) return false;
     running = true;
     try {
-      if (!deps.enabled()) return false;
+      if (!deps.enabled()) { why("switched off, or the WhatsApp status engine isn't running on this server"); return false; }
       rollDay();
       const h = nyHour(now());
-      if (h < AWAKE.from || h >= AWAKE.to) return false;
-      if (!st.nextAt) { scheduleNext(); save(st); return false; }          // first run: wait a while before the first look
-      if (now() < st.nextAt) return false;
-      if (!(await deps.isConnected())) return false;
+      if (h < AWAKE.from || h >= AWAKE.to) { why("night time, she isn't looking at her phone"); return false; }
+      if (!st.nextAt) { scheduleNext(); save(st); why("just started, waiting before her first look"); return false; }   // first run: wait a while before the first look
+      if (now() < st.nextAt) { why("waiting for her next look"); return false; }
+      if (!(await deps.isConnected())) { why("WhatsApp isn't connected"); return false; }
       const rep = await session();
       scheduleNext();
+      why(rep.note || (rep.viewed ? `watched ${rep.viewed} item(s)` : "looked, nothing to watch"));
       save(st);
       return rep.viewed > 0 || rep.skipped > 0;
-    } catch (e) { console.warn("[watch] tick failed:", e.message); return false; }
+    } catch (e) { why("error: " + e.message); console.warn("[watch] tick failed:", e.message); return false; }
     finally { running = false; }
   }
 
-  return { tick, session, state: st };
+  /** "Look now" from the dashboard: ignores the schedule and night hours (still needs WhatsApp connected). */
+  async function lookNow() {
+    if (running) return { note: "she is already looking" };
+    running = true;
+    try {
+      if (!deps.enabled()) return { note: "switched off, or the WhatsApp status engine isn't running on this server" };
+      if (!(await deps.isConnected())) return { note: "WhatsApp isn't connected" };
+      rollDay();
+      const rep = await session();
+      scheduleNext(); why("manual look: " + (rep.note || (rep.viewed ? `watched ${rep.viewed} item(s)` : "nothing to watch")));
+      save(st);
+      return rep;
+    } finally { running = false; }
+  }
+
+  return { tick, session, lookNow, state: st };
 }
 
 module.exports = { create, judgePoster, looksLikeVendor, isFlood, parseDecisions, nyHour, FILE };

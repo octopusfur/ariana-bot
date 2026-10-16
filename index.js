@@ -3343,7 +3343,13 @@ app.get('/api/controls', requireDashboardAuth, async (req, res) => {
         snapchatOn: snapPublisher.isConfigured(),
         today: (st.slots || []).map((s) => ({ at: s.at, done: !!s.done })),
         recent: (st.log || []).slice(-8).reverse(),
-        watch: { ready: WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR, today: statusWatcher.state.today, log: (statusWatcher.state.log || []).slice(-10).reverse() },
+        watch: await (async () => {
+          const ready = WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR;
+          let collected = null;
+          if (ready) { try { const ps = (await waWeb('/status-list', {})).data.posters || []; collected = { posters: ps.length, items: ps.reduce((n, p) => n + p.items.length, 0) }; } catch { collected = null; } }
+          const w = statusWatcher.state;
+          return { ready, engine: process.env.WA_ENGINE || 'whatsapp-web.js (default)', collected, nextAt: w.nextAt || 0, lastTick: w.lastTick || null, today: w.today, log: (w.log || []).slice(-10).reverse() };
+        })(),
       },
     });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -3351,6 +3357,10 @@ app.get('/api/controls', requireDashboardAuth, async (req, res) => {
 app.post('/api/controls', requireDashboardAuth, (req, res) => {
   try { res.json({ ok: true, controls: (req.body && req.body.reset) ? controls.reset() : controls.update(req.body || {}) }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/whatsapp/status-watch-now', requireDashboardAuth, async (_req, res) => {
+  try { res.json({ ok: true, report: await statusWatcher.lookNow() }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
 });
 app.post('/api/whatsapp/status-post', requireDashboardAuth, async (req, res) => {
   try { const b = req.body || {}; res.json({ ok: true, text: await statusPoster.postNow(b.text, { kind: b.kind, topic: b.topic }) }); }
