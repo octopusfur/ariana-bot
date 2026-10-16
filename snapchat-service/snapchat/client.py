@@ -163,6 +163,7 @@ class SnapchatClient:
     FENU_CONV = _decode_uuid("10f7f579-e331-5423-8a07-92b9fcb7be77")
 
     last_login_info: dict = {}
+    last_sso: dict = {}
 
     def __init__(
         self,
@@ -354,15 +355,50 @@ class SnapchatClient:
         pw_hint = _readable_strings(reply)
         self.last_login_info = {"password_step_status": pw_status, "hint": pw_hint, "cookies_set": sorted(self.cookies)[:12]}
 
-        # Step 4: Refresh bearer token via SSO
+        # Step 4: Refresh bearer token via SSO. PATCHED: Snapchat answers the password with a redirect
+        # (/v2/welcome) and session cookies; a browser follows it before asking for the token. If the token
+        # is refused the first time, follow it the same way, collect what it sets, and try again.
         if self.cookies:
+            first_error = None
             try:
                 self.refresh_bearer()
             except AuthError as e:
+                first_error = e
+                info = self.last_login_info
+                info["token_first_try"] = dict(self.last_sso)
+                try:
+                    ws = _req.Session()
+                    ws.headers.update({"User-Agent": sess.headers.get("User-Agent", "Mozilla/5.0")})
+                    wr = ws.get(
+                        origin + "/v2/welcome",
+                        cookies=dict(jar),
+                        impersonate="chrome131",
+                        timeout=30,
+                        allow_redirects=True,
+                    )
+                    jar.update({str(k): str(v) for k, v in dict(ws.cookies).items()})
+                    jar.update(_response_cookies(wr))
+                    self.cookies = jar
+                    info["welcome"] = {
+                        "status": getattr(wr, "status_code", None),
+                        "url": _plain(str(getattr(wr, "url", "")), 120),
+                        "cookies_now": sorted(jar)[:16],
+                    }
+                except Exception as we:
+                    info["welcome"] = {"error": _plain(str(we), 120)}
+                try:
+                    self.refresh_bearer()
+                    first_error = None
+                except AuthError as e2:
+                    first_error = e2
+                    info["token_second_try"] = dict(self.last_sso)
+            if first_error is not None:
+                sso = self.last_sso or {}
                 raise AuthError(
                     f"Snapchat did not sign this account in (its answer to the password was code {pw_status}"
-                    f"{': ' + pw_hint if pw_hint else ''}). Usual causes: wrong password, a captcha, a verification "
-                    f"code (2FA or email), or Snapchat refusing this server's address. Detail: {_plain(str(e), 120)}"
+                    f"{': ' + pw_hint if pw_hint else ''}). The token request came back as HTTP {sso.get('status')}"
+                    f" \"{sso.get('title') or sso.get('text', '')[:80]}\". Usual causes: wrong password, a captcha, "
+                    f"a verification code (2FA or email), or Snapchat refusing this server's address."
                 ) from None
 
         return {"cookies": self.cookies, "bearer_token": self.bearer_token}
@@ -729,9 +765,17 @@ class SnapchatClient:
             impersonate="chrome131",
             timeout=30,
         )
+        body_text = (r.text or "").strip()
+        title = re.search(r"<title[^>]*>(.*?)</title>", body_text, re.I | re.S)
+        self.last_sso = {
+            "status": r.status_code, "length": len(body_text),
+            "title": _plain(title.group(1), 80) if title else "",
+            "text": _plain(body_text, 240),
+            "sent_cookies": sorted(self.cookies)[:14],
+        }
         if r.status_code != 200:
             raise AuthError(f"Snapchat refused the token request (HTTP {r.status_code}): {_plain(r.text)}")
-        body = r.text.strip()
+        body = body_text
         if not body.startswith("hCgwK") or len(body) < 50:
             raise AuthError(f"Snapchat answered the token request with a web page instead of a token: {_plain(body)}")
         self.bearer_token = body

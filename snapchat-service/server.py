@@ -178,7 +178,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}") if n else {}
             code, payload = route(method, url.path, body, url.query)
         except AuthError as e:
-            sys.stderr.write("[snap] auth error: %s | login info: %s\n" % (str(e)[:300], getattr(getattr(bridge, "client", None), "last_login_info", {})))
+            sys.stderr.write("[snap] auth error: %s | login info: %s\n" % (str(e)[:400], getattr(getattr(bridge, "client", None), "last_login_info", {})))
             code, payload = 401, {"error": str(e)}
         except SnapchatError as e:
             code, payload = 502, {"error": str(e)}
