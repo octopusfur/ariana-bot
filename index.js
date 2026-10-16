@@ -254,6 +254,8 @@ const lastMediaSent = {};
 // Her own pictures from the dashboard media library, sent only if SHE chooses to (send_photo tool).
 // Settings changed from the dashboard ("Her life" screen); env vars only seed the first defaults.
 const controls = require('./controls').create();
+// A sticker only goes out if SHE chose it (optional sticker field on her reply): never automatic, never forced.
+const stickerChoices = require('./sticker_choice').createStickerChoices();
 const photoSkill = require('./photo_skill').createPhotoSkill({
   controls: () => controls.get().photos,
   // she may also send a picture to someone ELSE she already knows (never to a stranger): name or number of an existing chat
@@ -795,15 +797,9 @@ function addMessage(id, role, text) {
 }
 
 // ── HUMAN DELAY ───────────────────────────────────────────────
-function humanDelay(message) {
-  const len = (message || "").trim().length;
-  let min, max;
-  if      (len < 15) { min = 8000;  max = 20000; }
-  else if (len < 60) { min = 15000; max = 40000; }
-  else               { min = 30000; max = 70000; }
-  if (Math.random() < 0.2) max += 30000;
-  const delay = Math.floor((Math.floor(Math.random() * (max - min + 1)) + min) * (parseFloat(process.env.HUMAN_DELAY_SCALE) >= 0 ? parseFloat(process.env.HUMAN_DELAY_SCALE) : 1));
-  return new Promise(r => setTimeout(r, delay));
+function humanDelay(message, opts) {
+  const d = require('./reply_delay').delayMs(message, opts); // owner: 0 (instant); everyone else: the human pause
+  return d ? require('./reply_delay').wait(d) : Promise.resolve();
 }
 
 // ── WEB SEARCH ────────────────────────────────────────────────
@@ -1068,6 +1064,10 @@ const SEND_REPLY_TOOL = {
         message: {
           type: 'string',
           description: 'Plain conversational text, like a real phone text. NEVER a third-person description of her actions, face, or body language. NEVER asterisk/bracketed stage directions. If a feeling needs expressing, say it in words ("ugh", "lol", "i\'m done") — do not narrate it.'
+        },
+        sticker: {
+          type: 'string',
+          description: "Optional, and leave it out almost every time. Only if YOU genuinely feel like following your message with one of your own stickers (a reaction, a laugh, a mood), put a few words for the mood here, like 'eye roll' or 'cheering'. It is entirely your own choice, even when someone asks you for one."
         }
       },
       required: ['message']
@@ -1150,7 +1150,7 @@ async function rawCompletion(history, sys, backup, tools, toolChoice) {
   throw lastErr;
 }
 
-async function callGroq(history, sys, backup, { asCharacter = false } = {}) {
+async function callGroq(history, sys, backup, { asCharacter = false, onArgs = null } = {}) {
   const forced = asCharacter ? [SEND_REPLY_TOOL] : null;
   const choice = await rawCompletion(history, sys, backup, forced,
     asCharacter ? { type: 'function', function: { name: 'send_reply' } } : undefined);
@@ -1158,6 +1158,7 @@ async function callGroq(history, sys, backup, { asCharacter = false } = {}) {
     const call = choice.tool_calls && choice.tool_calls[0];
     if (!call) throw new Error('Groq did not return a send_reply tool call');
     const args = JSON.parse(call.function.arguments);
+    if (onArgs) onArgs(args);
     return (args.message || '').trim();
   }
   return choice.content.trim();
@@ -1179,6 +1180,7 @@ async function callGroq(history, sys, backup, { asCharacter = false } = {}) {
 // one browse per reply — this is meant for "check one thing", not a
 // multi-step research session.
 async function generateBrainReply(history, sys, { attempts = 2, convoId = null, photos = [] } = {}) {
+  const noteArgs = (args) => { if (convoId) stickerChoices.fromArgs(convoId, args); }; // her own sticker choice, if any
   const keyVariants = groq2 ? [false, true] : [false];
   const canBrowse = !!process.env.BROWSER_USE_API_KEY;
   // Social tools are only offered when there is a real, enabled account behind
@@ -1244,17 +1246,18 @@ async function generateBrainReply(history, sys, { attempts = 2, convoId = null, 
           if (call && call.function.name === 'send_reply') {
             const args = JSON.parse(call.function.arguments);
             reply = (args.message || '').trim();
+            noteArgs(args);
           } else {
             // Tool rounds exhausted (or a non-reply tool was requested again):
             // force the actual message so the person always gets a reply.
-            reply = await callGroq(working, sys, backup, { asCharacter: true });
+            reply = await callGroq(working, sys, backup, { asCharacter: true, onArgs: noteArgs });
           }
         } else {
-          reply = await callGroq(history, sys, backup, { asCharacter: true });
+          reply = await callGroq(history, sys, backup, { asCharacter: true, onArgs: noteArgs });
         }
         if (reply && looksLikeNarration(reply)) {
           console.warn('[brain] narration slipped past schema, regenerating once');
-          reply = await callGroq(history, sys + '\n\nYour last attempt included narration/stage directions inside the message field. Do not do that — plain text only.', backup, { asCharacter: true });
+          reply = await callGroq(history, sys + '\n\nYour last attempt included narration/stage directions inside the message field. Do not do that — plain text only.', backup, { asCharacter: true, onArgs: noteArgs });
         }
         if (reply) return reply;
       } catch (e) {
@@ -1462,6 +1465,9 @@ Make them feel like they have a real girlfriend they can text anytime.`
   if (memLines.length) sys += `\n\nYOUR MEMORY:\n${memLines.join('\n')}`;
   // Older media turns only survive in the log as short text stubs; without this she reads them as "I only get a description".
   sys += "\n\nMEDIA: Photos and stickers reach you as the real image, GIFs and animated stickers as frames sampled in order, and voice notes as a transcript, attached to the message they came with. Older messages in this chat only keep a short text stub such as [sent a sticker], [sent a photo] or a sticker label. That is just bookkeeping: you did see the real thing when it arrived. Never say you only get a description or caption, or that you cannot see stickers, photos or GIFs. Only if a message says the media did not come through do you say you could not see or hear it, and ask them to resend.";
+  // Tone: sassy, funny, sweet and jovial, each in moderation (none turned up too far).
+  sys += "\n\nTONE: a balanced mix, none of it turned up too far. A little sass, some humor, warmth and an easy, jovial mood, all in moderation. Not constantly sarcastic, not over-sweet, no forced jokes: relaxed, quick when it fits, kind underneath, and not easily impressed or moved.";
+  if (typeof stickers.size === 'function' && stickers.size() > 0 && /^\d+$/.test(String(id))) sys += "\n\nSTICKERS: you have your own sticker drawer. Now and then, only if you genuinely feel like it, you can follow your message with one of them by filling in the optional sticker field when you send your reply. It is entirely your own choice, even when someone asks you for one: most of your replies are just text, and you can say no.";
   // Someone is asking to see her: hand her the library and the send_photo option. Using it is entirely her choice.
   const photoItems = looksLikePhotoRequest(userMsg) ? await photoSkill.snapshot() : [];
   if (photoItems.length) sys += '\n\n' + photoSkill.promptNote(photoItems);
@@ -2247,7 +2253,7 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     const replyPromise = isFirst
       ? handleNewTexter(id, finalText, incomingImageBase64, preparedMedia, pictureNote)
       : getReply(id, finalText, systemOverride, incomingImageBase64, preparedMedia);
-    let [reply] = await Promise.all([replyPromise, humanDelay(preparedMedia ? finalText : text)]);
+    let [reply] = await Promise.all([replyPromise, humanDelay(preparedMedia ? finalText : text, { isOwner })]);
 
     // Never go completely silent — if all AI failed, send a natural-sounding fallback
     if (!reply || reply === 'hold on') {
@@ -2316,11 +2322,11 @@ async function handleMessage({ id, platform, from, text, chatId, phoneNumberId, 
     if (tgTypingInterval) clearInterval(tgTypingInterval);
     await sendReply(id, platform, reply, voiceUrl, null, chatId, from, phoneNumberId);
 
-    // Now and then she follows a text with a sticker from her drawer (WhatsApp only).
-    const askedForSticker = /\b(send|give|drop|show|got|have)\b[^.?!\n]{0,40}\b(stickers?|gifs?)\b|\b(stickers?|gifs?)\b[^.?!\n]{0,20}\b(now|please|pls)\b/i.test(finalText || '');
-    if (platform === "whatsapp" && WA_PROVIDER === 'wwebjs' && (!voiceUrl || askedForSticker)) {
+    // A sticker only goes out because SHE chose it (the optional sticker field on her reply): never random, never forced.
+    const stickerPick = stickerChoices.take(id);
+    if (stickerPick && platform === "whatsapp" && WA_PROVIDER === 'wwebjs') {
       stickers.maybeFollowUp({
-        chat: id, userText: finalText, replyText: reply, force: askedForSticker,
+        chat: id, userText: finalText, replyText: `${reply} (the mood you chose: ${stickerPick.mood})`, force: true,
         send: async (st) => { await new Promise((r) => setTimeout(r, 900 + Math.random() * 1600)); await waWeb('/send-media', st.kind === 'gif' ? { to: from, base64: st.base64, mimetype: st.mimetype || 'video/mp4', gif: true } : { to: from, base64: st.base64, sticker: true, animated: st.animated }); },
       }).catch(() => {});
     }
