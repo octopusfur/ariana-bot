@@ -8,7 +8,9 @@ const fs = require("fs");
 const path = require("path");
 
 const FILE = path.join(process.env.STATE_SYNC_ROOT || __dirname, "controls.json");
-const num = (v, d) => (Number.isFinite(Number(v)) && v !== "" && v !== null ? Number(v) : d);
+const num = (v, d) => (Number.isFinite(Number(v)) && v !== "" && v !== null && v !== undefined ? Number(v) : d);
+const bool = (v, d) => (typeof v === "boolean" ? v : d);
+const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Math.round(num(v, d))));
 
 function defaults(env = process.env) {
   return {
@@ -28,16 +30,25 @@ function defaults(env = process.env) {
       othersDailyCap: Math.max(1, num(env.PHOTO_OTHERS_DAILY_CAP, 6)),
     },
     memory: { autoApprove: String(env.MEMORY_AUTO_APPROVE || "on").toLowerCase() !== "off" },
+    // she looks at other people's WhatsApp Status like a person: a few looks a day, skipping flooders and vendors
+    watch: {
+      enabled: env.WA_STATUS_WATCH !== "off",
+      maxPerPoster: clamp(env.STATUS_WATCH_MAX_PER_POSTER, 3, 40, 10), // more than this in a day = flooder, skipped completely
+      dailyPosters: clamp(env.STATUS_WATCH_DAILY_POSTERS, 1, 30, 8),   // people she opens per day
+      maxItems: clamp(env.STATUS_WATCH_MAX_ITEMS, 1, 8, 4),            // items she watches from one person
+      onlyKnown: true,                                                 // only people she already chats with
+      skipVendors: true,                                               // business accounts, prices, "DM to order"...
+      react: true, reactCap: 6,                                        // emoji reactions per day
+      reply: true, replyCap: 3,                                        // short replies per day
+    },
   };
 }
 
-const bool = (v, d) => (typeof v === "boolean" ? v : d);
-const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Math.round(num(v, d))));
 
 /** Merge an untrusted patch (or stored file) over a base, keeping only known keys with valid, clamped values. */
 function sanitize(input, base) {
   const i = input && typeof input === "object" ? input : {};
-  const s = i.status || {}, p = i.photos || {}, m = i.memory || {};
+  const s = i.status || {}, p = i.photos || {}, m = i.memory || {}, w = i.watch || {};
   const out = {
     status: {
       enabled: bool(s.enabled, base.status.enabled),
@@ -62,6 +73,18 @@ function sanitize(input, base) {
       othersDailyCap: clamp(p.othersDailyCap, 1, 50, base.photos.othersDailyCap),
     },
     memory: { autoApprove: bool(m.autoApprove, base.memory.autoApprove) },
+    watch: {
+      enabled: bool(w.enabled, base.watch.enabled),
+      maxPerPoster: clamp(w.maxPerPoster, 3, 40, base.watch.maxPerPoster),
+      dailyPosters: clamp(w.dailyPosters, 1, 30, base.watch.dailyPosters),
+      maxItems: clamp(w.maxItems, 1, 8, base.watch.maxItems),
+      onlyKnown: bool(w.onlyKnown, base.watch.onlyKnown),
+      skipVendors: bool(w.skipVendors, base.watch.skipVendors),
+      react: bool(w.react, base.watch.react),
+      reactCap: clamp(w.reactCap, 0, 30, base.watch.reactCap),
+      reply: bool(w.reply, base.watch.reply),
+      replyCap: clamp(w.replyCap, 0, 20, base.watch.replyCap),
+    },
   };
   if (out.status.postsMax < out.status.postsMin) out.status.postsMax = out.status.postsMin;
   // at least one kind and one topic must stay on, or the poster would have nothing to write

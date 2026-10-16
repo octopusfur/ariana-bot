@@ -3202,6 +3202,39 @@ const statusPoster = statusPosterMod.create({
   // something funny / real news she found on the web (Firecrawl; needs FIRECRAWL_API_KEY)
   search: require('./firecrawl_skill').enabled() ? (q) => require('./firecrawl_skill').webSearch(q, { limit: 5 }) : null,
 });
+// Other people's WhatsApp Status: she looks at some of them like a person would (see status_watcher.js)
+const statusWatcher = require('./status_watcher').create({
+  cfg: () => controls.get().watch,
+  enabled: () => controls.get().watch.enabled && WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR,
+  isConnected: async () => { try { return !!(await axios.get(WA_WEB_URL + '/status', { timeout: 4000, headers: WA_API_SECRET ? { Authorization: `Bearer ${WA_API_SECRET}` } : {} })).data.connected; } catch { return false; } },
+  snapshot: async () => (await waWeb('/status-list', {})).data.posters || [],
+  businessInfo: async (p) => (await waWeb('/status-info', { jid: p.jid })).data,
+  // only someone she already chats with counts as "someone she knows"
+  isKnown: (number) => { const c = conversations[number]; return !!(c && Array.isArray(c.messages) && c.messages.length > 0 && !blockedNumbers.has(number)); },
+  relation: (number) => {
+    const c = conversations[number]; const n = c && c.messages ? c.messages.length : 0;
+    return n > 60 ? 'someone you talk to a lot' : n > 12 ? 'someone you chat with now and then' : 'someone you have only talked to a little';
+  },
+  // her eyes: a short description of a status picture (needs GEMINI_API_KEY; without it she goes by the caption only)
+  look: async (p, item) => {
+    if (!getGeminiKey()) return null;
+    const m = (await waWeb('/status-media', { poster: p.jid, id: item.id })).data;
+    const eyes = await seeImage(m.base64, m.mimetype);
+    if (!eyes) return null;
+    return [eyes.scene, eyes.emotion && `mood: ${eyes.emotion}`, eyes.text_in_image && `text in it: ${eyes.text_in_image}`].filter(Boolean).join('; ').slice(0, 300);
+  },
+  generate: async (prompt) => {
+    const sys = engineV2 ? await engineV2.buildBasePrompt() : '';
+    const r = await generateBrainReply([{ role: 'user', content: prompt }], sys, { attempts: 1 });
+    return typeof r === 'string' ? r : (r && (r.text || r.content)) || null;
+  },
+  view: (p, ids) => waWeb('/status-view', { poster: p.jid, ids }),
+  react: (p, id, emoji) => waWeb('/status-react', { poster: p.jid, id, emoji }),
+  reply: async (p, id, text) => {
+    await waWeb('/status-reply', { poster: p.jid, id, text });
+    if (conversations[p.number]) addMessage(p.number, 'ariana', `[replied to their status] ${text}`); // so she remembers what she said
+  },
+});
 // "Her life" dashboard screen: read / change the controls, plus a little live info for the screen
 app.get('/api/controls', requireDashboardAuth, async (req, res) => {
   try {
@@ -3215,6 +3248,7 @@ app.get('/api/controls', requireDashboardAuth, async (req, res) => {
         pictures: (await photoSkill.snapshot().catch(() => [])).length,
         today: (st.slots || []).map((s) => ({ at: s.at, done: !!s.done })),
         recent: (st.log || []).slice(-8).reverse(),
+        watch: { ready: WA_PROVIDER === 'wwebjs' && WA_LOCAL_SIDECAR, today: statusWatcher.state.today, log: (statusWatcher.state.log || []).slice(-10).reverse() },
       },
     });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -5223,6 +5257,8 @@ server.listen(PORT, async () => {
   setInterval(() => snapStoryPoster.tick().catch(() => {}), 5 * 60 * 1000);
   setTimeout(() => statusPoster.tick().catch(() => {}), 90 * 1000);
   setInterval(() => statusPoster.tick().catch(() => {}), 5 * 60 * 1000);
+  setTimeout(() => statusWatcher.tick().catch(() => {}), 150 * 1000);
+  setInterval(() => statusWatcher.tick().catch(() => {}), 4 * 60 * 1000);
   // Re-init Groq with loaded key if it wasn't set from env
   if (process.env.GROQ_API_KEY && (!groq || groq.apiKey === 'missing')) {
     const GroqSDK = require('groq-sdk');

@@ -274,3 +274,50 @@ test("/typing shows \"typing…\" by default and \"recording audio…\" when ask
     assert.deepStrictEqual([p.presence, p.media], ["composing", "audio"]);
   } finally { child.kill(); }
 });
+
+// ── Other people's statuses ───────────────────────────────────
+const statusEvent = (id, caption) => JSON.stringify({ info: { id, chat: "status@broadcast", sender: "2348055500022@s.whatsapp.net", isFromMe: false, isGroup: false, timestamp: Math.floor(Date.now() / 1000), pushName: "Chioma" }, message: { extendedTextMessage: { text: caption } } });
+
+test("someone else's status is remembered (not forwarded as a chat), and she can view, react to and reply to it", async () => {
+  const log = path.join(os.tmpdir(), "fake-sv-" + Date.now() + ".log");
+  const { child, port } = await launch({ FAKE_EMIT: "1", FAKE_LOG: log, FAKE_MESSAGE: statusEvent("ST1", "sunset at the beach") });
+  try {
+    await wait(500);
+    const list = JSON.parse((await call(port, "POST", "/status-list", {})).body);
+    assert.strictEqual(list.posters.length, 1);
+    assert.strictEqual(list.posters[0].name, "Chioma");
+    assert.strictEqual(list.posters[0].items[0].caption, "sunset at the beach");
+    assert.strictEqual(list.posters[0].items[0].message, undefined, "raw message never leaves the sidecar");
+    const jid = list.posters[0].jid;
+
+    assert.strictEqual((await call(port, "POST", "/status-view", { poster: jid, ids: ["ST1"] })).status, 200);
+    const view = JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").filter((l) => l.includes("markRead")).pop());
+    assert.deepStrictEqual([view.ids, view.chat, view.sender], [["ST1"], "status@broadcast", jid]);
+
+    assert.strictEqual((await call(port, "POST", "/status-react", { poster: jid, id: "ST1", emoji: "😍" })).status, 200);
+    const react = lastLog(log);
+    assert.strictEqual(react.op, "sendRawMessage");
+    assert.strictEqual(react.msg.reactionMessage.text, "😍");
+    assert.strictEqual(react.msg.reactionMessage.key.remoteJID, "status@broadcast");
+    assert.strictEqual(react.msg.reactionMessage.key.ID, "ST1");
+
+    assert.strictEqual((await call(port, "POST", "/status-reply", { poster: jid, id: "ST1", text: "this is gorgeous" })).status, 200);
+    const reply = lastLog(log);
+    assert.strictEqual(reply.msg.extendedTextMessage.text, "this is gorgeous");
+    assert.strictEqual(reply.msg.extendedTextMessage.contextInfo.stanzaID, "ST1");
+    assert.strictEqual(reply.msg.extendedTextMessage.contextInfo.remoteJID, "status@broadcast");
+
+    assert.strictEqual((await call(port, "POST", "/status-react", { poster: jid, id: "NOPE", emoji: "😍" })).status, 404, "unknown status");
+    assert.strictEqual((await call(port, "POST", "/status-react", { poster: jid, id: "ST1", emoji: "" })).status, 500, "empty emoji refused");
+  } finally { child.kill(); }
+});
+
+test("/status-info tells business accounts apart", async () => {
+  const biz = await launch({ FAKE_EMIT: "1", FAKE_BUSINESS: "1" });
+  const plain = await launch({ FAKE_EMIT: "1" });
+  try {
+    await wait(400);
+    assert.strictEqual(JSON.parse((await call(biz.port, "POST", "/status-info", { jid: "2348000000001@s.whatsapp.net" })).body).isBusiness, true);
+    assert.strictEqual(JSON.parse((await call(plain.port, "POST", "/status-info", { jid: "2348000000001@s.whatsapp.net" })).body).isBusiness, false);
+  } finally { biz.child.kill(); plain.child.kill(); }
+});

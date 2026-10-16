@@ -27,6 +27,8 @@ export function createClient() {
     async uploadMedia() { return { URL: "u", directPath: "d", mediaKey: "k", fileEncSHA256: "e", fileSHA256: "s", fileLength: 12 }; },
     async sendRawMessage(jid, msg) { log({ op: "sendRawMessage", jid, msg }); return { id: "x", timestamp: 1 }; },
     async sendMessage(jid, msg) { log({ op: "sendMessage", jid, msg }); return { id: "x", timestamp: 1 }; },
-    async sendPresence() {}, async sendChatPresence(jid, presence, media) { log({ op: "sendChatPresence", jid, presence, media }); }, async markRead() {},
+    async sendPresence() {}, async sendChatPresence(jid, presence, media) { log({ op: "sendChatPresence", jid, presence, media }); }, async markRead(ids, chat, sender) { log({ op: "markRead", ids, chat, sender }); },
+    async buildMessageKey(chat, sender, id) { return { remoteJID: chat, fromMe: false, ID: id, participant: sender }; },
+    async getBusinessProfile(jid) { if (process.env.FAKE_BUSINESS) return { jid, categories: [{ id: "1", name: "Retail" }] }; throw new Error("not a business"); },
   };
 }

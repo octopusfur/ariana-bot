@@ -260,8 +260,39 @@ async function fetchMedia(message, kind, secs) {
   finally { if (file) fs.rm(file, () => {}); }
 }
 
+// ── OTHER PEOPLE'S STATUSES ───────────────────────────────────
+// Statuses arrive as ordinary message events in chat "status@broadcast". We only REMEMBER them here (metadata, no
+// download, nothing is marked as viewed). Whether she looks at one is decided by the main app (status_watcher.js).
+const STATUS_CHAT = "status@broadcast";
+const statusInbox = new Map(); // poster jid -> { jid, chatJid, number, name, items: [{ id, kind, caption, ts, seconds, message }] }
+const STATUS_KEEP_MS = 24 * 3600 * 1000, STATUS_MAX_ITEMS = 400, STATUS_MAX_POSTERS = 400;
+function recordStatus(info, message) {
+  const c = classify(message || {});
+  if (!c || c.kind === "sticker") return;
+  let number = userPart(info.sender);
+  if (String(info.sender).endsWith("@lid")) { const pn = lidToPhone(number); if (pn) number = pn; }
+  const ts = (Number(info.timestamp) || Math.floor(Date.now() / 1000)) * 1000;
+  let p = statusInbox.get(info.sender);
+  if (!p) { p = { jid: info.sender, chatJid: jidByNumber.get(number) || info.sender, number, name: info.pushName || null, items: [] }; statusInbox.set(info.sender, p); }
+  if (info.pushName) p.name = info.pushName;
+  if (jidByNumber.get(number)) p.chatJid = jidByNumber.get(number);
+  if (p.items.some((i) => i.id === info.id)) return;
+  p.items.push({ id: info.id, kind: c.kind, caption: c.kind === "text" ? c.text : (c.caption || ""), ts, seconds: c.media && c.media.seconds ? Number(c.media.seconds) : 0, message });
+  if (p.items.length > STATUS_MAX_ITEMS) p.items.splice(0, p.items.length - STATUS_MAX_ITEMS);
+  const cut = Date.now() - STATUS_KEEP_MS;
+  for (const [k, v] of statusInbox) { v.items = v.items.filter((i) => i.ts >= cut); if (!v.items.length) statusInbox.delete(k); }
+  while (statusInbox.size > STATUS_MAX_POSTERS) statusInbox.delete(statusInbox.keys().next().value);
+}
+function statusItem(posterJid, id) {
+  const p = statusInbox.get(posterJid);
+  const item = p && p.items.find((i) => i.id === id);
+  if (!item) throw Object.assign(new Error("that status is no longer available"), { status: 404 });
+  return { p, item };
+}
+
 function onMessage({ info, message }) {
   try {
+    if (!info.isFromMe && String(info.chat) === STATUS_CHAT) { recordStatus(info, message); return; }
     if (info.isFromMe || info.isGroup || String(info.chat).startsWith("status@")) return;
     const c = classify(message || {});
     if (!c) return;
@@ -360,6 +391,46 @@ async function handleApi(pathname, body) {
       await client.sendRawMessage(STATUS_JID, { extendedTextMessage: { text, backgroundArgb: bg, textArgb: 0xFFFFFFFF, font: Math.floor(Math.random() * 6), previewType: 0 } });
     }
     console.log(`✅ whatsmeow status posted${body.base64 ? " (image)" : ""}`);
+    return { ok: true };
+  }
+  if (pathname === "/status-list") { // everything currently in the inbox: who posted what in the last 24h (no media)
+    const cut = Date.now() - STATUS_KEEP_MS;
+    return { posters: [...statusInbox.values()].map((p) => ({ jid: p.jid, number: p.number, name: p.name, items: p.items.filter((i) => i.ts >= cut).map(({ id, kind, caption, ts, seconds }) => ({ id, kind, caption, ts, seconds })) })).filter((p) => p.items.length) };
+  }
+  if (pathname === "/status-info") { // is this poster a WhatsApp Business account?
+    try { const bp = await client.getBusinessProfile(String(body.jid)); return { isBusiness: !!(bp && (bp.address || bp.email || (bp.categories && bp.categories.length) || (bp.businessHours && bp.businessHours.length))) }; }
+    catch { return { isBusiness: false }; }
+  }
+  if (pathname === "/status-media") { // the picture itself (images only, same size cap as chat pictures) so she can actually look at it
+    const { item } = statusItem(String(body.poster), String(body.id));
+    if (item.kind !== "image") throw new Error("not a picture");
+    const got = await fetchMedia(item.message, "image", 0);
+    if (got.error) throw new Error(got.error);
+    return { base64: got.buf.toString("base64"), mimetype: (item.message.imageMessage && item.message.imageMessage.mimetype) || "image/jpeg" };
+  }
+  if (pathname === "/status-view") { // she opens the statuses: marks them viewed for the poster
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).slice(0, 12);
+    const { p } = statusItem(String(body.poster), ids[0]);
+    await goOnline();
+    await client.markRead(ids, STATUS_CHAT, p.jid);
+    console.log(`👀 viewed ${ids.length} status item(s) from ${p.name || p.number}`);
+    return { ok: true };
+  }
+  if (pathname === "/status-react") { // emoji reaction to a status (goes to the poster as a reaction on that status)
+    const { p, item } = statusItem(String(body.poster), String(body.id));
+    const emoji = String(body.emoji || "").trim();
+    if (!emoji) throw new Error("missing 'emoji'");
+    const key = await client.buildMessageKey(STATUS_CHAT, p.jid, item.id);
+    await client.sendRawMessage(p.chatJid, { reactionMessage: { key, text: emoji, senderTimestampMS: Date.now() } });
+    console.log(`💬 reacted ${emoji} to ${p.name || p.number}'s status`);
+    return { ok: true };
+  }
+  if (pathname === "/status-reply") { // short reply that quotes the status, lands in the poster's chat
+    const { p, item } = statusItem(String(body.poster), String(body.id));
+    const text = String(body.text || "").trim();
+    if (!text) throw new Error("missing 'text'");
+    await client.sendRawMessage(p.chatJid, { extendedTextMessage: { text, contextInfo: { stanzaID: item.id, participant: p.jid, remoteJID: STATUS_CHAT, quotedMessage: item.message } } });
+    console.log(`💬 replied to ${p.name || p.number}'s status`);
     return { ok: true };
   }
   const jid = await resolveJid(body.to);

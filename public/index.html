@@ -2014,6 +2014,8 @@ function renderLife(){
   const c=lifeState.controls,i=lifeState.info,s=c.status,p=c.photos,m=c.memory;
   const tm=(ms)=>new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'});
   const ready=i.statusReady;
+  const wt=c.watch||{},wi=(i&&i.watch)||{};wt.ready=!!wi.ready;
+  const wlog=(wi.log||[]).length?(wi.log||[]).map(x=>`<div class="lf-post"><small>${escHTML(x.kind)} · ${new Date(x.at).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small>${escHTML((x.who||'')+(x.detail?' — '+x.detail:''))}</div>`).join(''):'<div class="lf-s">Nothing yet.</div>';
   const webOff=!i.searchAvailable;
   const plan=(i.today||[]).length?`<div class="lf-chips">${i.today.map(x=>`<span class="lf-chip${x.done?' done':''}">${tm(x.at)}${x.done?' ✓':''}</span>`).join('')}</div><div class="lf-s" style="padding-bottom:6px">Her time (Miami). Plan for today.</div>`:'<div class="lf-s" style="padding:6px 0">Nothing left planned for today.</div>';
   const recent=(i.recent||[]).length?(i.recent||[]).map(x=>`<div class="lf-post"><small>${escHTML(x.kind)} · ${new Date(x.at).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small>${escHTML(x.text||'(picture, no caption)')}</div>`).join(''):'<div class="lf-s" style="padding:8px 0">No posts yet.</div>';
@@ -2038,6 +2040,22 @@ function renderLife(){
     </div>
     <div class="lf-h" style="padding-top:10px">Today</div>${plan}
     <div class="lf-h" style="padding-top:10px">Recent posts</div>${recent}
+  </div>
+  <div class="lf-card">
+    <div class="lf-h">Watching statuses</div>
+    ${lfRow('Look at other people\'s statuses','A few quick looks a day, like a person. Never all of them.'+(wt.ready?'':'<br><b>Needs the WhatsApp status engine on this server.</b>'),lfSw('watch.enabled',wt.enabled))}
+    ${lfRow('Skip people who flood','More than this many in a day and she skips them completely',lfStep('watch.maxPerPoster',wt.maxPerPoster,3,40),!wt.enabled)}
+    ${lfRow('Skip vendors','Business accounts, prices, "DM to order", phone numbers',lfSw('watch.skipVendors',wt.skipVendors),!wt.enabled)}
+    ${lfRow('Only people she knows','Someone she has already chatted with',lfSw('watch.onlyKnown',wt.onlyKnown),!wt.enabled)}
+    ${lfRow('People she opens a day','',lfStep('watch.dailyPosters',wt.dailyPosters,1,30),!wt.enabled)}
+    ${lfRow('Items she watches per person','Up to this many, not always all',lfStep('watch.maxItems',wt.maxItems,1,8),!wt.enabled)}
+    ${lfRow('React with an emoji','Only when something really catches her',lfSw('watch.react',wt.react),!wt.enabled)}
+    ${lfRow('&nbsp;&nbsp;Reactions a day','',lfStep('watch.reactCap',wt.reactCap,0,30),!wt.enabled||!wt.react)}
+    ${lfRow('Reply to a status','Short, in her own words, rarer than reactions',lfSw('watch.reply',wt.reply),!wt.enabled)}
+    ${lfRow('&nbsp;&nbsp;Replies a day','',lfStep('watch.replyCap',wt.replyCap,0,20),!wt.enabled||!wt.reply)}
+    <div class="lf-h" style="padding-top:10px">Today</div>
+    <div class="lf-s" style="padding-bottom:6px">${wi.today?`${wi.today.posters} people · ${wi.today.items} items watched · ${wi.today.reactions} reactions · ${wi.today.replies} replies · ${wi.today.skipped} skipped`:'Nothing yet'}</div>
+    <div class="lf-h" style="padding-top:10px">What she did lately</div>${wlog}
   </div>
   <div class="lf-card">
     <div class="lf-h">Her pictures in chats</div>
