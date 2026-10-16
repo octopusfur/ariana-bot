@@ -37,6 +37,7 @@ class FakeClient:
         self.cookies, self.bearer_token, self.MY_UUID = cookies or {}, bearer_token, my_uuid
         self.sent, self.messages, self.refreshed = [], [], 0
         self.messages_by_conv, self.sync_blob = {}, b""
+    @property
     def is_authenticated(self): return bool(self.cookies) and bool(self.bearer_token)
     def refresh_bearer(self): self.refreshed += 1; self.bearer_token = "tok"; return "tok"
     def send_text(self, conv, text): self.sent.append((conv, text)); return {"status": "ok"}
@@ -95,9 +96,10 @@ class Polling(unittest.TestCase):
         b.client.messages = [{"text": "old one", "sender": "other"}]
         self.assertEqual(b.poll_once(), [])           # baseline, nothing delivered
         b.client.messages = [{"text": "brand new", "sender": "other"}, {"text": "old one", "sender": "other"}]
-        self.assertEqual([m["text"] for m in b.poll_once()], ["brand new"])
+        # the old message nobody answered goes along with the new one
+        self.assertEqual([m["text"] for m in b.poll_once()], ["old one\nbrand new"])
         self.assertEqual(b.poll_once(), [])           # not delivered twice
-        self.assertEqual(got, [(CONV, "brand new")])
+        self.assertEqual(got, [(CONV, "old one\nbrand new")])
 
     def test_own_messages_and_echoes_never_delivered(self):
         b = make_bridge()
@@ -190,8 +192,37 @@ class AnswerEveryone(unittest.TestCase):
         c.messages_by_conv = {CONV2: [{"text": "old history", "sender": "other"}]}
         self.assertEqual(b.poll_once(), [])                       # first pass: history only
         c.messages_by_conv[CONV2] = [{"text": "hello ariana", "sender": "other"}, {"text": "old history", "sender": "other"}]
-        self.assertEqual([m["text"] for m in b.poll_once()], ["hello ariana"])
-        self.assertEqual(got, [(CONV2, "hello ariana")])
+        # the unanswered old message is answered together with the new one, like a person would
+        self.assertEqual([m["text"] for m in b.poll_once()], ["old history\nhello ariana"])
+        self.assertEqual(got, [(CONV2, "old history\nhello ariana")])
+
+    def test_old_messages_she_or_the_owner_already_answered_are_not_repeated(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2)
+        c.messages_by_conv = {CONV2: [{"text": "an answer", "sender": "me"}, {"text": "old question", "sender": "other"}]}
+        b.poll_once()
+        c.messages_by_conv[CONV2] = [{"text": "next one", "sender": "other"}] + c.messages_by_conv[CONV2]
+        self.assertEqual([m["text"] for m in b.poll_once()], ["next one"])
+
+    def test_the_same_text_again_is_a_new_message(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2)
+        c.messages_by_conv = {CONV2: [{"text": "hi", "sender": "other"}]}
+        b.poll_once()                                           # baseline: "hi" is old and unanswered
+        c.messages_by_conv[CONV2] = [{"text": "hi", "sender": "other"}, {"text": "hi", "sender": "other"}]
+        self.assertEqual([m["text"] for m in b.poll_once()], ["hi\nhi"])
+        self.assertEqual(b.poll_once(), [])                     # and not delivered twice
+
+    def test_two_messages_in_one_look_become_one_reply_turn(self):
+        b, got = self.make()
+        c = b.client
+        c.sync_blob = conv_frame(CONV2); c.messages_by_conv = {CONV2: []}
+        b.poll_once()
+        c.messages_by_conv[CONV2] = [{"text": "are you there", "sender": "other"}, {"text": "hello", "sender": "other"}]
+        self.assertEqual([m["text"] for m in b.poll_once()], ["hello\nare you there"])
+        self.assertEqual(len(got), 1)
 
     def test_a_brand_new_chat_after_start_is_answered(self):
         b, got = self.make()
@@ -250,6 +281,19 @@ class DiscoverAccountId(unittest.TestCase):
         b.load_session({"a": "b"}, "prefix-" + ME)
         self.assertIsNone(b.discover_user_uuid())
         self.assertEqual(b.my_uuid, "")
+
+
+class Alignment(unittest.TestCase):
+    def test_cases(self):
+        n = B.new_since
+        self.assertEqual(n(["a", "b"], ["a", "b"]), [])
+        self.assertEqual(n(["a", "b"], ["x", "a", "b"]), ["x"])
+        self.assertEqual(n(["a"], ["a", "a"]), ["a"])               # same text again
+        self.assertEqual(n(["a", "a"], ["a", "a"]), [])
+        self.assertEqual(n(["a", "a"], ["a", "a", "a"]), ["a"])
+        self.assertEqual(n(["a", "b", "c"], ["x", "y", "a", "b", "c"]), ["x", "y"])
+        self.assertEqual(n([], ["x", "y", "z", "w"]), ["x", "y", "z"])   # a new chat: newest 3
+        self.assertEqual(n(["a"], ["q", "r"]), ["q", "r"])               # old window scrolled out
 
 
 if __name__ == "__main__":

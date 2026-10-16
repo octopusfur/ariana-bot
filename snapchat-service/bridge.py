@@ -100,10 +100,46 @@ def user_id_candidates(token):
             continue
     for m in re.finditer(rb"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", raw):
         add(m.group(0).decode())
+    framed, loose = [], []
     for i in range(0, max(0, len(raw) - 15)):
-        if _looks_like_uuid_bytes(raw[i:i + 16]) and (i == 0 or raw[i - 1] == 0x10 or raw[i - 2:i] == b"\x0a\x10"):
-            add(uuid_mod.UUID(bytes=raw[i:i + 16]))
-    return cands[:12]
+        if _looks_like_uuid_bytes(raw[i:i + 16]):
+            (framed if (i == 0 or raw[i - 1] == 0x10 or raw[i - 2:i] == b"\x0a\x10") else loose).append(uuid_mod.UUID(bytes=raw[i:i + 16]))
+    for u in framed + loose:     # ids that sit right after a protobuf tag first; every guess is verified by a real sync anyway
+        add(u)
+    return cands[:16]
+
+
+def message_key(conversation_id, m):
+    return text_key(conversation_id, f"{m.get('sender')}|{m['text']}")
+
+
+def new_since(prev, cur):
+    """Message keys of the last look (prev) and this look (cur), both newest first.
+
+    Returns the part of cur that is new, newest first. Works by finding where the old head reappears,
+    so a repeated text ("hi", then "hi" again) still counts as new, which a set of seen texts never could.
+    """
+    if cur == prev:
+        return []
+    head = prev[:10]
+    for k in range(1, len(cur) + 1):
+        tail = cur[k:]
+        n = min(len(tail), len(head))
+        if n and tail[:n] == head[:n]:
+            return cur[:k]
+    return cur[:3]   # nothing lines up (new chat, or the old window scrolled out): the newest few
+
+
+def unanswered(msgs):
+    """Messages from the other person sitting after the last message from us, oldest first, at most 3."""
+    out = []
+    for m in msgs:                      # newest first
+        if m.get("sender") != "other":
+            break
+        out.append(m["text"])
+        if len(out) == 3:
+            break
+    return list(reversed(out))
 
 
 def text_key(conversation_id, text):
@@ -135,8 +171,9 @@ class Bridge:
         self.conversations = {c.lower() for c in conversations if is_uuid(c)}
         self.on_inbound = on_inbound
         self.limiter = RateLimiter(max_sends_per_hour)
-        self.seen = defaultdict(set)      # conversation -> text keys already handled
-        self.baselined = set()            # conversations whose history was recorded silently
+        self.snap = {}                    # conversation -> message keys at the last look (newest first)
+        self.pending = {}                 # conversation -> older messages nobody answered yet
+        self.baselined = set()
         self.sent = deque(maxlen=500)     # echo guard: keys of what we sent ourselves
         self.last_poll = None
         self.last_error = None
@@ -147,7 +184,10 @@ class Bridge:
 
     # ---------------------------------------------------------------- session
     def authenticated(self):
-        return bool(self.client and self.client.is_authenticated())
+        if not self.client:
+            return False
+        flag = getattr(self.client, "is_authenticated", False)  # a @property on SnapchatClient
+        return bool(flag() if callable(flag) else flag)
 
     def _new_client(self, cookies=None, bearer=""):
         self.client = self.client_factory(cookies=cookies, bearer_token=bearer, my_uuid=self.my_uuid)
@@ -184,7 +224,8 @@ class Bridge:
     def logout(self):
         with self.lock:
             self.client = None
-            self.seen.clear()
+            self.snap.clear()
+            self.pending.clear()
             self.baselined.clear()
 
     def _call(self, fn_name, *args, **kwargs):
@@ -288,14 +329,24 @@ class Bridge:
             for c in remove:
                 self.conversations.discard(str(c).lower())
                 self.baselined.discard(str(c).lower())
+                self.snap.pop(str(c).lower(), None)
             return sorted(self.conversations)
 
-    def poll_once(self):
-        """One polling pass. Returns the new inbound messages that were delivered.
+    def _consume_echo(self, conv, text):
+        """True once for each text we sent ourselves, so a misattributed echo of her own reply is never answered."""
+        k = text_key(conv, text)
+        if k in self.sent:
+            self.sent.remove(k)
+            return True
+        return False
 
-        answer_all (default): one sync is shared across every chat found in it, plus any listed chats.
-        The first pass after start only records history (never answered); chats that appear later are new
-        conversations, so their messages are answered (newest 3 at most, in case history shows up late).
+    def poll_once(self):
+        """One polling pass. Returns the messages that were delivered, one entry per chat.
+
+        One sync is shared across every chat found in it (plus any listed chats). The first pass after a start
+        only records what is already there, but remembers messages nobody answered yet: when that person
+        writes again, those are answered together with the new one, like a person would. Chats that appear
+        later are new conversations and are answered straight away.
         """
         if self.paused or not self.authenticated() or not self.my_uuid:
             return []
@@ -319,37 +370,62 @@ class Bridge:
             except SnapchatError as e:
                 self.last_error = str(e)
                 continue
-            keys = [(m, text_key(conv, m["text"])) for m in msgs]
-            fresh_chat = conv not in self.baselined
-            if fresh_chat and (first_pass or conv in self.conversations or not self.answer_all):
-                for _, k in keys:
-                    self.seen[conv].add(k)   # history before we started is never answered
+            keys = [message_key(conv, m) for m in msgs]
+            prev = self.snap.get(conv)
+            if prev is None and (first_pass or conv in self.conversations or not self.answer_all):
+                self.snap[conv] = keys                       # what is already there is history
+                self.pending[conv] = unanswered(msgs)         # but unanswered messages stay answerable
                 self.baselined.add(conv)
                 continue
+            fresh = new_since(prev or [], keys)
+            self.snap[conv] = keys
             self.baselined.add(conv)
-            ordered = list(reversed(keys))   # oldest first
-            if fresh_chat:                   # brand new chat found after start: answer only its newest 3
-                for _, k in ordered[:-3]:
-                    self.seen[conv].add(k)
-                ordered = ordered[-3:]
-            for m, k in ordered:
-                if k in self.seen[conv]:
+            if not fresh:
+                continue
+            new_texts = []
+            for m in msgs[:len(fresh)]:                       # newest first, stop at anything we or the owner sent
+                if m.get("sender") != "other":
+                    break
+                if self._consume_echo(conv, m["text"]):
                     continue
-                self.seen[conv].add(k)
-                if m.get("sender") != "other" or k in self.sent:
-                    continue
-                delivered.append({"conversation_id": conv, "text": m["text"]})
-                if self.on_inbound:
-                    try:
-                        self.on_inbound(conv, m["text"])
-                    except Exception as e:   # never let one bad delivery kill the loop
-                        self.last_error = f"inbound delivery failed: {e}"
-            if len(self.seen[conv]) > 2000:
-                self.seen[conv] = set(list(self.seen[conv])[-1000:])
+                new_texts.append(m["text"])
+            new_texts.reverse()
+            if not new_texts:
+                self.pending[conv] = []                       # someone already replied
+                continue
+            text = "\n".join(self.pending.pop(conv, []) + new_texts)
+            self.pending[conv] = []
+            delivered.append({"conversation_id": conv, "text": text})
+            if self.on_inbound:
+                try:
+                    self.on_inbound(conv, text)
+                except Exception as e:   # never let one bad delivery kill the loop
+                    self.last_error = f"inbound delivery failed: {e}"
         if self.answer_all and data is not None:
             self.initial_done = True
         self.last_poll = time.time()
         return delivered
+
+    def diagnose(self):
+        """A readable snapshot of what the bridge can see, for the Settings 'Check connection' button."""
+        out = {
+            "signed_in": self.authenticated(), "user_uuid": self.my_uuid or None, "answer_all": self.answer_all,
+            "paused": self.paused, "last_error": self.last_error, "last_poll": self.last_poll,
+        }
+        if not (out["signed_in"] and self.my_uuid):
+            out["note"] = "Sign in first" if not out["signed_in"] else "The account id is missing"
+            return out
+        data = self._call("delta_sync")
+        out["sync_bytes"] = len(data)
+        convs = extract_conversation_ids(bytes(data), exclude=[self.my_uuid])
+        out["chats_found"] = len(convs)
+        out["chats"] = [
+            {"id": c, "messages": [{"sender": m["sender"], "text": m["text"][:60]} for m in self._call("get_messages", c, 50, data)[:3]]}
+            for c in convs[:8]
+        ]
+        if not convs:
+            out["sync_sample_hex"] = bytes(data)[:300].hex()
+        return out
 
     def download(self, url):
         host = (re.match(r"^https://([^/:]+)", url or "") or [None, ""])[1].lower()

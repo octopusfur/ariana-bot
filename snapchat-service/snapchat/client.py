@@ -98,6 +98,16 @@ class GrpcError(SnapchatError):
         super().__init__(f"grpc-status={status}: {message}")
 
 
+UUID_TEXT = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _response_cookies(r) -> dict:
+    try:
+        return {str(k): str(v) for k, v in dict(r.cookies).items()}
+    except Exception:
+        return {}
+
+
 def _parse_login_challenge(payload: bytes):
     """Return (status, challenge_bytes) from the email-step reply: field 1 varint, field 2 bytes."""
     status, challenge, pos = None, None, 0
@@ -250,6 +260,7 @@ class SnapchatClient:
             raise AuthError(f"Login page returned HTTP {r.status_code}")
 
         origin = "https://accounts.snapchat.com"
+        jar = dict(sess.cookies)  # PATCHED: carry cookies from every step (upstream dropped the ones set by the WebLogin replies)
 
         # Step 2: Submit email via WebLogin
         email_bytes = username.encode()
@@ -261,7 +272,7 @@ class SnapchatClient:
         r = self._grpc_post(
             self.WEBLOGIN_URL,
             bytes(req1),
-            cookies=dict(sess.cookies),
+            cookies=jar,
             origin=origin,
             timeout=15,
         )
@@ -272,6 +283,8 @@ class SnapchatClient:
                 if err_text:
                     err_msg += f": {err_text}"
             raise AuthError(err_msg)
+
+        jar.update(_response_cookies(r))
 
         # Parse challenge from response
         payload = self._parse_grpc_payload(r)
@@ -305,7 +318,7 @@ class SnapchatClient:
         r = self._grpc_post(
             self.WEBLOGIN_URL,
             bytes(req2),
-            cookies=dict(sess.cookies),
+            cookies=jar,
             origin=origin,
             timeout=15,
         )
@@ -318,7 +331,8 @@ class SnapchatClient:
             raise AuthError(err_msg)
 
         # Collect cookies from the session
-        self.cookies = dict(sess.cookies)
+        jar.update(_response_cookies(r))
+        self.cookies = jar
 
         # Step 4: Refresh bearer token via SSO
         if self.cookies:
@@ -1722,15 +1736,16 @@ class SnapchatClient:
         return {"raw": r.content.hex()}
 
     def get_messages(self, conversation_id: str, limit: int = 50, data: Optional[bytes] = None) -> list:
-        """Get text messages from a conversation using DeltaSync data.
+        """Get text messages for a conversation out of DeltaSync data, newest first.
 
-        Searches the DeltaSync response backwards (newest first), finds
-        each occurrence of the conversation UUID, and extracts text from
-        a window after it.
-
-        Returns: list of dicts with keys: text, sender ("me"|"other")
+        PATCHED. Upstream collapsed repeated texts, dropped anything shorter than 4 characters or without a
+        space ("hi", "ok", "hello"), and only guessed at what was text. Now:
+          * a string at path ..4/4/2/1 is a message text (the same shape send_text builds); any length counts
+          * other printable strings still count if they look like prose (the old heuristic)
+          * identical texts are kept separately (deduped by byte offset, not by content)
+        Returns: list of {text, sender ("me"|"other")}
         """
-        if data is None:  # PATCHED: callers that check many chats pass one shared sync
+        if data is None:  # callers that check many chats pass one shared sync
             ds_data = self.delta_sync()
             data = (
                 ds_data
@@ -1742,74 +1757,76 @@ class SnapchatClient:
 
         conv_bytes = _decode_uuid(conversation_id)
         my_bytes = self.MY_UUID
+        TEXT_PATH = (4, 4, 2, 1)
 
-        def _extract_texts(buf, depth=0):
-            results = []
+        def _printable(t: str) -> bool:
+            return bool(t) and all(c.isprintable() or c in "\n\t" for c in t)
+
+        def _walk(buf, base, depth, path, out):
             pos = 0
-            while pos < len(buf) - 1:
-                if pos >= len(buf):
-                    break
-                tag = buf[pos]
-                wt = tag & 7
-                pos += 1
+            while pos < len(buf):
+                try:
+                    key, pos = _read_varint(buf, pos)
+                except Exception:
+                    return
+                fn, wt = key >> 3, key & 7
                 if wt == 0:
-                    while pos < len(buf) and buf[pos] & 0x80:
-                        pos += 1
-                    pos += 1
+                    try:
+                        _, pos = _read_varint(buf, pos)
+                    except Exception:
+                        return
                 elif wt == 2:
-                    if pos >= len(buf):
-                        break
-                    length, pos = _read_varint(buf, pos)
-                    if pos + length > len(buf):
-                        break
+                    try:
+                        length, pos = _read_varint(buf, pos)
+                    except Exception:
+                        return
+                    if length < 0 or pos + length > len(buf):
+                        return
                     val = buf[pos : pos + length]
+                    start = base + pos
                     pos += length
                     try:
                         t = val.decode("utf-8")
-                        is_printable = t.isprintable()
                     except UnicodeDecodeError:
                         t = ""
-                        is_printable = False
-                    if is_printable:
-                        if 3 < len(t) < 300:
-                            lc = sum(c.isalpha() for c in t)
-                            if (
-                                " " in t
-                                and lc >= len(t) * 0.2
-                                and not t.startswith("http")
-                            ):
-                                results.append(t)
-                    elif length > 4 and depth < 6:
-                        results.extend(_extract_texts(val, depth + 1))
-                elif wt in (1, 5):
-                    pos += 8 if wt == 1 else 4
+                    if t and _printable(t):
+                        if (path + (fn,))[-4:] == TEXT_PATH and len(t) <= 2000 and not UUID_TEXT.match(t.strip()):
+                            out.append((start, t.strip(), True))
+                        elif 3 < len(t) < 300 and " " in t and not t.startswith("http"):
+                            if sum(c.isalpha() for c in t) >= len(t) * 0.2:
+                                out.append((start, t.strip(), False))
+                    elif length >= 2 and depth < 8:   # a one-word message sits in a 4-byte container
+                        _walk(val, start, depth + 1, path + (fn,), out)
+                elif wt == 1:
+                    pos += 8
+                elif wt == 5:
+                    pos += 4
                 else:
-                    break
-            return results
+                    return
 
-        messages = []
-        seen = set()
+        messages, seen_offsets = [], set()
         pos = len(data)
-
         while pos > 0 and len(messages) < limit:
             idx = data.rfind(conv_bytes, 0, pos)
             if idx == -1:
                 break
-
-            # Determine sender
-            nearby = data[max(0, idx - 80) : min(len(data), idx + 80)]
-            sender = "me" if my_bytes in nearby else "other"
-
-            window = data[idx + 16 : min(len(data), idx + 500)]
-            texts = _extract_texts(window)
-
-            for t in texts:
-                if t not in seen and len(t) >= 4:
-                    messages.append({"text": t.strip(), "sender": sender})
-                    seen.add(t)
-
+            # PATCHED: look only inside this record (up to the next mention of the chat), so a neighbouring
+            # message of ours is never taken as the sender of this one.
+            nxt = data.find(conv_bytes, idx + 16)
+            end = min(nxt if nxt != -1 else len(data), idx + 500)
+            sender = "me" if (my_bytes and my_bytes in data[idx:end]) else "other"
+            found = []
+            _walk(data[idx + 16 : end], idx + 16, 0, (), found)
+            in_record = set()
+            for off, t, structural in found:
+                if off in seen_offsets or not t or t in in_record:
+                    continue                    # same bytes, or the same text twice inside ONE record
+                seen_offsets.add(off)
+                in_record.add(t)
+                if not structural and len(t) < 4:
+                    continue
+                messages.append({"text": t, "sender": sender})   # separate records stay separate messages
             pos = idx
-
         return messages[:limit]
 
     # ── Message Queries ─────────────────────────────────────────────
