@@ -31,6 +31,7 @@ const DATA = {
     status: { enabled: true, postsMin: 2, postsMax: 3, kinds: { text: true, photo: true, found: true }, topics: { funny: true, news: true }, telegramStory: true },
     photos: { enabled: true, cooldownMin: 5, dailyCap: 5, sendToOthers: true, othersDailyCap: 6 },
     memory: { autoApprove: true },
+    persona: { ownerImmersion: true },
   },
   info: { statusReady: true, searchAvailable: true, telegramLinked: true, pictures: 4, today: [{ at: Date.now(), done: true }], recent: [{ kind: "photo", at: Date.now(), text: "so this is me <today>" }] },
 };
@@ -38,7 +39,7 @@ const DATA = {
 test("the screen shows every control, the plan and recent posts, and escapes text", async () => {
   const h = harness(DATA);
   await h.ctx.loadLife();
-  for (const word of ["Post to her status", "Her own pictures", "Things she finds online", "Telegram story", "Let her send her pictures", "Wait between pictures", "other people she knows", "Learn from chats automatically", "Reset everything"]) assert.ok(h.el.innerHTML.includes(word), word);
+  for (const word of ["Post to her status", "Her own pictures", "Things she finds online", "Telegram story", "Let her send her pictures", "Wait between pictures", "other people she knows", "Learn from chats automatically", "Stay fully in character with me", "dev:", "Reset everything"]) assert.ok(h.el.innerHTML.includes(word), word);
   assert.ok(h.el.innerHTML.includes("4 in library"));
   assert.ok(h.el.innerHTML.includes("so this is me &lt;today>"), "post text is escaped");
 });
