@@ -72,16 +72,23 @@ def make_client_class(net):
     return NetClient
 
 
+WELCOME_SEEN = []
+
+
 class FakeSession:
     def __init__(self):
         self.headers = {}
         self.cookies = {"sc-a-nonce": "n1"}
-    def get(self, *a, **k):
-        return mock.Mock(status_code=200)
+    def get(self, url, *a, **k):
+        if str(url).endswith("/v2/welcome"):
+            WELCOME_SEEN.append(k.get("cookies"))
+            self.cookies["sc-a-auth-session"] = "after-welcome"
+        return mock.Mock(status_code=200, url=url)
 
 
 class RealClientThroughRoutes(unittest.TestCase):
     def setUp(self):
+        del WELCOME_SEEN[:]
         self.net = Net()
         self.net.login_replies = [
             FakeResp(bytes([0x08, 0x0D, 0x12, 0x05]) + b"chall", cookies={"a1": "x"}),   # email step: status 13 then challenge
@@ -133,7 +140,29 @@ class RealClientThroughRoutes(unittest.TestCase):
         self.assertNotIn("<", msg); self.assertNotIn(">", msg)
         self.assertIn("code 4", msg)
         self.assertIn("Captcha needed", msg)
+        self.assertIn("token request came back as HTTP", msg)
         self.assertIn("captcha", msg.lower())
+
+    def test_when_the_token_is_refused_the_welcome_redirect_is_followed_and_the_token_retried(self):
+        from snapchat import AuthError
+        Base = make_client_class(self.net)
+        class NeedsWelcome(Base):
+            def refresh_bearer(self):
+                if "sc-a-auth-session" not in self.cookies:
+                    self.last_sso = {"status": 200, "title": "Sign in", "text": "Sign in to Snapchat", "length": 99}
+                    raise AuthError("web page instead of a token")
+                return Base.refresh_bearer(self)
+        self.net.login_replies[1] = FakeResp(bytes([0x08, 0x0B, 0x12, 0x0B]) + b"/v2/welcome", cookies={"__Host-sc-authn-session-payload": "p"})
+        server.bridge = B.Bridge(client_factory=NeedsWelcome, answer_all=True)
+        code, out = server.route("POST", "/login", {"username": "u", "password": "p", "user_uuid": ME}, "")
+        self.assertEqual(code, 200)
+        self.assertTrue(out["signed_in"])
+        self.assertEqual(len(WELCOME_SEEN), 1)
+        self.assertIn("__Host-sc-authn-session-payload", WELCOME_SEEN[0])        # the session cookies went along
+        info = server.bridge.client.last_login_info
+        self.assertEqual(info["password_step_status"], 11)
+        self.assertEqual(info["welcome"]["status"], 200)
+        self.assertEqual(info["token_first_try"]["title"], "Sign in")
 
     def test_pasted_session_route(self):
         code, out = server.route("POST", "/session", {"cookies": [{"name": "a", "value": "b"}], "user_uuid": ME}, "")
