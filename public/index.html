@@ -880,16 +880,22 @@ html.pal-vt{pointer-events:none}
         <div class="st-panel">
           <div id="snap-status" class="st-note">Checking...</div>
           <div id="snap-login">
-            <label class="lbl">Snapchat username</label>
-            <input type="text" id="snap-user" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Ariana's Snapchat username">
-            <label class="lbl" style="margin-top:10px">Password</label>
-            <input type="password" id="snap-pass" class="inp" autocomplete="off" placeholder="Used once to sign in, never stored">
+            <div class="st-note" style="margin-bottom:10px">Signing in directly from here does not work: Snapchat blocks it from a server. Use a session from a browser where you are already signed in instead.</div>
+            <label class="lbl">1. Sign in to Snapchat in a browser</label>
+            <div class="st-note">On a computer, go to <b>web.snapchat.com</b> and sign in as Ariana. Approve it on the phone if Snapchat asks.</div>
+            <label class="lbl" style="margin-top:14px">2. Install a cookie-export extension</label>
+            <div class="st-note">Chrome or Edge, search the web store for <b>"Cookie-Editor"</b> by cgagnier and add it. Needed because Snapchat's sign-in cookies cannot be copied by hand.</div>
+            <label class="lbl" style="margin-top:14px">3. Export the cookies</label>
+            <div class="st-note">On the web.snapchat.com tab, open Cookie-Editor, tap <b>Export</b>, then <b>Export as JSON</b>. This copies them to your clipboard.</div>
+            <label class="lbl" style="margin-top:14px">4. Paste them here</label>
+            <textarea id="snap-cookies" class="inp" rows="4" autocapitalize="none" autocorrect="off" placeholder="Paste the exported cookie JSON here" style="margin-top:4px"></textarea>
             <label class="lbl" style="margin-top:10px">Snapchat user ID (optional)</label>
             <input type="text" id="snap-uuid" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Leave empty, Ariana tries to find it">
-            <button class="btn" id="snap-btn" onclick="snapLogin()" style="margin-top:12px">Sign in</button>
-            <details class="st-more"><summary class="st-link">Use a pasted session instead</summary>
-              <textarea id="snap-cookies" class="inp" rows="4" autocapitalize="none" autocorrect="off" placeholder="Cookie export as JSON" style="margin-top:6px"></textarea>
-              <button class="btn-ghost" onclick="snapUseSession()" style="margin-top:8px">Use this session</button>
+            <button class="btn" id="snap-sess-btn" onclick="snapUseSession()" style="margin-top:12px">Use this session</button>
+            <details class="st-more"><summary class="st-link">Advanced: sign in with username and password (usually blocked)</summary>
+              <input type="text" id="snap-user" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Ariana's Snapchat username" style="margin-top:6px">
+              <input type="password" id="snap-pass" class="inp" autocomplete="off" placeholder="Used once to sign in, never stored" style="margin-top:8px">
+              <button class="btn-ghost" id="snap-btn" onclick="snapLogin()" style="margin-top:8px">Sign in</button>
             </details>
           </div>
           <div id="snap-chats" style="display:none;margin-top:16px">

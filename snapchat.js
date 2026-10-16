@@ -141,7 +141,7 @@ function init(deps) {
 
   app.post("/api/snapchat/session", requireAuth, wrap(async (req) => {
     const { cookies, bearerToken, userUuid } = req.body || {};
-    if (!cookies) { const e = new Error("cookies required (JSON export or name/value object)"); e.status = 400; throw e; }
+    if (!cookies) { const e = new Error("cookies required. Export the cookie JSON from web.snapchat.com (Cookie-Editor: Export, Export as JSON) and paste it here."); e.status = 400; throw e; }
     const r = await call("post", "/session", { cookies, bearer_token: bearerToken || "", user_uuid: userUuid || undefined });
     const uuid = (userUuid ? String(userUuid).toLowerCase() : r.user_uuid_found) || null;
     const saved = await persist({ cookies: r.cookies, bearer_token: r.bearer_token, ...(uuid ? { user_uuid: uuid } : {}) });
