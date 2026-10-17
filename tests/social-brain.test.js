@@ -466,6 +466,25 @@ test('api: the creator switch is per account and reported back', async () => {
   } finally { stop(); }
 });
 
+test('api: Instagram and TikTok accounts start ready to act (her creator handed them over); X still starts switched off', async () => {
+  // Instagram exists only while its service is configured, so switch it on for this test.
+  const saved = { u: process.env.IG_SERVICE_URL, k: process.env.IG_SERVICE_API_KEY };
+  process.env.IG_SERVICE_URL = 'http://ig.test'; process.env.IG_SERVICE_API_KEY = 'k';
+  const { base, stop } = await startDashboard();
+  try {
+    const ig = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.ig' } });
+    assert.equal(ig.json.account.actions_enabled, true);
+    assert.equal(ig.json.account.autopublish, true);
+    const tt = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'tiktok', handle: 'ariana.tt' } });
+    if (tt.status === 200) assert.equal(tt.json.account.actions_enabled, true); // TikTok exists only when switched on
+    const x = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'someone' } });
+    assert.equal(x.json.account.actions_enabled, false, 'X is not self-run: the creator switches it on');
+  } finally {
+    stop();
+    for (const [k, v] of [['IG_SERVICE_URL', saved.u], ['IG_SERVICE_API_KEY', saved.k]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
 test('api: autopublish is allowed where publishing exists, and refused where the manifest says it does not', async () => {
   const { base, stop, fresh } = await startDashboard();
   try {

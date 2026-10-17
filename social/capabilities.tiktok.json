@@ -1,0 +1,93 @@
+{
+  "$schema": "ariana-social-capabilities-tiktok/1",
+  "note": "ADDS a 'tiktok' platform ONLY while Browser Use Cloud is the social engine (BROWSER_USE_API_KEY set, no SOCIAL_ENGINE_URL). The self-hosted SocialCrabs engine has no TikTok handler, so with it configured TikTok is not offered. Every supported action is a task template in social/browseruse_engine.js.",
+  "platforms": {
+    "tiktok": {
+      "label": "TikTok",
+      "handle_label": "username",
+      "session_cookie": null,
+      "env_bootstrap": false,
+      "actions": {
+        "search": {
+          "supported": true,
+          "method": "browser-use: search TikTok",
+          "returns": "up to 8 video URLs with author and caption",
+          "notes": "A cloud browser reads the search page; slower and less exact than an API."
+        },
+        "view_profile": {
+          "supported": true,
+          "method": "browser-use: open profile",
+          "returns": "name, bio, followers, following, likes (as shown)"
+        },
+        "view_posts": {
+          "supported": true,
+          "method": "browser-use: open profile",
+          "returns": "URLs of the 10 latest videos"
+        },
+        "view_feed": {
+          "supported": false,
+          "reason": "Reading the For You feed through a cloud browser is not wired \u2014 it would burn credits for little."
+        },
+        "like": {
+          "supported": true,
+          "method": "browser-use: like the video"
+        },
+        "comment": {
+          "supported": true,
+          "method": "browser-use: comment on the video",
+          "notes": "TikTok may hold new comments for review or block them on some videos."
+        },
+        "reply": {
+          "supported": false,
+          "reason": "Replying to one specific comment is not wired; she can comment on a video."
+        },
+        "follow": {
+          "supported": true,
+          "method": "browser-use: follow the account"
+        },
+        "unfollow": {
+          "supported": true,
+          "method": "browser-use: unfollow the account"
+        },
+        "connect": {
+          "supported": false,
+          "reason": "Connection requests are a LinkedIn concept."
+        },
+        "dm": {
+          "supported": true,
+          "method": "browser-use: send a message",
+          "notes": "Replies only: she answers people who already messaged her and never starts a conversation. TikTok also only allows messages between mutual follows or where the person has opened DMs."
+        },
+        "read_dms": {
+          "supported": false,
+          "reason": "Not wired \u2014 reading an inbox through a cloud browser is unreliable."
+        },
+        "post": {
+          "supported": false,
+          "reason": "Uploading a video needs a video file, which a cloud browser task cannot be handed through this layer. Not supported."
+        },
+        "repost": {
+          "supported": false,
+          "reason": "Not wired for TikTok."
+        },
+        "notifications": {
+          "supported": false,
+          "reason": "Not wired for TikTok."
+        },
+        "engagement": {
+          "supported": true,
+          "method": "browser-use: open profile",
+          "returns": "likes/comments counts of the latest videos"
+        },
+        "delete_post": {
+          "supported": false,
+          "reason": "Deleting is deliberately left out."
+        },
+        "delete_comment": {
+          "supported": false,
+          "reason": "Deleting is deliberately left out."
+        }
+      }
+    }
+  }
+}

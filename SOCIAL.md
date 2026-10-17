@@ -19,9 +19,10 @@ X  (x.com's own web endpoints, via a vendored HTTP client — see vendor/xaction
 Nothing here replaces her identity, personality, memory, emotional state, attraction system, wants, boundaries or
 creator configuration. There is no second AI: the same brain that talks to people decides when to act.
 
-> **What changed.** The previous engines (a Playwright service, then a paid Browser Use cloud browser) are gone.
-> Instagram and LinkedIn actions went with them: the built-in engine supports X only. Instagram *publishing* still
-> works through its own Graph-API module (`instagram_publish.js`), which was never part of this layer.
+> **What changed.** X no longer uses a browser engine: the Playwright service (`socialcrabs-service/`) is gone and
+> X no longer runs through Browser Use. LinkedIn actions went with the old engine. Instagram and TikTok keep their
+> own engines (see "Other platforms" below), and Instagram *publishing* through Meta's Graph API
+> (`instagram_publish.js`) was never part of this layer.
 
 ---
 
@@ -43,6 +44,17 @@ cannot claim more than the engine can do.
 | delete a post / comment | ❌ | not built into the engine |
 
 Every ❌ carries a reason in the manifest, shown in the dashboard ("Why not").
+
+### Other platforms (each has its own engine; X does not use them)
+
+| Platform | Engine | When it exists | Notes |
+|---|---|---|---|
+| **Instagram** | the Instagram service (`ig-service/`, instagrapi — no browser, low RAM) | only while `IG_SERVICE_URL` is set | capability list: `social/capabilities.ig-api.json`; connect from Settings → Connect Instagram |
+| **TikTok** | Browser Use Cloud (a paid cloud browser, billed per task) | only when `TIKTOK_VIA_BROWSER_USE=on` and `BROWSER_USE_API_KEY` is set | capability list: `social/capabilities.tiktok.json`; connect by signing in on a live browser |
+| LinkedIn and everything else | none | — | removed with the old engine; no Connect button is offered |
+
+On Instagram and TikTok she **never starts a conversation**: a DM goes out only to someone who already wrote to her.
+
 
 ---
 
@@ -255,7 +267,7 @@ There is nothing extra to deploy. The engine runs inside Ariana's existing proce
 | `social/guards.js` | Limits, confirmations, capability/permission gates |
 | `social/tools.js` | The tool schemas Ariana's brain sees + the executor |
 | `social/activity.js` | Plain-language activity log |
-| `social/engine_client.js` | The one seam between this layer and the engine |
+| `social/engine_client.js` | Routes by platform: X → built-in engine, Instagram → Instagram service, TikTok → Browser Use |
 | `social/x_engine.js` | The built-in X engine: actions, sessions, auto re-login, pacing |
 | `social/x_login.js` | Password + 2FA sign-in over plain HTTP (ported from twikit's flow) |
 | `social/session_vault.js` | AES-256-GCM session storage |

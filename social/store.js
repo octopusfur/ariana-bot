@@ -324,9 +324,65 @@ async function listSecrets(prefix = '') {
   } catch (_) { return []; }
 }
 
+// ── SESSIONS ────────────────────────────────────────────────────────────────
+// Logins (Instagram) and small channel state live in the same `sessions` table WhatsApp/Telegram/
+// Snapchat already use ({type, key, data}), so nothing exists only on a server disk. Without
+// Supabase they fall back to a local file (lost on a redeploy — the startup log says which applies).
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+
+async function readSessionsFile() {
+  try { return JSON.parse(await fsp.readFile(SESSIONS_FILE, 'utf8')) || {}; } catch (_) { return {}; }
+}
+
+async function writeSessionsFile(obj) {
+  await fsp.mkdir(DATA_DIR, { recursive: true });
+  await fsp.writeFile(SESSIONS_FILE, JSON.stringify(obj), { mode: 0o600 });
+}
+
+async function getSession(type, key) {
+  const sb = init();
+  if (sb) {
+    const { data, error } = await sb.from('sessions').select('data').eq('type', type).eq('key', key).maybeSingle();
+    if (!error) return (data && data.data) || null;
+    if (!tableMissing(error)) throw new Error(`sessions read failed: ${error.message}`);
+    tableWarning(error);
+  }
+  return (await readSessionsFile())[`${type}:${key}`] || null;
+}
+
+async function setSession(type, key, data) {
+  const sb = init();
+  if (sb) {
+    const { error } = await sb.from('sessions').upsert({ type, key, data, updated_at: new Date().toISOString() }, { onConflict: 'type,key' });
+    if (!error) return 'supabase';
+    if (!tableMissing(error)) throw new Error(`sessions write failed: ${error.message}`);
+    tableWarning(error);
+  }
+  const all = await readSessionsFile();
+  all[`${type}:${key}`] = data;
+  await writeSessionsFile(all);
+  return 'file'; // this server's disk only: gone on a redeploy
+}
+
+async function deleteSession(type, key) {
+  const sb = init();
+  if (sb) {
+    const { error } = await sb.from('sessions').delete().eq('type', type).eq('key', key);
+    if (!error) return true;
+    if (!tableMissing(error)) throw new Error(`sessions delete failed: ${error.message}`);
+  }
+  const all = await readSessionsFile();
+  delete all[`${type}:${key}`];
+  await writeSessionsFile(all);
+  return true;
+}
+
 module.exports = {
   _setSupabaseForTest: (sb) => { supabase = sb; supabaseTried = true; },
   DATA_DIR,
+  getSession,
+  setSession,
+  deleteSession,
   usingSupabase,
   loadAccounts,
   saveAccount,

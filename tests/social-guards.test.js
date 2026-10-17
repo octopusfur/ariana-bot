@@ -140,6 +140,21 @@ test('guard: unfollowing always needs a human yes — and the token is single-us
   assert.equal(replay.ok, false, 'a confirmation must not be reusable');
 });
 
+test('guard: on Instagram and TikTok her creator has handed over unfollowing — no yes needed each time', async () => {
+  resetStore();
+  // Instagram exists only while its service is configured.
+  const saved = { u: process.env.IG_SERVICE_URL, k: process.env.IG_SERVICE_API_KEY };
+  process.env.IG_SERVICE_URL = 'http://ig.test'; process.env.IG_SERVICE_API_KEY = 'k';
+  try {
+    const account = await seededAccount('instagram', 'selfrun');
+    assert.equal((await guards.check({ account, action: 'unfollow', count: 1 })).ok, true);
+    const x = await seededAccount('twitter', 'stillcareful');
+    assert.equal((await guards.check({ account: x, action: 'unfollow', count: 1 })).ok, false);
+  } finally {
+    for (const [k, v] of [['IG_SERVICE_URL', saved.u], ['IG_SERVICE_API_KEY', saved.k]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
 test('guard: a confirmation is bound to its account, its action and its size', async () => {
   resetStore();
   const a = await seededAccount('twitter', 'one');

@@ -367,7 +367,8 @@ test('index.js: every place that routes by platform knows about X (an X contact 
   const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
 
   assert.equal((src.match(/\(tg_\|sg_\|sms_\|fb_\|sc_\)/g) || []).length, 0, 'a prefix list without x_ would leave "x_name" un-stripped');
-  assert.ok((src.match(/\(tg_\|sg_\|sms_\|fb_\|sc_\|x_\)/g) || []).length >= 15);
+  assert.equal((src.match(/\(tg_\|sg_\|sms_\|fb_\|sc_\|x_\)/g) || []).length, 0, 'a prefix list without ig_/tt_ would leave "ig_name" un-stripped');
+  assert.ok((src.match(/\(tg_\|sg_\|sms_\|fb_\|sc_\|x_\|ig_\|tt_\)/g) || []).length >= 15);
 
   const snap = (src.match(/snapchat\.send(Text|Image)\(/g) || []).length;
   const x = (src.match(/xchannel\.send(Text|Image)\(/g) || []).length;
@@ -384,7 +385,8 @@ test('index.js: every place that routes by platform knows about X (an X contact 
 test('dashboard: every list of channels includes X, with the supplied logo', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.equal((html.match(/\['wa','tg','sig','snap','sms','fb'\]/g) || []).length, 0, 'a channel list is missing x');
-  assert.equal((html.match(/\['wa','tg','sig','snap','sms','fb','x'\]/g) || []).length, 3);
+  assert.equal((html.match(/\['wa','tg','sig','snap','sms','fb','x'\]/g) || []).length, 2);
+  assert.equal((html.match(/\['wa','tg','sig','snap','sms','fb','x','ig','tt'\]/g) || []).length, 1, 'the badge list carries Instagram and TikTok too');
   assert.ok(/openChannel\('x'\)/.test(html), 'home tile');
   assert.ok(/id="ch-x"/.test(html) && /xCheck\(\)/.test(html), 'settings card');
   assert.ok(/p==='x'\)return'<svg/.test(html), 'chat list icon');

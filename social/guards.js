@@ -63,6 +63,10 @@ const BATCH_CONFIRM_THRESHOLD = envNumber('SOCIAL_BATCH_CONFIRM_THRESHOLD', 2);
 
 // Actions that always need an explicit creator yes, every time, even alone.
 const CONFIRM_ALWAYS = new Set(['unfollow', 'delete_post', 'delete_comment', 'read_dms']);
+// On these her creator has handed over day-to-day running (like, follow, unfollow, post, reply to DMs),
+// so unfollowing does not need a yes every time. Everything else on the list above still does.
+const SELF_RUN_PLATFORMS = new Set(['instagram', 'tiktok']);
+const needsAlwaysConfirm = (account, action) => CONFIRM_ALWAYS.has(action) && !(action === 'unfollow' && SELF_RUN_PLATFORMS.has(account && account.platform));
 
 // ── CONFIRMATIONS ───────────────────────────────────────────────────────────
 // In-memory, single-use, short-lived, scoped to one account+action. They are
@@ -171,11 +175,11 @@ async function check({ account, action, count = 1, confirmationToken = null, lim
   }
 
   // 5. confirmation policy
-  const needsConfirm = CONFIRM_ALWAYS.has(action)
+  const needsConfirm = needsAlwaysConfirm(account, action)
     || (action === 'post' && !autopublish)
     || (count >= BATCH_CONFIRM_THRESHOLD && count > 1);
   if (needsConfirm) {
-    const reason = CONFIRM_ALWAYS.has(action)
+    const reason = needsAlwaysConfirm(account, action)
       ? `"${action}" is irreversible enough that it always needs a human yes.`
       : action === 'post'
         ? 'Publishing is irreversible, so it needs your confirmation (or autopublish on this account).'
