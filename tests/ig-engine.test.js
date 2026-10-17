@@ -199,6 +199,8 @@ test('login stores the session in the database and never keeps the password', as
   assert.equal(r.ok, true);
   assert.equal(r.connected, true);
   assert.equal(r.handle, 'ariana.test');
+  assert.equal(r.stored, 'file'); // no Supabase in tests, and the answer says so
+  assert.match(r.detail, /disk only/);
   assert.deepEqual(await store.getSession('instagram', 'ariana.test'), (await store.getSession('instagram', 'ariana.test')));
   const saved = await store.getSession('instagram', 'ariana.test');
   assert.deepEqual(saved.settings, { cookies: { sessionid: 'abc' } });

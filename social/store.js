@@ -295,14 +295,14 @@ async function setSession(type, key, data) {
   const sb = init();
   if (sb) {
     const { error } = await sb.from('sessions').upsert({ type, key, data, updated_at: new Date().toISOString() }, { onConflict: 'type,key' });
-    if (!error) return true;
+    if (!error) return 'supabase';
     if (!tableMissing(error)) throw new Error(`sessions write failed: ${error.message}`);
     tableWarning(error);
   }
   const all = await readSessionsFile();
   all[`${type}:${key}`] = data;
   await writeSessionsFile(all);
-  return true;
+  return 'file'; // this server's disk only: gone on a redeploy
 }
 
 async function deleteSession(type, key) {

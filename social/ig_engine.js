@@ -253,12 +253,17 @@ async function login(username, password, code) {
     return { ok: true, connected: false, code: d.code || 'login_failed', detail: d.detail || 'Instagram did not accept that sign-in.' };
   }
   const who = sessionKey(d.handle || handle);
+  let where;
   try {
-    await store.setSession(SESSION_TYPE, who, { settings: d.settings, saved_at: new Date().toISOString() });
+    where = await store.setSession(SESSION_TYPE, who, { settings: d.settings, saved_at: new Date().toISOString() });
   } catch (e) {
     return { ok: false, code: 'save_failed', error: `Signed in, but the session could not be saved to the database (${e.message}). Check Supabase.` };
   }
-  return { ok: true, connected: true, handle: who, detail: d.detail || `Signed in as @${who}.` };
+  const base = d.detail || `Signed in as @${who}.`;
+  const warn = where === 'file'
+    ? ' Warning: Supabase is not reachable from the server, so the login is saved on its disk only and will be lost on the next redeploy. Check SUPABASE_URL and the service key (and that the sessions table exists).'
+    : ' Saved to your database.';
+  return { ok: true, connected: true, handle: who, stored: where, detail: base + warn };
 }
 
 // Latest messages in her inbox, for the DM poller.
