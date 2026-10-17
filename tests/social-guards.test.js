@@ -26,7 +26,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ariana-social-guards-'));
 process.env.SOCIAL_DATA_DIR = TMP;
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-delete process.env.SOCIAL_ENGINE_URL;
 delete process.env.SOCIAL_DRY_RUN;
 
 const caps = require('../social/capabilities');
@@ -54,17 +53,17 @@ test.after(() => {
 
 test('guard: an unsupported action is refused with the platform\'s own reason', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'ariana.personal');
-  const res = await guards.check({ account, action: 'post', count: 1 });
+  const account = await seededAccount('twitter', 'ariana_personal');
+  const res = await guards.check({ account, action: 'delete_post', count: 1 });
   assert.equal(res.ok, false);
   assert.equal(res.code, 'unsupported');
   assert.equal(res.status, 'unsupported');
-  assert.match(res.error, /no publish method/i);
+  assert.match(res.error, /no delete method/i);
 });
 
 test('guard: an account with actions switched off is refused, and the refusal says why', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'switched_off', { enabled: false });
+  const account = await seededAccount('twitter', 'switched_off', { enabled: false });
   const res = await guards.check({ account, action: 'like', count: 1 });
   assert.equal(res.ok, false);
   assert.equal(res.code, 'actions_disabled');
@@ -75,7 +74,7 @@ test('guard: an account with actions switched off is refused, and the refusal sa
 
 test('guard: a batch over the ceiling is refused outright, not truncated', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'batcher');
+  const account = await seededAccount('twitter', 'batcher');
   const res = await guards.check({ account, action: 'like', count: guards.BATCH_MAX + 1 });
   assert.equal(res.ok, false);
   assert.equal(res.code, 'batch_too_large');
@@ -85,15 +84,15 @@ test('guard: a batch over the ceiling is refused outright, not truncated', async
 
 test('guard: an action that cannot be batched is not silently expanded', async () => {
   resetStore();
-  const account = await seededAccount('linkedin', 'ariana-reyes');
-  const res = await guards.check({ account, action: 'search', count: 2 });
+  const account = await seededAccount('twitter', 'ariana_reyes');
+  const res = await guards.check({ account, action: 'view_profile', count: 2 });
   assert.equal(res.ok, false);
   assert.equal(res.code, 'not_batchable');
 });
 
 test('guard: the daily ceiling counts what actually ran, per account and action', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'limited');
+  const account = await seededAccount('twitter', 'limited');
   const limit = guards.defaultLimits().like;
 
   for (let i = 0; i < limit; i++) {
@@ -108,13 +107,13 @@ test('guard: the daily ceiling counts what actually ran, per account and action'
   // A different action on the same account is unaffected…
   assert.equal((await guards.check({ account, action: 'comment', count: 1 })).ok, true);
   // …and so is a different account.
-  const other = await seededAccount('instagram', 'not_limited');
+  const other = await seededAccount('twitter', 'not_limited');
   assert.equal((await guards.check({ account: other, action: 'like', count: 1 })).ok, true);
 });
 
 test('guard: things that were blocked or skipped do not consume the daily budget', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'blocked_only');
+  const account = await seededAccount('twitter', 'blocked_only');
   for (let i = 0; i < 20; i++) {
     await activity.record({ account, action: 'dm', status: 'blocked', error: 'nope' });
     await activity.record({ account, action: 'dm', status: 'skipped' });
@@ -143,10 +142,17 @@ test('guard: unfollowing always needs a human yes — and the token is single-us
 
 test('guard: on Instagram and TikTok her creator has handed over unfollowing — no yes needed each time', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'selfrun');
-  assert.equal((await guards.check({ account, action: 'unfollow', count: 1 })).ok, true);
-  const x = await seededAccount('twitter', 'stillcareful');
-  assert.equal((await guards.check({ account: x, action: 'unfollow', count: 1 })).ok, false);
+  // Instagram exists only while its service is configured.
+  const saved = { u: process.env.IG_SERVICE_URL, k: process.env.IG_SERVICE_API_KEY };
+  process.env.IG_SERVICE_URL = 'http://ig.test'; process.env.IG_SERVICE_API_KEY = 'k';
+  try {
+    const account = await seededAccount('instagram', 'selfrun');
+    assert.equal((await guards.check({ account, action: 'unfollow', count: 1 })).ok, true);
+    const x = await seededAccount('twitter', 'stillcareful');
+    assert.equal((await guards.check({ account: x, action: 'unfollow', count: 1 })).ok, false);
+  } finally {
+    for (const [k, v] of [['IG_SERVICE_URL', saved.u], ['IG_SERVICE_API_KEY', saved.k]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
 test('guard: a confirmation is bound to its account, its action and its size', async () => {
@@ -182,7 +188,7 @@ test('guard: publishing is confirmed every time unless the account allows otherw
 
 test('guard: a two-target batch needs a confirmation, a single action does not', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'batches');
+  const account = await seededAccount('twitter', 'batches');
   assert.equal((await guards.check({ account, action: 'like', count: 1 })).ok, true);
   const two = await guards.check({ account, action: 'like', count: 2 });
   assert.equal(two.ok, false);
@@ -192,7 +198,7 @@ test('guard: a two-target batch needs a confirmation, a single action does not',
 
 test('guard: confirmations expire and are listed with their scope', async () => {
   resetStore();
-  const account = await seededAccount('instagram', 'expiring');
+  const account = await seededAccount('twitter', 'expiring');
   const out = guards.createConfirmation({ accountId: account.account_id, action: 'unfollow', maxTargets: 1, note: 'creator clicked confirm' });
   const mine = guards.listConfirmations().find((c) => c.token === out.token);
   assert.ok(mine, 'the new confirmation is listed');
@@ -209,7 +215,7 @@ test('guard: confirmations expire and are listed with their scope', async () => 
 
 test('manifest: the guard defaults stay conservative', () => {
   const limits = guards.defaultLimits();
-  for (const action of ['dm', 'post', 'comment', 'follow', 'unfollow', 'connect']) {
+  for (const action of ['dm', 'post', 'comment', 'follow', 'unfollow']) {
     assert.ok(limits[action] <= 12, `${action} default ceiling of ${limits[action]} is not conservative`);
   }
   assert.ok(guards.BATCH_MAX <= 5, 'batch ceiling must stay small');

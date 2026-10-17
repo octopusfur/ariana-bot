@@ -6,9 +6,9 @@
 //            ↓            social.buildToolSchemas() / social.executeTool()
 //     Social action tools  (capabilities → guards → activity)
 //            ↓
-//     Social engine (socialcrabs-service/)  ← the only thing holding sessions
+//     Built-in X engine (x_engine.js: plain HTTP, no browser)
 //            ↓
-//     Instagram · X · LinkedIn
+//     X (Twitter)
 //
 // Her identity, personality, memory, emotional state, attraction system, wants,
 // boundaries and creator configuration are untouched: this layer adds hands,
@@ -102,7 +102,7 @@ async function startupLines() {
   const r = await readiness();
   const lines = [];
   const state = !engine.configured()
-    ? '❌ no engine (set SOCIAL_ENGINE_URL)'
+    ? '❌ engine unavailable'
     : r.enabled
       ? `✅ ${r.enabled} account(s) with actions enabled`
       : r.accounts
@@ -112,7 +112,7 @@ async function startupLines() {
   if (engine.configured() && r.enabled) {
     const h = await engine.health();
     lines.push(h.ok
-      ? `📣 Engine: ${h.health.provider || 'socialcrabs'} · ${h.health.browsers_open || 0} browser(s) open`
+      ? `📣 Engine: ${h.health.provider || 'x-lite'} · ${h.health.sessions || 0} saved login(s), no browser`
       : `📣 Engine unreachable: ${h.error}`);
   }
   return lines;

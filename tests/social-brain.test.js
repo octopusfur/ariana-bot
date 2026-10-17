@@ -3,7 +3,7 @@
 // Ariana's side of the social layer, without a browser anywhere in sight.
 //
 // The other suites cover the contract (manifest, guards, tools) and the engine
-// service. This one covers the wiring between them:
+// adapter. This one covers the wiring between them:
 //
 //   · store    — accounts, permissions, activity and autonomy config survive a
 //                restart; activity is capped and newest-first;
@@ -30,7 +30,8 @@ const assert = require('node:assert');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ariana-social-'));
 process.env.SOCIAL_DATA_DIR = path.join(TMP, 'data');
-process.env.SOCIAL_ENGINE_URL = '';
+process.env.X_SESSION_KEY = 'brain-test-key';
+for (const k of ['X_PASSWORD', 'X_USERNAME', 'X_EMAIL', 'X_TOTP_SECRET', 'X_CREDENTIALS']) delete process.env[k];
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_KEY;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -75,15 +76,15 @@ test('store: with no Supabase configured it says so and keeps state in files', a
 
 test('store: accounts, permissions and activity survive a restart', async () => {
   const first = restartSocial();
-  const added = await first.accounts.add({ platform: 'instagram', handle: '@ariana.personal', label: 'Personal' });
+  const added = await first.accounts.add({ platform: 'twitter', handle: '@ariana_personal', label: 'Personal' });
   assert.equal(added.ok, true);
   await first.accounts.setActionsEnabled(added.account.account_id, true);
-  await first.activity.record({ account: added.account, action: 'like', target: 'https://www.instagram.com/p/abc/', status: 'completed' });
+  await first.activity.record({ account: added.account, action: 'like', target: 'https://x.com/someone/status/1', status: 'completed' });
 
   const second = restartSocial();
   const list = await second.accounts.list();
   assert.equal(list.length, 1, 'the register survived');
-  assert.equal(list[0].account_id, 'instagram:ariana.personal');
+  assert.equal(list[0].account_id, 'twitter:ariana_personal');
   assert.equal(list[0].actions_enabled, true, 'the creator switch survived');
   const rows = await second.activity.recent(10);
   assert.equal(rows.length, 1);
@@ -113,22 +114,22 @@ test('activity: every status reads as a sentence, never as a server log', () => 
     ['failed', 'like', 'Could not like @someone\'s post'],
     ['blocked', 'follow', 'Could not follow @someone — stopped by a limit or permission'],
     ['needs_confirmation', 'dm', 'DM to @someone failed — waiting for your confirmation'],
-    ['unsupported', 'post', 'Posting failed — not supported by Instagram'],
+    ['unsupported', 'post', 'Posting failed — not supported by X'],
     ['skipped', 'like', 'Liked @someone\'s post — skipped (nothing was sent)'],
     ['partial', 'comment', 'Commented on @someone\'s post — partly done'],
   ];
   for (const [status, action, expected] of cases) {
-    const row = { status, action, target_handle: '@someone', target: null, platform: 'instagram', error: 'Stack: TypeError at line 42' };
+    const row = { status, action, target_handle: '@someone', target: null, platform: 'twitter', error: 'Stack: TypeError at line 42' };
     assert.equal(activity.buildSummary(row), expected, status);
   }
   // The failure line never carries the raw error text.
-  const failed = activity.buildSummary({ status: 'failed', action: 'like', target_handle: 'someone', platform: 'instagram', error: 'TimeoutError: waiting for selector' });
+  const failed = activity.buildSummary({ status: 'failed', action: 'like', target_handle: 'someone', platform: 'twitter', error: 'TimeoutError: waiting for selector' });
   assert.equal(/TimeoutError|selector/.test(failed), false);
 });
 
 test('activity: a noisy error is clamped to one readable line', () => {
-  const noisy = "Cannot find module 'socialcrabs'\nRequire stack:\n- /app/src/engine.js\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1433)";
-  assert.equal(activity.clampError(noisy), "Cannot find module 'socialcrabs'");
+  const noisy = "Cannot find module 'undici'\nRequire stack:\n- /app/social/x_engine.js\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1433)";
+  assert.equal(activity.clampError(noisy), "Cannot find module 'undici'");
   assert.equal(activity.clampError(''), null);
   assert.equal(activity.clampError(null), null);
   const wall = 'x'.repeat(900);
@@ -142,9 +143,9 @@ test('activity: a noisy error is clamped to one readable line', () => {
 });
 
 test('activity: a URL target is shortened, a missing one says nothing', () => {
-  const withUrl = activity.buildSummary({ status: 'completed', action: 'like', target: 'https://www.instagram.com/p/Cabcdefghijkl/', platform: 'instagram' });
+  const withUrl = activity.buildSummary({ status: 'completed', action: 'like', target: 'https://x.com/someone/status/1234567890', platform: 'twitter' });
   assert.equal(withUrl, 'Liked a post');
-  assert.equal(activity.buildSummary({ status: 'completed', action: 'search', target: 'ai agents', platform: 'linkedin' }), 'Searched for "ai agents"');
+  assert.equal(activity.buildSummary({ status: 'completed', action: 'search', target: 'ai agents', platform: 'twitter' }), 'Searched for "ai agents"');
   assert.equal(activity.buildSummary({ status: 'completed', action: 'post', platform: 'twitter' }), 'Published a post');
 });
 
@@ -168,36 +169,38 @@ test('activity: the daily counter only counts things that really happened', asyn
 
 // ── ACCOUNTS ────────────────────────────────────────────────────────────────
 
-test('accounts: several accounts per platform, each with its own state', async () => {
+test('accounts: several accounts on the platform, each with its own state', async () => {
   const { accounts: acc } = restartSocial();
-  await acc.add({ platform: 'instagram', handle: 'ariana.creator' });
+  await acc.add({ platform: 'twitter', handle: 'ariana_creator' });
   await acc.add({ platform: 'twitter', handle: 'ArianaReyes' });
 
   const list = await acc.list();
-  assert.equal(list.filter((a) => a.platform === 'instagram').length, 2);
+  assert.equal(list.filter((a) => a.platform === 'twitter').length, 3);
   assert.equal(list.find((a) => a.account_id === 'twitter:arianareyes').handle, 'ArianaReyes');
 
-  await acc.setStatus('instagram:ariana.creator', acc.STATUS.ONLINE, 'verified');
-  await acc.setActionsEnabled('instagram:ariana.creator', true);
-  const other = await acc.get('instagram:ariana.personal');
+  await acc.setStatus('twitter:ariana_creator', acc.STATUS.ONLINE, 'verified');
+  await acc.setActionsEnabled('twitter:ariana_creator', true);
+  const other = await acc.get('twitter:ariana_personal');
   assert.equal(other.status, 'not_connected', 'statuses do not bleed between accounts');
   assert.equal(other.actions_enabled, true);
 });
 
 test('accounts: an unknown platform is refused with the supported list', async () => {
   const { accounts: acc } = restartSocial();
-  const out = await acc.add({ platform: 'tiktok', handle: 'someone' });
-  assert.equal(out.ok, false);
-  assert.match(out.error, /Unknown platform "tiktok"/);
-  assert.match(out.error, /instagram/);
+  for (const platform of ['tiktok', 'instagram', 'linkedin']) {
+    const out = await acc.add({ platform, handle: 'someone' });
+    assert.equal(out.ok, false, platform);
+    assert.match(out.error, new RegExp(`Unknown platform "${platform}"`));
+    assert.match(out.error, /Supported: twitter/);
+  }
 });
 
 test('accounts: resolution names the candidates instead of picking one', async () => {
   const { accounts: acc } = restartSocial();
 
-  const byId = await acc.resolve('instagram:ariana.personal');
+  const byId = await acc.resolve('twitter:ariana_personal');
   assert.equal(byId.ok, true);
-  assert.equal(byId.account.handle, 'ariana.personal');
+  assert.equal(byId.account.handle, 'ariana_personal');
 
   const byHandle = await acc.resolve('@ArianaReyes');
   assert.equal(byHandle.ok, true);
@@ -206,10 +209,10 @@ test('accounts: resolution names the candidates instead of picking one', async (
   const ambiguous = await acc.resolve('ariana');
   assert.equal(ambiguous.ok, false);
   assert.equal(ambiguous.code, 'ambiguous_account');
-  assert.match(ambiguous.error, /instagram:ariana\.personal/);
-  assert.match(ambiguous.error, /instagram:ariana\.creator/);
+  assert.match(ambiguous.error, /twitter:ariana_personal/);
+  assert.match(ambiguous.error, /twitter:ariana_creator/);
 
-  const scoped = await acc.resolve('ariana.creator', 'instagram');
+  const scoped = await acc.resolve('ariana_creator', 'twitter');
   assert.equal(scoped.ok, true);
 
   const nothing = await acc.resolve(null);
@@ -223,10 +226,10 @@ test('accounts: resolution names the candidates instead of picking one', async (
 
 test('accounts: the prompt says who is usable and who is switched off', async () => {
   const { accounts: acc } = restartSocial();
-  await acc.setStatus('instagram:ariana.personal', acc.STATUS.ERROR, 'The platform says this session is not logged in.');
+  await acc.setStatus('twitter:ariana_personal', acc.STATUS.ERROR, 'X says this login is no longer valid.');
   const text = await acc.describeForPrompt();
-  assert.match(text, /Instagram @ariana\.personal \(account_id: instagram:ariana\.personal\) — not usable right now/);
-  assert.match(text, /Instagram @ariana\.creator.*connected/);
+  assert.match(text, /X @ariana_personal \(account_id: twitter:ariana_personal\) — not usable right now/);
+  assert.match(text, /X @ariana_creator.*connected/);
   assert.match(text, /X @ArianaReyes.*actions disabled by your creator/);
 });
 
@@ -253,8 +256,8 @@ test('autonomy: a decision is parsed strictly, and rubbish means "no"', () => {
 
 test('autonomy: the decision prompt gives her room to do nothing', () => {
   const prompt = autonomy.decisionPrompt(
-    { platform: 'instagram', url: 'https://www.instagram.com/p/1/', handle: 'someone' },
-    { handle: 'ariana.personal' },
+    { platform: 'twitter', url: 'https://x.com/someone/status/1', handle: 'someone' },
+    { handle: 'ariana_personal' },
     autonomy.DEFAULT_CONFIG,
     ['like', 'comment']
   );
@@ -264,54 +267,50 @@ test('autonomy: the decision prompt gives her room to do nothing', () => {
   assert.match(prompt, /"decide": "skip" \| "like" \| "comment" \| "follow"/);
 });
 
-test('autonomy: with no engine it refuses to pretend, and says what to set', async () => {
+test('autonomy: with X only there is nothing to read, so a pass is honest and sends nothing', async () => {
   const fresh = restartSocial();
-  const out = await fresh.autonomy.runOnce({ trigger: 'manual' });
-  assert.equal(out.ok, false);
-  assert.match(out.error, /SOCIAL_ENGINE_URL/);
+  const eng = require('../social/engine_client');
+  const real = eng.act; let sent = 0;
+  eng.act = async () => { sent++; return { ok: true, result: { success: true } }; };
+  try {
+    const account = await fresh.accounts.get('twitter:ariana_creator');
+    await fresh.accounts.setStatus(account.account_id, fresh.accounts.STATUS.ONLINE, 'verified');
+    fresh.autonomy.attach({ askBrain: async () => '{"decide":"like","reason":"would like anything"}' });
+    const out = await fresh.autonomy.runOnce({ trigger: 'manual' });
+    assert.equal(out.ok, true);
+    assert.equal(out.considered, 0, 'no post reader exists for X yet, so there are no candidates');
+    assert.equal(out.acted, 0);
+    assert.equal(sent, 0, 'nothing is sent when there is nothing real to look at');
+  } finally { eng.act = real; }
 });
 
-test('autonomy: she only looks at real reads, only acts on a live enabled account, and may decline', async () => {
+test('autonomy: she only acts on a live enabled account, stays inside the budget, and may decline', async () => {
   const fresh = restartSocial();
-  const savedFetch = global.fetch;
-  process.env.SOCIAL_ENGINE_URL = 'http://engine.test';
-  process.env.SOCIAL_ENGINE_API_KEY = 'k';
+  const eng = require('../social/engine_client');
+  const real = eng.act;
+  const sent = [];
+  eng.act = async (account, action, payload) => { sent.push({ account_id: account.account_id, action, payload }); return { ok: true, result: { success: true } }; };
   try {
-
-    // Only a scan read is answered, and an action only if she decides to act.
-    const calls = [];
-    global.fetch = async (url, init = {}) => {
-      calls.push({ url: String(url), method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null });
-      const json = (data, status = 200) => ({ ok: status < 400, status, text: async () => JSON.stringify(data) });
-      if (String(url).includes('/actions/view_posts')) {
-        return json({ success: true, result: { success: true, data: ['https://www.instagram.com/p/one/', 'https://www.instagram.com/p/two/'] } });
-      }
-      if (String(url).includes('/actions/like')) {
-        return json({ success: true, result: { success: true, platform: 'instagram', action: 'like' } });
-      }
-      if (String(url).includes('/health')) return json({ status: 'ok', provider: 'socialcrabs' });
-      return json({}, 404);
-    };
-
-    const account = await fresh.accounts.get('instagram:ariana.creator');
-    await fresh.accounts.setStatus(account.account_id, fresh.accounts.STATUS.ONLINE, 'verified');
-    const off = await fresh.accounts.get('instagram:ariana.personal');
+    const live = await fresh.accounts.get('twitter:ariana_creator');
+    await fresh.accounts.setStatus(live.account_id, fresh.accounts.STATUS.ONLINE, 'verified');
+    const off = await fresh.accounts.get('twitter:ariana_personal');
     assert.equal(off.actions_enabled, true);
     assert.notEqual(off.status, 'online', 'the second account is not verified — she must not act through it');
 
-    // Her brain says: like the first thing, skip the rest.
-    fresh.autonomy.attach({ askBrain: async () => '{"decide":"like","reason":"it is genuinely good"}' });
+    const scanned = [];
+    const posts = ['https://x.com/a/status/1', 'https://x.com/a/status/2', 'https://x.com/a/status/3'];
+    const candidates = async (account) => { scanned.push(account.account_id); return posts.map((url) => ({ platform: 'twitter', account_id: account.account_id, url, handle: 'someone', kind: 'post' })); };
+
+    // Her brain says: like what she is shown.
+    fresh.autonomy.attach({ askBrain: async () => '{"decide":"like","reason":"it is genuinely good"}', candidates });
     const out = await fresh.autonomy.runOnce({ trigger: 'manual' });
 
     assert.equal(out.ok, true);
     assert.ok(out.acted >= 1, `she acted: ${JSON.stringify(out)}`);
-    const decoded = calls.map((c) => ({ ...c, url: decodeURIComponent(c.url) }));
-    const reads = decoded.filter((c) => c.url.includes('/view_posts'));
-    assert.ok(reads.length >= 1, 'candidates come from a real read');
-    assert.equal(reads.every((c) => c.url.includes('instagram:ariana.creator')), true, 'reads only ever used the online account');
-    const likes = decoded.filter((c) => c.url.includes('/actions/like'));
+    assert.deepStrictEqual([...new Set(scanned)], ['twitter:ariana_creator'], 'candidates were only gathered for the live account');
+    const likes = sent.filter((c) => c.action === 'like');
     assert.ok(likes.length >= 1 && likes.length <= fresh.autonomy.DEFAULT_CONFIG.max_actions_per_tick, `the per-tick budget was respected (${likes.length} likes)`);
-    assert.equal(likes[0].url.includes('instagram:ariana.creator'), true, 'and only through the live account');
+    assert.ok(likes.every((c) => c.account_id === 'twitter:ariana_creator'), 'and only through the live account');
 
     // The run is recorded for the dashboard.
     const cfg = await fresh.autonomy.getConfig();
@@ -320,16 +319,12 @@ test('autonomy: she only looks at real reads, only acts on a live enabled accoun
     assert.equal(cfg.last_run_summary.skipped, out.skipped);
 
     // A declining brain spends nothing.
-    const before = calls.filter((c) => c.url.includes('/actions/like')).length;
-    fresh.autonomy.attach({ askBrain: async () => '{"decide":"skip","reason":"not worth it"}' });
-  const quiet = await fresh.autonomy.runOnce({ trigger: 'manual' });
-  assert.equal(quiet.acted, 0);
-  assert.equal(calls.filter((c) => c.url.includes('/actions/like')).length, before, 'nothing was sent');
-  } finally {
-    process.env.SOCIAL_ENGINE_URL = '';
-    delete process.env.SOCIAL_ENGINE_API_KEY;
-    global.fetch = savedFetch;
-  }
+    const before = sent.filter((c) => c.action === 'like').length;
+    fresh.autonomy.attach({ askBrain: async () => '{"decide":"skip","reason":"not worth it"}', candidates });
+    const quiet = await fresh.autonomy.runOnce({ trigger: 'manual' });
+    assert.equal(quiet.acted, 0);
+    assert.equal(sent.filter((c) => c.action === 'like').length, before, 'nothing was sent');
+  } finally { eng.act = real; }
 });
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -375,31 +370,32 @@ test('api: the social routes sit behind the same dashboard gate as /api/talk', a
   } finally { stop(); }
 });
 
-test('api: with no engine the status route says so, with steps to fix it', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
+test('api: the status route names the built-in engine and gives setup steps until a server login exists', async () => {
   const { base, stop } = await startDashboard();
   try {
     const { json } = await api(base, '/api/social/status');
-    assert.equal(json.engine.configured, false);
-    assert.equal(json.engine.reachable, false);
-    assert.match(json.engine.error, /SOCIAL_ENGINE_URL/);
+    assert.equal(json.engine.configured, true);
+    assert.equal(json.engine.provider, 'x-lite');
+    assert.equal(json.engine.reachable, true);
+    assert.equal(json.engine.health.login_configured, false);
     assert.ok(Array.isArray(json.setup.steps) && json.setup.steps.length >= 3, 'real setup steps, not an error code');
-    assert.match(json.setup.volume, /SESSION_DIR/);
+    assert.match(json.setup.steps.join(' '), /X_PASSWORD/);
+    assert.match(json.setup.session_storage, /Supabase/);
     assert.equal(json.dry_run, false);
     assert.equal(json.autonomy.enabled, false);
   } finally { stop(); }
 });
 
-test('api: capabilities fall back to the bundled manifest while the engine is away', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
+test('api: capabilities come from the built-in engine, and every refusal carries a reason', async () => {
   const { base, stop } = await startDashboard();
   try {
     const { json } = await api(base, '/api/social/capabilities');
-    assert.equal(json.source, 'bundled');
-    assert.match(json.note, /No engine connected/);
-    const ig = json.capabilities.platforms.find((p) => p.id === 'instagram');
-    assert.ok(ig.supported.some((s) => s.action === 'like'));
-    assert.ok(ig.unsupported.some((u) => u.action === 'post' && u.reason.length > 10), 'every refusal carries a reason');
+    assert.equal(json.source, 'engine');
+    const x = json.capabilities.platforms.find((p) => p.id === 'twitter');
+    assert.ok(x.supported.some((s) => s.action === 'like'));
+    assert.ok(x.supported.some((s) => s.action === 'read_dms'));
+    assert.ok(x.unsupported.some((u) => u.action === 'search' && u.reason.length > 10), 'every refusal carries a reason');
+    assert.equal(json.capabilities.platforms.find((p) => p.id === 'instagram'), undefined);
   } finally { stop(); }
 });
 
@@ -426,72 +422,100 @@ test('api: adding an account reports what it will be able to do', async () => {
   } finally { stop(); }
 });
 
-test('api: Connect without an engine is a 503 with the setup, never a fake success', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
+test('api: Connect with no server login is a clear 409 with the setup, never a fake success', async () => {
   const { base, stop } = await startDashboard();
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-reyes' } });
-    const out = await api(base, '/api/social/accounts/linkedin:ariana-reyes/connect', { method: 'POST' });
-    assert.equal(out.status, 503);
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_reyes' } });
+    const out = await api(base, '/api/social/accounts/twitter:ariana_reyes/connect', { method: 'POST' });
+    assert.equal(out.status, 409);
     assert.equal(out.json.ok, false);
-    assert.match(out.json.error, /not connected/i);
-    assert.ok(out.json.setup.steps.length >= 3);
+    assert.equal(out.json.code, 'no_credentials');
+    assert.match(out.json.error, /X_PASSWORD/);
+    const list = await api(base, '/api/social/accounts');
+    assert.equal(list.json.accounts[0].status, 'not_connected', 'it is not marked online');
+  } finally { stop(); }
+});
+
+test('api: a verification code with no sign-in waiting is refused, and an empty one never reaches the engine', async () => {
+  const { base, stop } = await startDashboard();
+  try {
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_reyes' } });
+    const none = await api(base, '/api/social/accounts/twitter:ariana_reyes/code', { method: 'POST', body: { code: '123456' } });
+    assert.equal(none.status, 409);
+    assert.equal(none.json.code, 'no_pending');
+    const empty = await api(base, '/api/social/accounts/twitter:ariana_reyes/code', { method: 'POST', body: { code: '  ' } });
+    assert.equal(empty.status, 400);
+    const unknown = await api(base, '/api/social/accounts/twitter:nobody/code', { method: 'POST', body: { code: '1' } });
+    assert.equal(unknown.status, 404);
   } finally { stop(); }
 });
 
 test('api: the creator switch is per account and reported back', async () => {
   const { base, stop } = await startDashboard();
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-personal' } });
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-creator' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_personal' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_creator' } });
 
-    const on = await api(base, '/api/social/accounts/linkedin:ariana-creator/enable', { method: 'POST' });
+    const on = await api(base, '/api/social/accounts/twitter:ariana_creator/enable', { method: 'POST' });
     assert.equal(on.json.account.actions_enabled, true);
-    const other = (await api(base, '/api/social/accounts')).json.accounts.find((a) => a.account_id === 'linkedin:ariana-personal');
+    const other = (await api(base, '/api/social/accounts')).json.accounts.find((a) => a.account_id === 'twitter:ariana_personal');
     assert.equal(other.actions_enabled, false, 'switching one account on leaves the other alone');
 
-    const off = await api(base, '/api/social/accounts/linkedin:ariana-creator/disable', { method: 'POST' });
+    const off = await api(base, '/api/social/accounts/twitter:ariana_creator/disable', { method: 'POST' });
     assert.equal(off.json.account.actions_enabled, false);
   } finally { stop(); }
 });
 
-test('api: Instagram and TikTok accounts start ready to act (her creator handed them over); Instagram can post', async () => {
+test('api: Instagram and TikTok accounts start ready to act (her creator handed them over); X still starts switched off', async () => {
+  // Instagram exists only while its service is configured, so switch it on for this test.
+  const saved = { u: process.env.IG_SERVICE_URL, k: process.env.IG_SERVICE_API_KEY };
+  process.env.IG_SERVICE_URL = 'http://ig.test'; process.env.IG_SERVICE_API_KEY = 'k';
   const { base, stop } = await startDashboard();
   try {
     const ig = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.ig' } });
     assert.equal(ig.json.account.actions_enabled, true);
     assert.equal(ig.json.account.autopublish, true);
     const tt = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'tiktok', handle: 'ariana.tt' } });
-    if (tt.status === 200) assert.equal(tt.json.account.actions_enabled, true);
-    const x = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'someone' } });
-    assert.equal(x.json.account.actions_enabled, false);
-  } finally { stop(); }
+    if (tt.status === 200) assert.equal(tt.json.account.actions_enabled, true); // TikTok exists only when switched on
+    const x = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'someone' } });
+    assert.equal(x.json.account.actions_enabled, false, 'X is not self-run: the creator switches it on');
+  } finally {
+    stop();
+    for (const [k, v] of [['IG_SERVICE_URL', saved.u], ['IG_SERVICE_API_KEY', saved.k]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
-test('api: autopublish cannot be switched on where publishing does not exist', async () => {
-  const { base, stop } = await startDashboard();
+test('api: autopublish is allowed where publishing exists, and refused where the manifest says it does not', async () => {
+  const { base, stop, fresh } = await startDashboard();
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-reyes' } });
-    const out = await api(base, '/api/social/accounts/linkedin:ariana-reyes/autopublish', { method: 'POST', body: { enabled: true } });
-    assert.equal(out.status, 422);
-    assert.match(out.json.error, /publish/i);
-
-    // X can publish, so there the same switch is allowed.
     await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ArianaDaily' } });
     const okSwitch = await api(base, '/api/social/accounts/twitter:arianadaily/autopublish', { method: 'POST', body: { enabled: true } });
     assert.equal(okSwitch.status, 200);
     assert.equal(okSwitch.json.account.autopublish, true);
+
+    // If the manifest ever stops saying X can publish, the switch must refuse — not pretend.
+    const caps = require('../social/capabilities');
+    const post = caps.manifest().platforms.twitter.actions.post;
+    const keep = post.supported;
+    post.supported = false; post.reason = 'No publish method exists in this test.';
+    try {
+      const refused = await api(base, '/api/social/accounts/twitter:arianadaily/autopublish', { method: 'POST', body: { enabled: true } });
+      assert.equal(refused.status, 422);
+      assert.match(refused.json.error, /publish/i);
+    } finally { post.supported = keep; delete post.reason; }
   } finally { stop(); }
 });
 
 test('api: manual actions run through the same guards Ariana uses', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
   const { base, stop } = await startDashboard();
+  const eng = require('../social/engine_client');
+  const real = eng.act;
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'linkedin', handle: 'ariana-reyes' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_reyes' } });
+    const tweet = 'https://x.com/someone/status/1';
 
     // Switched off: the permission gate stops it, and the log still describes it.
-    const blocked = await api(base, '/api/social/actions/like', { method: 'POST', body: { account: 'linkedin:ariana-reyes', url: 'https://www.linkedin.com/feed/update/urn:li:share:1' } });
+    const blocked = await api(base, '/api/social/actions/like', { method: 'POST', body: { account: 'twitter:ariana_reyes', url: tweet } });
     assert.equal(blocked.status, 400, JSON.stringify(blocked.json));
     assert.equal(blocked.json.code, 'actions_disabled');
     assert.match(blocked.json.summary, /stopped by a limit or permission/);
@@ -500,15 +524,16 @@ test('api: manual actions run through the same guards Ariana uses', async () => 
     assert.equal(unknown.status, 404);
     assert.match(unknown.json.error, /is not an action Ariana can take/);
 
-    const unsupported = await api(base, '/api/social/actions/post', { method: 'POST', body: { account: 'linkedin:ariana-reyes', text: 'hello' } });
+    const unsupported = await api(base, '/api/social/actions/search', { method: 'POST', body: { account: 'twitter:ariana_reyes', query: 'ai' } });
     assert.equal(unsupported.status, 422, JSON.stringify(unsupported.json));
-    assert.match(unsupported.json.error, /publish/i);
+    assert.match(unsupported.json.error, /no search method/i);
 
-    // Switched on, but there is still no engine: "not connected", not a success.
-    await api(base, '/api/social/accounts/linkedin:ariana-reyes/enable', { method: 'POST' });
-    const noEngine = await api(base, '/api/social/actions/like', { method: 'POST', body: { account: 'linkedin:ariana-reyes', url: 'https://www.linkedin.com/feed/update/urn:li:share:1' } });
-    assert.equal(noEngine.status, 503, JSON.stringify(noEngine.json));
-    assert.equal(noEngine.json.code, 'not_configured');
+    // Switched on, but the account has no saved login: the engine's reason comes back, not a success.
+    await api(base, '/api/social/accounts/twitter:ariana_reyes/enable', { method: 'POST' });
+    eng.act = async () => ({ ok: false, code: 'no_session', error: 'This account has no saved X login yet. Tap Connect on it.' });
+    const noLogin = await api(base, '/api/social/actions/like', { method: 'POST', body: { account: 'twitter:ariana_reyes', url: tweet } });
+    assert.equal(noLogin.status, 400, JSON.stringify(noLogin.json));
+    assert.equal(noLogin.json.code, 'no_session');
 
     // And it is in the activity log, saying what really happened: the sentence
     // describes the attempt, the error field says why, in words.
@@ -516,28 +541,27 @@ test('api: manual actions run through the same guards Ariana uses', async () => 
     const last = log.json.activity[0];
     assert.equal(last.status, 'failed');
     assert.equal(last.summary, 'Could not like the post');
-    assert.match(last.error, /engine not connected/i);
-    assert.match(last.error, /SOCIAL_ENGINE_URL/);
+    assert.match(last.error, /Tap Connect/);
     assert.equal(last.status_label, 'Failed');
-  } finally { stop(); }
+  } finally { eng.act = real; stop(); }
 });
 
 test('api: only the dashboard can mint a confirmation, and it is scoped and single use', async () => {
   const { base, stop } = await startDashboard();
   try {
-    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.personal' } });
+    await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_personal' } });
 
     const listed = await api(base, '/api/social/confirmations');
     const before = listed.json.confirmations.length;
 
     const minted = await api(base, '/api/social/confirmations', {
       method: 'POST',
-      body: { account_id: 'instagram:ariana.personal', action: 'unfollow', max_targets: 2, note: 'cleanup' },
+      body: { account_id: 'twitter:ariana_personal', action: 'unfollow', max_targets: 2, note: 'cleanup' },
     });
     assert.equal(minted.status, 200, JSON.stringify(minted.json));
     assert.ok(minted.json.token.length > 10);
     assert.ok(minted.json.expires_in_ms > 0, 'confirmations expire');
-    assert.deepStrictEqual(minted.json.scope, { account_id: 'instagram:ariana.personal', action: 'unfollow', max_targets: 2 });
+    assert.deepStrictEqual(minted.json.scope, { account_id: 'twitter:ariana_personal', action: 'unfollow', max_targets: 2 });
 
     const again = await api(base, '/api/social/confirmations');
     assert.equal(again.json.confirmations.length, before + 1);
@@ -550,9 +574,9 @@ test('api: only the dashboard can mint a confirmation, and it is scoped and sing
 test('api: activity comes back newest first with a human summary and a raw detail', async () => {
   const { base, stop, fresh } = await startDashboard();
   try {
-    const added = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'instagram', handle: 'ariana.personal' } });
+    const added = await api(base, '/api/social/accounts', { method: 'POST', body: { platform: 'twitter', handle: 'ariana_personal' } });
     const account = added.json.account;
-    await fresh.activity.record({ account, action: 'like', target: 'https://www.instagram.com/p/Cxyz/', target_handle: 'someone', status: 'completed' });
+    await fresh.activity.record({ account, action: 'like', target: 'https://x.com/someone/status/1', target_handle: 'someone', status: 'completed' });
     await fresh.activity.record({ account, action: 'dm', target_handle: 'someone', status: 'failed', error: 'TimeoutError: waiting for selector', detail: { raw: 'stack trace' } });
 
     const { json } = await api(base, '/api/social/activity');
@@ -560,9 +584,9 @@ test('api: activity comes back newest first with a human summary and a raw detai
     assert.equal(json.activity[0].summary, 'DM to @someone failed');
     assert.equal(json.activity[0].status_label, 'Failed');
     assert.equal(json.activity[0].error, 'TimeoutError: waiting for selector', 'the raw reason is available for View details');
-    assert.equal(json.activity[0].platform_label, 'Instagram');
+    assert.equal(json.activity[0].platform_label, 'X');
     assert.equal(json.activity[1].summary, "Liked @someone's post");
-    assert.equal(json.activity[1].target, 'https://www.instagram.com/p/Cxyz/');
+    assert.equal(json.activity[1].target, 'https://x.com/someone/status/1');
   } finally { stop(); }
 });
 
@@ -620,27 +644,30 @@ test('reads: platforms answer in their own shape, callers see one', () => {
 
 // ── WIRING (social/index.js) ────────────────────────────────────────────────
 
-test('wiring: with no engine she is handed no social tools at all', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
+test('wiring: with the engine unavailable she is handed no social tools at all', async () => {
   process.env.SOCIAL_DATA_DIR = path.join(TMP, 'wiring-off');
   const { social: fresh } = restartSocial();
-  await fresh.accounts.add({ platform: 'instagram', handle: 'ariana.personal' });
-  await fresh.accounts.setActionsEnabled('instagram:ariana.personal', true);
+  const eng = require('../social/engine_client');
+  const realConfigured = eng.configured;
+  eng.configured = () => false;
+  try {
+    await fresh.accounts.add({ platform: 'twitter', handle: 'ariana_personal' });
+    await fresh.accounts.setActionsEnabled('twitter:ariana_personal', true);
 
-  const schemas = await fresh.buildToolSchemas();
-  assert.deepStrictEqual(schemas, [], 'tools she could only fail with are not offered — even for an enabled account');
+    const schemas = await fresh.buildToolSchemas();
+    assert.deepStrictEqual(schemas, [], 'tools she could only fail with are not offered — even for an enabled account');
 
-  const block = await fresh.socialPromptBlock();
-  assert.match(block, /YOUR SOCIAL ACCOUNTS/);
-  assert.match(block, /backend is not reachable right now/, 'she is told the backend is down rather than finding out mid-action');
-  assert.match(block, /never claim you did something you didn't/i);
+    const block = await fresh.socialPromptBlock();
+    assert.match(block, /YOUR SOCIAL ACCOUNTS/);
+    assert.match(block, /backend is not reachable right now/, 'she is told the backend is down rather than finding out mid-action');
+    assert.match(block, /never claim you did something you didn't/i);
+  } finally { eng.configured = realConfigured; }
 });
 
 test('wiring: with actions switched off everywhere she is told, not left guessing', async () => {
-  process.env.SOCIAL_ENGINE_URL = 'http://engine.test';
   process.env.SOCIAL_DATA_DIR = path.join(TMP, 'wiring-disabled');
   const { social: fresh } = restartSocial();
-  await fresh.accounts.add({ platform: 'instagram', handle: 'ariana.personal' });
+  await fresh.accounts.add({ platform: 'twitter', handle: 'ariana_personal' });
   await fresh.accounts.add({ platform: 'twitter', handle: 'ArianaDaily' });
 
   assert.deepStrictEqual(await fresh.buildToolSchemas(), []);
@@ -650,8 +677,7 @@ test('wiring: with actions switched off everywhere she is told, not left guessin
   assert.equal(/social_\* tools/.test(block), false, 'she is not told she has tools she does not have');
 });
 
-test('wiring: with an engine and an enabled account the tools appear, with the honest list', async () => {
-  process.env.SOCIAL_ENGINE_URL = 'http://engine.test';
+test('wiring: with an enabled account the tools appear, with the honest list', async () => {
   process.env.SOCIAL_DATA_DIR = path.join(TMP, 'wiring-on');
   const { social: fresh } = restartSocial();
   await fresh.accounts.add({ platform: 'twitter', handle: 'ArianaDaily' });
@@ -670,15 +696,22 @@ test('wiring: with an engine and an enabled account the tools appear, with the h
 });
 
 test('wiring: the boot line says exactly what is true', async () => {
-  process.env.SOCIAL_ENGINE_URL = '';
   process.env.SOCIAL_DATA_DIR = path.join(TMP, 'wiring-boot');
   const { social: fresh } = restartSocial();
   const lines = await fresh.startupLines();
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /Social actions: ❌ no engine \(set SOCIAL_ENGINE_URL\)/);
+  assert.match(lines[0], /Social actions: ⚠️  engine set, no accounts added yet/);
   const readiness = await fresh.readiness();
-  assert.equal(readiness.engine_configured, false);
+  assert.equal(readiness.engine_configured, true, 'the engine is built in');
   assert.equal(readiness.enabled, 0, 'nothing is enabled by default');
+
+  // and when the engine is down it says that instead
+  const eng = require('../social/engine_client');
+  const real = eng.configured; eng.configured = () => false;
+  try {
+    const down = await fresh.startupLines();
+    assert.match(down[0], /Social actions: ❌ engine unavailable/);
+  } finally { eng.configured = real; }
 });
 
 // Restore the shared data dir so the earlier tests in this file keep their state.

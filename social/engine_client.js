@@ -1,234 +1,127 @@
 // social/engine_client.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Ariana's HTTP client for the social engine (socialcrabs-service/).
+// The one seam between Ariana's social layer (guards, tools, autonomy, dashboard) and whatever actually
+// talks to a platform. It routes by platform:
 //
-// Architecture note — why this is a service and not a require():
-// SocialCrabs drives real browsers (Playwright + Chromium) and keeps long-lived
-// login sessions on disk. That belongs in its own always-on process, not inside
-// Ariana's reply path: a browser crash, a Chromium upgrade or a heavy render
-// must never be able to take her brain down, and the engine needs its own
-// persistent volume for sessions. So Ariana talks to it over HTTP with a
-// shared API key, and this file is the only place that knows the wire format.
+//   X (twitter)   → x_engine.js     built in, plain HTTP, no browser, no extra service, no paid X API
+//   Instagram     → ig_engine.js    the Instagram service (ig-service/, instagrapi) — no browser
+//   TikTok        → browseruse_engine.js   Browser Use Cloud, opt-in only (TIKTOK_VIA_BROWSER_USE=on)
+//   anything else → refused plainly (unsupported_platform)
 //
-// Every function returns { ok: true, ... } or { ok: false, error, code } and
-// never throws — a dead engine must degrade to "Backend not connected", not to
-// a broken conversation.
+// Every function resolves { ok: true, ... } or { ok: false, error, code } and never throws, so a failing
+// platform degrades to a message, never to a broken conversation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 'use strict';
 
-const bu = require('./browseruse_engine');
+const x = require('./x_engine');
+const bu = require('./browseruse_engine'); // TikTok only (X no longer uses it)
 const inbound = require('./dm_inbound');
-const ig = require('./ig_engine'); // Instagram through the Instagram service (ig-service/, instagrapi) — no browser
+const ig = require('./ig_engine');
 
-const DEFAULT_TIMEOUT_MS = 120000; // browser actions are slow on purpose (human delays)
-
-function baseUrl() {
-  const raw = (process.env.SOCIAL_ENGINE_URL || '').trim();
-  if (!raw) return null;
-  return raw.replace(/\/+$/, '');
-}
-
-function apiKey() {
-  return (process.env.SOCIAL_ENGINE_API_KEY || '').trim() || null;
-}
-
-// An external engine (SOCIAL_ENGINE_URL) wins. Otherwise BROWSER_USE_API_KEY alone is enough:
-// Browser Use Cloud then acts as the engine.
-function useBU() { return !baseUrl() && bu.configured(); }
-// Instagram, when the Instagram service is configured, goes to it (instagrapi, no browser, low RAM);
-// every other platform carries on exactly as before.
 function routesToIG(account) { return ig.handles(account); }
-function otherEngine() { return !!baseUrl() || bu.configured(); }
-function provider() {
-  if (baseUrl()) return 'socialcrabs';
-  if (bu.configured()) return 'browser-use';
-  return ig.configured() ? 'instagrapi' : null;
+function routesToX(account) { return !!account && account.platform === 'twitter'; }
+function routesToBU(account) { return !!account && account.platform === 'tiktok' && bu.configured(); }
+
+const unsupported = (account) => ({
+  ok: false,
+  code: 'unsupported_platform',
+  error: `${(account && account.platform) || 'That platform'} is not available here. Supported: X, Instagram (when its service is set up) and TikTok (when switched on).`,
+});
+
+function tiktokLive() {
+  try { return require('./capabilities').platformIds().includes('tiktok'); } catch (_) { return false; }
 }
 
-function configured() {
-  return !!baseUrl() || bu.configured() || ig.configured();
-}
-
-function configHint() {
-  return 'Set BROWSER_USE_API_KEY (easiest), or SOCIAL_ENGINE_URL and SOCIAL_ENGINE_API_KEY for a self-hosted engine. For Instagram without a browser, set IG_SERVICE_URL and IG_SERVICE_API_KEY (see ig-service/README.md).';
-}
-
-async function request(method, urlPath, body, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const base = baseUrl();
-  if (!base) {
-    return { ok: false, error: 'Social engine not connected — ' + configHint(), code: 'not_configured' };
-  }
-  const headers = { 'Content-Type': 'application/json' };
-  const key = apiKey();
-  if (key) headers['X-Api-Key'] = key;
-
-  try {
-    const res = await fetch(base + urlPath, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
-
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, error: 'The social engine rejected the API key — check SOCIAL_ENGINE_API_KEY matches the engine.', code: 'unauthorized', status: res.status };
-    }
-    if (res.status === 404) {
-      return { ok: false, error: (data && (data.error || data.message)) || `The engine has no ${method} ${urlPath} route.`, code: 'not_found', status: 404 };
-    }
-    if (!res.ok) {
-      // The engine answers failures with its own code (session_expired,
-      // no_session, unsupported, browser_limit…). Keep it: the activity log and
-      // Ariana's wording both depend on knowing which failure this was.
-      return {
-        ok: false,
-        code: (data && data.code) || 'engine_error',
-        error: (data && (data.error || data.message)) || `Engine returned HTTP ${res.status}.`,
-        status: res.status,
-        data,
-      };
-    }
-    return { ok: true, data };
-  } catch (e) {
-    const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
-    return {
-      ok: false,
-      code: timedOut ? 'timeout' : 'unreachable',
-      error: timedOut
-        ? `The social engine did not answer within ${Math.round(timeoutMs / 1000)}s — the browser action may still be running.`
-        : `Cannot reach the social engine at ${base} (${e.message}).`,
-    };
-  }
-}
+function provider() { return x.provider(); }
+function configured() { return true; } // X is built in
+function configHint() { return x.configHint(); }
+function baseUrl() { return null; }
+function apiKey() { return null; }
 
 // ── STATUS ──────────────────────────────────────────────────────────────────
 
-async function health({ timeoutMs = 10000 } = {}) {
-  if (!otherEngine()) return ig.health(); // Instagram service only: answered locally, never wakes it
-  if (useBU()) return bu.health();
-  const r = await request('GET', '/health', undefined, { timeoutMs });
-  if (!r.ok) return r;
-  return { ok: true, health: r.data };
-}
+async function health() { return x.health(); }
+async function capabilities() { return x.capabilities(); }
 
-async function capabilities() {
-  if (!otherEngine()) return { ok: false, code: 'bundled', error: 'No engine to ask; the bundled capability list applies.' };
-  if (useBU()) return bu.capabilities();
-  const r = await request('GET', '/api/capabilities', undefined, { timeoutMs: 15000 });
-  if (!r.ok) return r;
-  return { ok: true, capabilities: r.data };
-}
-
-// Engine-side view of every session it holds. Used to reconcile statuses.
+// Engine-side view of the sessions each engine holds. Used to reconcile statuses.
+// Instagram is answered locally by the dashboard (it must not wake the service); TikTok's Browser Use
+// profiles are only listed when TikTok is switched on.
 async function sessions() {
-  if (!otherEngine()) return { ok: true, sessions: [] }; // local — opening the dashboard must not wake the Instagram service
-  if (useBU()) return bu.sessions();
-  const r = await request('GET', '/api/sessions', undefined, { timeoutMs: 15000 });
-  if (!r.ok) return r;
-  return { ok: true, sessions: r.data.sessions || [] };
+  const out = [...(((await x.sessions()).sessions) || [])];
+  if (bu.configured() && tiktokLive()) {
+    const r = await bu.sessions();
+    if (r && r.ok) out.push(...(r.sessions || []));
+  }
+  return { ok: true, sessions: out };
 }
 
 // ── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
 async function sessionStatus(account) {
+  if (routesToX(account)) return x.sessionStatus(account);
   if (routesToIG(account)) return ig.sessionStatus(account);
-  if (useBU()) return bu.sessionStatus(account);
-  const r = await request('GET', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 20000 });
-  if (!r.ok) return r;
-  return { ok: true, session: r.data };
+  if (routesToBU(account)) return bu.sessionStatus(account);
+  return unsupported(account);
 }
 
-// Opens the platform in a browser and asks "am I logged in?" — the difference
-// between "a session file exists" and "the session works".
 async function verify(account) {
+  if (routesToX(account)) return x.verify(account);
   if (routesToIG(account)) return ig.verify(account);
-  if (useBU()) return bu.verify(account);
-  const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/verify`, {
-    platform: account.platform,
-    handle: account.handle,
-  }, { timeoutMs: 180000 });
-  if (!r.ok) return r;
-  return { ok: true, session: r.data };
+  if (routesToBU(account)) return bu.verify(account);
+  return unsupported(account);
 }
 
-// Server-to-server session provisioning. Used by the local login helper and by
-// ops scripts — never by the dashboard. The dashboard has no route that accepts
-// credentials or cookies; this is called from the operator's own machine.
 async function importSession(account, session) {
+  if (routesToX(account)) return x.importSession(account, session);
   if (routesToIG(account)) return ig.importSession(account, session);
-  if (useBU()) return bu.importSession(account, session);
-  const r = await request('POST', `/api/sessions/${encodeURIComponent(account.account_id)}/import`, {
-    platform: account.platform,
-    handle: account.handle,
-    session,
-  }, { timeoutMs: 60000 });
-  if (!r.ok) return r;
-  return { ok: true, result: r.data };
+  if (routesToBU(account)) return bu.importSession(account, session);
+  return unsupported(account);
 }
 
 async function disconnect(account) {
+  if (routesToX(account)) return x.disconnect(account);
   if (routesToIG(account)) return ig.disconnect(account);
-  if (useBU()) return bu.disconnect(account);
-  const r = await request('DELETE', `/api/sessions/${encodeURIComponent(account.account_id)}?platform=${encodeURIComponent(account.platform || '')}`, undefined, { timeoutMs: 60000 });
-  if (!r.ok) return r;
-  return { ok: true, result: r.data };
+  if (routesToBU(account)) return bu.disconnect(account);
+  return { ok: true, result: { removed: false } }; // nothing was ever held for an unsupported platform
 }
+
+// X signs in by itself (and may ask for a one-time code). Instagram and TikTok connect through their own flows.
+async function connect(account) {
+  if (routesToX(account)) return x.connect(account);
+  return unsupported(account);
+}
+async function submitCode(account, code) {
+  if (routesToX(account)) return x.submitCode(account, code);
+  return unsupported(account);
+}
+function hasPendingLogin(account) { return routesToX(account) ? x.hasPendingLogin(account) : false; }
 
 // ── ACTIONS ─────────────────────────────────────────────────────────────────
 
-// payload is the action's platform payload: { url } | { url, text } |
-// { username } | { username, message } | { text } | { query } | { profileUrl, note }
-// She never starts a conversation on Instagram or TikTok: a DM goes out only to someone who already
-// wrote to her. `reply: true` is for the DM poller answering an inbound message itself.
+// payload is the action's platform payload: { url } | { url, text } | { username } | { username, message } | { text } …
+// She never starts a conversation on Instagram or TikTok: a DM goes out only to someone who already wrote to
+// her. `reply: true` is for the DM poller answering an inbound message itself.
 const NEVER_FIRST = new Set(['instagram', 'tiktok']);
 
-async function act(account, action, payload, { timeoutMs = 180000, reply = false } = {}) {
+async function act(account, action, payload, { reply = false } = {}) {
   if (action === 'dm' && account && NEVER_FIRST.has(account.platform) && !reply) {
     const who = payload && payload.username;
     if (!(await inbound.hasInbound(account.platform, who))) {
       return { ok: false, code: 'no_first_dm', error: `@${String(who || '').replace(/^@/, '')} has not messaged her first, and she never starts a conversation. Nothing was sent.` };
     }
   }
+  if (routesToX(account)) return x.act(account, action, payload);
   if (routesToIG(account)) return ig.act(account, action, payload);
-  if (useBU()) return bu.act(account, action, payload);
-  const r = await request('POST', `/api/accounts/${encodeURIComponent(account.account_id)}/actions/${encodeURIComponent(action)}`, {
-    platform: account.platform,
-    handle: account.handle,
-    payload,
-  }, { timeoutMs });
-  if (!r.ok) return r;
-
-  const result = r.data && r.data.result ? r.data.result : r.data;
-  if (!result || result.success !== true) {
-    return {
-      ok: false,
-      code: (result && result.code) || 'action_failed',
-      error: (result && result.error) || (r.data && r.data.error) || 'The engine did not report success for that action.',
-      result: result || null,
-    };
-  }
-  return { ok: true, result };
+  if (routesToBU(account)) return bu.act(account, action, payload);
+  return unsupported(account);
 }
 
 module.exports = {
-  provider,
-  bu,
-  ig,
-  routesToIG,
-  configured,
-  configHint,
-  baseUrl,
-  apiKey,
-  health,
-  capabilities,
-  sessions,
-  sessionStatus,
-  verify,
-  importSession,
-  disconnect,
+  provider, bu, ig, x,
+  routesToIG, routesToX, routesToBU,
+  configured, configHint, baseUrl, apiKey,
+  health, capabilities, sessions, sessionStatus, verify, importSession, disconnect,
+  connect, submitCode, hasPendingLogin,
   act,
 };

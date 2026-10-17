@@ -3,39 +3,28 @@
 // The capability contract is the reason this feature cannot lie to the creator,
 // so it gets tested like one:
 //
-//   · Ariana's copy and the engine's copy are byte-identical (drift = failure);
-//   · every action marked supported names the real method behind it;
+//   · every action marked supported names the real method behind it, and the
+//     engine really has a handler for it (nothing advertised that cannot run);
 //   · every action marked unsupported explains itself in a sentence a person
 //     can read (no "N/A", no empty string);
-//   · every platform the manifest claims has an adapter in the engine — and
-//     nothing is marked supported that the engine has no handler for;
-//   · the specific limitations the creator asked about (posting, search, reading
-//     DMs, notifications, feed, deletes) are asserted to be exactly what they are.
+//   · the platforms without an adapter say why, and are refused;
+//   · the specific limitations (search, feed, notifications, deletes, connect)
+//     are asserted to be exactly what they are.
 // ─────────────────────────────────────────────────────────────────────────────
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert');
 
-const ARIANA_MANIFEST = path.join(__dirname, '..', 'social', 'capabilities.json');
-const ENGINE_MANIFEST = path.join(__dirname, '..', 'socialcrabs-service', 'src', 'capabilities.json');
-
 const caps = require('../social/capabilities');
-
-test('manifest: the engine copy and Ariana\'s copy are identical', () => {
-  const a = fs.readFileSync(ARIANA_MANIFEST, 'utf8');
-  const b = fs.readFileSync(ENGINE_MANIFEST, 'utf8');
-  assert.strictEqual(a, b, 'social/capabilities.json and socialcrabs-service/src/capabilities.json have drifted apart');
-});
+const xengine = require('../social/x_engine');
 
 test('manifest: every supported action names a real method and what it returns', () => {
   for (const platform of caps.platformIds()) {
     for (const entry of caps.supportedActions(platform)) {
       assert.ok(entry.method, `${platform}/${entry.action} is marked supported but names no method`);
-      assert.match(entry.method, /^[a-z]+\.[a-zA-Z]+\(/, `${platform}/${entry.action} method "${entry.method}" does not look like a handler call`);
+      assert.match(entry.method, /^[a-zA-Z]+\(/, `${platform}/${entry.action} method "${entry.method}" does not look like a call`);
     }
   }
 });
@@ -50,16 +39,16 @@ test('manifest: every unsupported action explains itself properly', () => {
 });
 
 test('manifest: the engine has a handler for everything it advertises', () => {
-  const { dispatchCoverage } = require('../socialcrabs-service/src/engine');
-  const missing = dispatchCoverage();
-  assert.deepStrictEqual(missing, [], `advertised but not dispatchable: ${missing.join(', ')}`);
+  const handled = new Set(xengine.handledActions());
+  const missing = caps.supportedActions('twitter').map((e) => e.action).filter((a) => !handled.has(a));
+  assert.deepStrictEqual(missing, [], `advertised but not runnable: ${missing.join(', ')}`);
 });
 
-test('manifest: exactly three platforms, and the ones without adapters say why', () => {
-  assert.deepStrictEqual(caps.platformIds().sort(), ['instagram', 'linkedin', 'twitter']);
+test('manifest: X is the only platform, and the ones without adapters say why', () => {
+  assert.deepStrictEqual(caps.platformIds(), ['twitter']);
   const described = caps.describe();
   const unsupported = described.unsupported_platforms.map((u) => u.id);
-  for (const p of ['facebook', 'tiktok', 'threads', 'youtube']) {
+  for (const p of ['instagram', 'linkedin', 'facebook', 'tiktok', 'threads', 'youtube']) {
     assert.ok(unsupported.includes(p), `${p} should be listed as having no adapter`);
   }
   for (const u of described.unsupported_platforms) {
@@ -67,64 +56,53 @@ test('manifest: exactly three platforms, and the ones without adapters say why',
   }
 });
 
-// These are the limitations the whole design is built around. If a future
-// SocialCrabs release adds one of these methods, these assertions should be the
-// thing that fails first — deliberately, so the manifest gets updated on purpose.
-test('limits: publishing exists only where the integration really publishes', () => {
-  assert.equal(caps.supports('twitter', 'post'), true, 'X can post');
-  assert.equal(caps.supports('instagram', 'post'), false);
-  assert.equal(caps.supports('linkedin', 'post'), false);
-  assert.match(caps.unsupportedReason('instagram', 'post'), /no publish method/i);
-  assert.match(caps.unsupportedReason('linkedin', 'post'), /no publish method/i);
+// These are the limitations the design is built around. If a method is added to the X engine,
+// these assertions should be the thing that fails first — deliberately, so the manifest is
+// updated on purpose.
+test('limits: X can publish, reply and repost', () => {
+  for (const a of ['post', 'reply', 'comment', 'repost', 'like', 'follow', 'unfollow', 'dm']) {
+    assert.equal(caps.supports('twitter', a), true, `X should support ${a}`);
+  }
 });
 
-test('limits: search exists only on LinkedIn, and the reason is specific', () => {
-  assert.equal(caps.supports('linkedin', 'search'), true);
-  assert.equal(caps.supports('instagram', 'search'), false);
-  assert.equal(caps.supports('twitter', 'search'), false);
+test('limits: X can read its DM inbox, which is how she receives messages', () => {
+  assert.equal(caps.supports('twitter', 'read_dms'), true);
+});
+
+test('limits: search, notifications, the home feed and post lists are not built', () => {
+  for (const a of ['search', 'notifications', 'view_feed', 'view_posts']) {
+    assert.equal(caps.supports('twitter', a), false, `X must not claim ${a}`);
+  }
   assert.match(caps.unsupportedReason('twitter', 'search'), /no search method/i);
 });
 
-test('limits: nothing can read DMs, notifications or the home feed', () => {
-  for (const platform of caps.platformIds()) {
-    assert.equal(caps.supports(platform, 'read_dms'), false, `${platform} must not claim DM reading`);
-    assert.equal(caps.supports(platform, 'notifications'), false, `${platform} must not claim notifications`);
-    assert.equal(caps.supports(platform, 'view_feed'), false, `${platform} must not claim feed browsing`);
-  }
-  assert.match(caps.unsupportedReason('instagram', 'read_dms'), /no inbox reader/i);
+test('limits: deletes are unsupported, because no method exists', () => {
+  assert.equal(caps.supports('twitter', 'delete_post'), false);
+  assert.equal(caps.supports('twitter', 'delete_comment'), false);
 });
 
-test('limits: deletes are unsupported everywhere, because no method exists', () => {
-  for (const platform of caps.platformIds()) {
-    assert.equal(caps.supports(platform, 'delete_post'), false);
-    assert.equal(caps.supports(platform, 'delete_comment'), false);
-  }
-});
-
-test('limits: connection requests are LinkedIn-only, and Instagram says so', () => {
-  assert.equal(caps.supports('linkedin', 'connect'), true);
-  assert.equal(caps.supports('instagram', 'connect'), false);
+test('limits: connection requests are a LinkedIn concept and are not offered', () => {
   assert.equal(caps.supports('twitter', 'connect'), false);
 });
 
-test('limits: replying to an individual comment is not claimed anywhere it cannot work', () => {
-  assert.equal(caps.supports('twitter', 'reply'), true, 'on X a reply is the tweet comment');
-  assert.equal(caps.supports('instagram', 'reply'), false);
-  assert.equal(caps.supports('linkedin', 'reply'), false);
-});
-
 test('check(): a refusal always carries a reason and a code', () => {
-  const ig = caps.check('instagram', 'post');
-  assert.equal(ig.ok, false);
-  assert.equal(ig.code, 'unsupported');
-  assert.ok(ig.error.length > 30);
+  const del = caps.check('twitter', 'delete_post');
+  assert.equal(del.ok, false);
+  assert.equal(del.code, 'unsupported');
+  assert.ok(del.error.length > 30);
+
+  for (const gone of ['instagram', 'linkedin']) {
+    const r = caps.check(gone, 'like');
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'unsupported_platform');
+  }
 
   const unknown = caps.check('myspace', 'like');
   assert.equal(unknown.ok, false);
   assert.equal(unknown.code, 'unsupported_platform');
-  assert.match(unknown.error, /Supported platforms: instagram, twitter, linkedin/);
+  assert.match(unknown.error, /Supported platforms: twitter/);
 
-  const ok = caps.check('instagram', 'like');
+  const ok = caps.check('twitter', 'like');
   assert.equal(ok.ok, true);
-  assert.equal(ok.entry.method, 'instagram.like({ url })');
+  assert.equal(ok.entry.method, 'likeTweet(client, tweetId)');
 });

@@ -68,7 +68,7 @@ test('configured needs both the URL and the key', () => {
   assert.equal(ig.configured(), true);
   assert.equal(engine.routesToIG(account), true);
   assert.equal(engine.routesToIG({ platform: 'twitter' }), false);
-  assert.equal(engine.provider(), 'instagrapi');
+  assert.equal(engine.provider(), 'x-lite', 'X is built in, so that is the engine; Instagram is routed to its service per account');
 });
 
 test('status, sessions and health never touch the network', async () => {

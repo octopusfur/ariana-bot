@@ -1,8 +1,8 @@
 // social/capabilities.js
 // ─────────────────────────────────────────────────────────────────────────────
 // What Ariana can and cannot really do on each platform — loaded from
-// social/capabilities.json, which the engine service mirrors byte for byte
-// (tests/social-manifest.test.js fails if the two copies drift).
+// social/capabilities.json. tests/social-manifest.test.js fails if the manifest
+// advertises an action the built-in X engine has no handler for.
 //
 // This file is what keeps the feature honest. The dashboard renders from it, the
 // tool list is generated from it, and every refusal message comes from here, so
@@ -47,6 +47,7 @@ function effectivePlatforms() {
 function manifest() {
   const unsupported = { ...MANIFEST.unsupported_platforms };
   if (tiktokActive()) delete unsupported.tiktok;
+  if (igApiActive()) delete unsupported.instagram; // the Instagram service is configured: it is supported now
   return { ...MANIFEST, platforms: effectivePlatforms(), unsupported_platforms: unsupported };
 }
 

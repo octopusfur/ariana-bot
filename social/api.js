@@ -37,26 +37,6 @@ function usableManifest(m) {
     && m.platforms.every((p) => p && typeof p === 'object' && p.id && Array.isArray(p.supported) && Array.isArray(p.unsupported)));
 }
 
-function provisioningSteps(platform) {
-  const label = caps.platformLabel(platform);
-  const info = caps.platformInfo(platform) || {};
-  const steps = [
-    `1. On the machine where the engine runs, provision the session: node scripts/connect-session.js --platform ${platform} --handle <your handle> --engine <engine url> --key <engine api key>.`,
-    '2. That script opens the platform in a real browser so the login happens on the platform\'s own page — the password is typed there, never into Ariana.',
-    '3. It sends only the resulting session to the engine, which stores it encrypted. Nothing is saved in Ariana and nothing is committed to git.',
-    '4. Come back here and press Connect — Ariana verifies the session live and shows Connected once it really works.',
-  ];
-  if (info.env_bootstrap) {
-    steps.splice(1, 0, `Alternative for ${label}: set ${(info.env_bootstrap_vars || []).join(' and ')} on the engine (two cookies from a logged-in browser) and skip the helper script.`);
-  }
-  return {
-    platform,
-    needs_session: true,
-    steps,
-    note: 'There is no way to paste a password into Ariana\'s dashboard by design. If you would rather do it by hand, the helper script is the only path — see SOCIAL.md.',
-  };
-}
-
 function attach(app, { requireAuth } = {}) {
   const r = express.Router();
   const guard = requireAuth || ((req, res, next) => next());
@@ -73,13 +53,12 @@ function attach(app, { requireAuth } = {}) {
   r.get('/status', guard, async (_req, res) => {
     const [list, health] = await Promise.all([
       accounts.list(),
-      engine.configured() ? engine.health() : Promise.resolve({ ok: false, code: 'not_configured', error: 'Social engine not connected — ' + engine.configHint() }),
+      engine.health(),
     ]);
     const autonomyCfg = await autonomy.getConfig();
     ok(res, {
       engine: {
         configured: engine.configured(),
-        url: engine.baseUrl(),
         provider: engine.provider(),
         reachable: !!health.ok,
         error: health.ok ? null : health.error,
@@ -93,7 +72,7 @@ function attach(app, { requireAuth } = {}) {
       })),
       autonomy: { enabled: !!autonomyCfg.enabled, interval_minutes: autonomyCfg.interval_minutes, ...autonomy.status() },
       dry_run: process.env.SOCIAL_DRY_RUN === '1',
-      setup: engine.configured() ? null : setupInstructions(),
+      setup: (health.ok && health.health && health.health.login_configured) ? null : setupInstructions(),
     });
   });
 
@@ -102,16 +81,13 @@ function attach(app, { requireAuth } = {}) {
 
   function setupInstructions() {
     return {
-      engine_url: engine.baseUrl(),
-      engine_configured: engine.configured(),
+      engine: 'built-in (x-lite): runs inside Ariana, no browser and no extra service.',
       steps: [
-        '1. Deploy the social engine (socialcrabs-service/) — Railway or Render, Docker, with a persistent volume mounted at /data.',
-        '2. Set SOCIAL_ENGINE_API_KEY on the engine and the same value here as SOCIAL_ENGINE_API_KEY, plus SOCIAL_ENGINE_URL pointing at it.',
-        '3. Provision a session for each account — run scripts/connect-session.js from the engine folder on your own machine: it opens the real login page in a browser you control, then sends only the resulting session to the engine. Your password never touches Ariana or her dashboard.',
-        '4. Back in this dashboard, press Connect on the account to verify the session is live, then enable Actions.',
+        '1. On the server, set X_PASSWORD for the X account (and X_EMAIL / X_TOTP_SECRET if it has an email check or an authenticator app).',
+        '2. Redeploy, add the account here, then tap Connect. Ariana signs in by herself and saves the login (encrypted) in Supabase.',
+        '3. If X asks for a verification code, a box appears on the account card: type the code from the account\'s email.',
       ],
-      x_env_bootstrap: 'X/Twitter can skip the login helper: set SOCIALCRABS_AUTH_TOKEN and SOCIALCRABS_CT0 on the engine (from a logged-in browser session) and it builds the session itself.',
-      volume: 'Sessions live in the engine at SESSION_DIR (default /data/sessions on the container). Mount a volume there or every redeploy logs the accounts out.',
+      session_storage: 'The login is encrypted into your Supabase database, so redeploys and restarts do not sign her out. If X ever expires it, she signs in again on her own.',
     };
   }
 
@@ -194,106 +170,130 @@ function attach(app, { requireAuth } = {}) {
     ok(res, { account: removed.account });
   });
 
-  // Connect = verify the session that was provisioned server-side, and report
-  // exactly what the engine says. Never asks the browser for anything.
-  r.post('/accounts/:id/connect', guard, async (req, res) => {
-    const account = await accounts.get(req.params.id);
-    if (!account) return fail(res, 404, 'That account is not in the list.');
-    if (!engine.configured()) {
-      return fail(res, 503, 'Social engine not connected — ' + engine.configHint(), { setup: setupInstructions() });
+  // Connect = make sure this account has a working X login. Ariana signs in by herself with the
+  // credentials in the server environment (never typed into the dashboard). If X asks for a
+  // verification code, the dashboard shows a box and posts it to /code.
+  async function settleConnect(res, account, out) {
+    const S = accounts.STATUS;
+    if (!out.ok) {
+      const soft = ['no_credentials', 'no_key', 'no_pending'].includes(out.code);
+      const updated = await accounts.setStatus(account.account_id, soft ? S.NOT_CONNECTED : S.ERROR, out.error);
+      return fail(res, soft ? 409 : 502, out.error, { account: updated, code: out.code });
     }
+    if (out.needs_code) {
+      const updated = await accounts.setStatus(account.account_id, S.NOT_CONNECTED, 'X wants a verification code. Enter it on this card.');
+      return ok(res, { account: updated, connected: false, needs_code: true, kind: out.kind, prompt: out.prompt });
+    }
+    // A fresh sign-in is confirmed with one cheap call, so "Connected" always means "X accepts it".
+    const v = out.detail ? { ok: true, session: { connected: true, detail: out.detail } } : await engine.verify(account);
+    if (v.ok && v.session.connected) {
+      const updated = await accounts.setStatus(account.account_id, S.ONLINE, v.session.detail);
+      return ok(res, { account: updated, connected: true });
+    }
+    const why = v.ok ? v.session.detail : v.error;
+    const updated = await accounts.setStatus(account.account_id, S.ERROR, 'Signed in, but X did not accept the new login: ' + why);
+    return fail(res, 502, why, { account: updated, code: v.code });
+  }
 
-    // Browser Use: the creator signs in themselves on a live browser (no passwords through Ariana).
-    // First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
-    if (engine.provider() === 'browser-use' && !engine.routesToIG(account)) {
-      const bu = engine.bu;
-      let fin = null;
-      if (bu.hasPendingLogin(account)) {
-        fin = await bu.finishLogin(account);
-        if (!fin.ok) return fail(res, 502, fin.error);
-      } else {
-        const st = await bu.sessionStatus(account);
-        if (!st.ok) {
-          const updated = await accounts.setStatus(account.account_id, accounts.STATUS.UNKNOWN, st.error);
-          return fail(res, 502, st.error, { account: updated });
-        }
-        if (st.session.exists) {
-          const check = await bu.verify(account);
-          if (check.ok && check.session.connected) {
-            const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ONLINE, check.session.detail);
-            return ok(res, { account: updated, connected: true });
-          }
-        }
-        const login = await bu.startLogin(account);
-        if (!login.ok) {
-          const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, login.error);
-          return fail(res, 502, login.error, { account: updated });
-        }
-        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, 'Waiting for you to sign in on the live browser, then tap Connect again.');
-        return ok(res, {
-          account: updated, connected: false, login_url: login.live_url,
-          instructions: [
-            'A live browser just opened. Sign in to ' + account.platform + ' as @' + account.handle + ' yourself.',
-            login.navigated ? 'It is already on the login page.' : 'Go to ' + login.login_page + ' in that browser.',
-            'Wait until you can see your home feed, then close the browser and tap Connect again right away. The browser expires 30 minutes after it opened, and an expired browser loses the login.',
-          ],
-        });
-      }
-      const v = await (fin ? bu.verifyAfterLogin(account, fin) : bu.verify(account));
-      if (!v.ok) {
-        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.error);
-        return fail(res, 502, v.error, { account: updated });
-      }
-      if (v.session.connected) {
-        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ONLINE, v.session.detail);
-        return ok(res, { account: updated, connected: true });
-      }
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.session.detail);
-      return ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.session.detail });
+  // Instagram runs through its own service: the session was saved by Settings → Connect Instagram, so Connect
+  // only checks that it is there and still works.
+  async function connectInstagram(res, account) {
+    const S = accounts.STATUS;
+    const have = await engine.sessionStatus(account);
+    if (!have.ok) {
+      const updated = await accounts.setStatus(account.account_id, S.UNKNOWN, have.error);
+      return fail(res, 502, have.error, { account: updated });
     }
-
-    // Instagram through its own service: the session was saved by Settings → Connect Instagram.
-    if (engine.routesToIG(account)) {
-      const have = await engine.sessionStatus(account);
-      if (have.ok && !(have.session && (have.session.exists || have.session.has_session))) {
-        const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, 'Not signed in yet. Open Settings → Connect Instagram.');
-        return ok(res, { account: updated, connected: false, error: 'Not signed in yet. Open Settings → Connect Instagram.' });
-      }
-    }
-
-    // Cheap check first: is there a session at all? Only run the browser if so —
-    // an empty slot must not cost a minute of Chromium to discover.
-    const status = await engine.sessionStatus(account);
-    if (!status.ok) {
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.UNKNOWN, status.error);
-      return fail(res, 502, status.error, { account: updated });
-    }
-    const s = status.session || {};
+    const s = have.session || {};
     if (!s.exists && !s.has_session) {
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, 'No session on the engine yet — provision one, then Connect again.');
-      return ok(res, { account: updated, connected: false, provisioning: provisioningSteps(account.platform) });
+      const updated = await accounts.setStatus(account.account_id, S.NOT_CONNECTED, 'Not signed in yet. Open Settings → Connect Instagram.');
+      return ok(res, { account: updated, connected: false, error: 'Not signed in yet. Open Settings → Connect Instagram.' });
     }
-
     const verified = await engine.verify(account);
     if (!verified.ok) {
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, verified.error);
+      const updated = await accounts.setStatus(account.account_id, S.ERROR, verified.error);
       return fail(res, 502, verified.error, { account: updated });
     }
     const v = verified.session || {};
     if (v.connected) {
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ONLINE, v.detail || 'Session verified live in the browser.');
+      const updated = await accounts.setStatus(account.account_id, S.ONLINE, v.detail || 'Session verified.');
       return ok(res, { account: updated, connected: true });
     }
-    const updated = await accounts.setStatus(account.account_id, accounts.STATUS.ERROR, v.detail || v.error || 'The platform says this session is not logged in.');
-    ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.error || null });
+    const updated = await accounts.setStatus(account.account_id, S.ERROR, v.detail || v.error || 'The platform says this session is not logged in.');
+    return ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.error || null });
+  }
+
+  // TikTok (opt-in, Browser Use Cloud): the creator signs in themselves on a live browser (no passwords through
+  // Ariana). First tap opens that browser. After signing in, tap Connect again to save the login and verify it.
+  async function connectViaBrowserUse(res, account) {
+    const S = accounts.STATUS;
+    const bu = engine.bu;
+    let fin = null;
+    if (bu.hasPendingLogin(account)) {
+      fin = await bu.finishLogin(account);
+      if (!fin.ok) return fail(res, 502, fin.error);
+    } else {
+      const st = await bu.sessionStatus(account);
+      if (!st.ok) {
+        const updated = await accounts.setStatus(account.account_id, S.UNKNOWN, st.error);
+        return fail(res, 502, st.error, { account: updated });
+      }
+      if (st.session.exists) {
+        const check = await bu.verify(account);
+        if (check.ok && check.session.connected) {
+          const updated = await accounts.setStatus(account.account_id, S.ONLINE, check.session.detail);
+          return ok(res, { account: updated, connected: true });
+        }
+      }
+      const login = await bu.startLogin(account);
+      if (!login.ok) {
+        const updated = await accounts.setStatus(account.account_id, S.ERROR, login.error);
+        return fail(res, 502, login.error, { account: updated });
+      }
+      const updated = await accounts.setStatus(account.account_id, S.NOT_CONNECTED, 'Waiting for you to sign in on the live browser, then tap Connect again.');
+      return ok(res, {
+        account: updated, connected: false, login_url: login.live_url,
+        instructions: [
+          'A live browser just opened. Sign in to ' + account.platform + ' as @' + account.handle + ' yourself.',
+          login.navigated ? 'It is already on the login page.' : 'Go to ' + login.login_page + ' in that browser.',
+          'Wait until you can see your home feed, then close the browser and tap Connect again right away. The browser expires 30 minutes after it opened, and an expired browser loses the login.',
+        ],
+      });
+    }
+    const v = await (fin ? bu.verifyAfterLogin(account, fin) : bu.verify(account));
+    if (!v.ok) {
+      const updated = await accounts.setStatus(account.account_id, S.ERROR, v.error);
+      return fail(res, 502, v.error, { account: updated });
+    }
+    if (v.session.connected) {
+      const updated = await accounts.setStatus(account.account_id, S.ONLINE, v.session.detail);
+      return ok(res, { account: updated, connected: true });
+    }
+    const updated = await accounts.setStatus(account.account_id, S.ERROR, v.session.detail);
+    return ok(res, { account: updated, connected: false, needs_reconnect: true, error: v.session.detail });
+  }
+
+  r.post('/accounts/:id/connect', guard, async (req, res) => {
+    const account = await accounts.get(req.params.id);
+    if (!account) return fail(res, 404, 'That account is not in the list.');
+    if (engine.routesToIG(account)) return connectInstagram(res, account);
+    if (engine.routesToBU(account)) return connectViaBrowserUse(res, account);
+    return settleConnect(res, account, await engine.connect(account));
+  });
+
+  r.post('/accounts/:id/code', guard, async (req, res) => {
+    const account = await accounts.get(req.params.id);
+    if (!account) return fail(res, 404, 'That account is not in the list.');
+    const code = req.body && req.body.code;
+    if (!code || !String(code).trim()) return fail(res, 400, 'Enter the code first.');
+    return settleConnect(res, account, await engine.submitCode(account, code));
   });
 
   r.post('/accounts/:id/disconnect', guard, async (req, res) => {
     const account = await accounts.get(req.params.id);
     if (!account) return fail(res, 404, 'That account is not in the list.');
-    if (!engine.configured()) return fail(res, 503, 'Social engine not connected — nothing to disconnect.');
     const out = await engine.disconnect(account);
-    const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, out.ok ? 'Session deleted from the engine.' : out.error);
+    const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, out.ok ? 'Saved login deleted. Tap Connect to sign in again.' : out.error);
     if (!out.ok) return fail(res, 502, out.error, { account: updated });
     ok(res, { account: updated });
   });
@@ -400,4 +400,4 @@ function attach(app, { requireAuth } = {}) {
   return r;
 }
 
-module.exports = { attach, provisioningSteps, usableManifest };
+module.exports = { attach, usableManifest };

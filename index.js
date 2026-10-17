@@ -3468,7 +3468,7 @@ app.get('/api/platform-status', requireDashboardAuth, async (_req, res) => {
   try {
     const xs = await xchannel.status();
     result.x = !xs.configured
-      ? { status: 'not_configured', label: 'Not configured', detail: 'The social engine is not connected yet (BROWSER_USE_API_KEY or SOCIAL_ENGINE_URL).' }
+      ? { status: 'not_configured', label: 'Not configured', detail: 'The built-in X engine is unavailable.' }
       : xs.problem
         ? { status: 'configured', label: 'Needs account', detail: xs.problem.error }
         : { status: 'connected', label: xs.can_receive ? 'Ready' : 'Send only', detail: xs.note || `Answers X messages for @${xs.account.handle} when you check — nothing runs on a timer.` };

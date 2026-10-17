@@ -5,7 +5,7 @@
 //
 // There is no second intelligence in this file. It gathers a handful of real
 // candidates through the supported read actions (a watchlist account's recent
-// posts on Instagram, a keyword search on LinkedIn), shows them to Ariana's
+// posts, a keyword search), shows them to Ariana's
 // existing system prompt, and asks her a single constrained question: is this
 // worth engaging with, and if so, what — if anything — would you say?
 //
@@ -40,11 +40,13 @@ const DEFAULT_CONFIG = {
 };
 
 let brain = null;   // injected by index.js — Ariana's own prompt machinery
+let candidateSource = null; // optional post reader: (account, config) => [{ platform, account_id, url, handle }]
 let timer = null;
 let running = false;
 
-function attach({ askBrain } = {}) {
+function attach({ askBrain, candidates } = {}) {
   brain = askBrain || null;
+  candidateSource = candidates || null;
 }
 
 async function getConfig() {
@@ -104,34 +106,20 @@ function status() {
 }
 
 // ── CANDIDATE GATHERING ─────────────────────────────────────────────────────
-// Only real read actions, and only on platforms that can list content.
+// Candidates come only from real read actions that list posts (view_posts, search). The built-in X
+// engine has neither yet, so for X this finds nothing and a pass says so instead of inventing work.
+// attach({ candidates }) lets another source supply them (a future X post reader, or a test).
 
 async function candidatesFor(account, config) {
-  const out = [];
+  const limit = Math.max(1, config.max_candidates_per_tick || 6);
+  if (!candidateSource) return [];
   try {
-    if (account.platform === 'instagram' && account.handle) {
-      // Her own recent posts are the safest place to look when the creator has
-      // not named anyone: they are hers, and engaging with them is harmless.
-      const handles = (config.watchlist.instagram || []).slice(0, 3);
-      if (!handles.length) handles.push(account.handle);
-      for (const handle of handles) {
-        const res = await tools.executeTool('social_view_posts', { username: handle, account: account.account_id }, { source: 'autonomy:scan', actor: 'ariana' });
-        const urls = (res && res.data && res.data[0] && res.data[0].normalized && res.data[0].normalized.posts) || [];
-        for (const url of urls.slice(0, 2)) out.push({ platform: 'instagram', account_id: account.account_id, url, handle, kind: 'post' });
-      }
-    }
-
-    if (account.platform === 'linkedin') {
-      for (const query of (config.linkedin_searches || []).slice(0, 2)) {
-        const res = await tools.executeTool('social_search', { query, account: account.account_id }, { source: 'autonomy:scan', actor: 'ariana' });
-        const posts = (res && res.data && res.data[0] && res.data[0].normalized && res.data[0].normalized.posts) || [];
-        for (const url of posts.slice(0, 3)) out.push({ platform: 'linkedin', account_id: account.account_id, url, query, kind: 'post' });
-      }
-    }
+    const found = await candidateSource(account, config);
+    return (Array.isArray(found) ? found : []).slice(0, limit);
   } catch (e) {
     console.warn('[social] candidate scan failed:', e.message);
+    return [];
   }
-  return out.slice(0, Math.max(1, config.max_candidates_per_tick || 6));
 }
 
 // ── THE DECISION ────────────────────────────────────────────────────────────

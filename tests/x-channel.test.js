@@ -1,6 +1,6 @@
 // tests/x-channel.test.js
 // ─────────────────────────────────────────────────────────────────────────────
-// X as a chat channel through the social engine (x_channel.js). What these pin:
+// X as a chat channel through Ariana's built-in X engine (x_channel.js). What these pin:
 //
 //   · NOTHING RUNS ON ITS OWN. No timer unless X_INBOX_POLL_MINUTES is set; the
 //     status calls never touch the engine.
@@ -23,18 +23,17 @@ const assert = require('node:assert');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ariana-x-channel-'));
 process.env.SOCIAL_DATA_DIR = TMP;
-process.env.SOCIAL_ENGINE_URL = 'https://engine.test';
-process.env.SOCIAL_ENGINE_API_KEY = 'k';
 delete process.env.SUPABASE_URL;
-delete process.env.BROWSER_USE_API_KEY;
 delete process.env.SOCIAL_DRY_RUN;
 delete process.env.X_INBOX_POLL_MINUTES;
 
 const accounts = require('../social/accounts');
 const activity = require('../social/activity');
 const xc = require('../x_channel');
+const engine = require('../social/engine_client');
 
-const realFetch = global.fetch;
+// The engine is stubbed at the engine_client seam (x-engine.test.js covers the adapter itself).
+const real = { act: engine.act };
 let calls = [];
 let inbox = []; // what the engine's read_dms returns
 let readStatus = 200;
@@ -43,18 +42,15 @@ let dmStatus = 200;
 
 function fakeEngine() {
   calls = [];
-  global.fetch = async (url, opts) => {
-    const body = opts && opts.body ? JSON.parse(opts.body) : null;
-    const action = String(url).split('/actions/')[1];
-    calls.push({ action, body });
+  engine.act = async (account, action, payload) => {
+    calls.push({ action, body: { payload, platform: account.platform } });
     await new Promise((r) => setImmediate(r)); // a real await, so overlapping checks can overlap
     if (action === 'read_dms') {
-      return { ok: readStatus === 200, status: readStatus, text: async () => JSON.stringify(readJson || { result: { success: true, items: inbox } }) };
+      if (readStatus !== 200) return { ok: false, code: (readJson && readJson.code) || 'action_failed', error: (readJson && readJson.error) || 'engine said no' };
+      return readJson || { ok: true, result: { success: true, items: inbox } };
     }
-    if (action === 'dm') {
-      return { ok: dmStatus === 200, status: dmStatus, text: async () => JSON.stringify(dmStatus === 200 ? { result: { success: true } } : { success: false, code: 'action_failed', error: 'engine said no' }) };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify({ result: { success: true } }) };
+    if (action === 'dm') return dmStatus === 200 ? { ok: true, result: { success: true } } : { ok: false, code: 'action_failed', error: 'engine said no' };
+    return { ok: true, result: { success: true } };
   };
 }
 
@@ -76,7 +72,7 @@ async function reset({ enabled = true } = {}) {
   fakeEngine();
 }
 
-test.after(() => { global.fetch = realFetch; try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) {} });
+test.after(() => { engine.act = real.act; try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) {} });
 
 const collect = () => { const got = []; return { got, onMessage: async (m) => { got.push(m); } }; };
 
@@ -115,7 +111,7 @@ test('no timer: status never touches the engine, and init starts nothing by defa
   assert.equal(calls.length, 0, 'status must not call the engine');
   assert.equal(s.polling_minutes, 0);
   assert.equal(s.configured, true);
-  assert.equal(s.engine, 'socialcrabs');
+  assert.equal(s.engine, 'x-lite');
 
   const realSet = global.setInterval; let timers = 0;
   global.setInterval = (...a) => { timers++; return realSet(...a); };
@@ -140,18 +136,13 @@ test('source: the only setInterval in x_channel.js is the opt-in one', () => {
   assert.ok(/if \(minutes > 0\)/.test(src));
 });
 
-test('status: only the Browser Use engine can receive; SocialCrabs can only send, and it says so', async () => {
+test('status: the built-in engine can receive (it reads the inbox over plain HTTP), and status stays offline', async () => {
   await reset();
-  assert.equal((await xc.status()).can_receive, false);
-  assert.match((await xc.status()).note, /no X inbox reader/);
-  delete process.env.SOCIAL_ENGINE_URL;
-  process.env.BROWSER_USE_API_KEY = 'bu';
-  try {
-    const s = await xc.status();
-    assert.equal(s.engine, 'browser-use');
-    assert.equal(s.can_receive, true);
-    assert.equal(calls.length, 0);
-  } finally { delete process.env.BROWSER_USE_API_KEY; process.env.SOCIAL_ENGINE_URL = 'https://engine.test'; }
+  const s = await xc.status();
+  assert.equal(s.engine, 'x-lite');
+  assert.equal(s.can_receive, true);
+  assert.equal(s.note, null);
+  assert.equal(calls.length, 0, 'status must not call the engine');
 });
 
 // ── THE INBOX ───────────────────────────────────────────────────────────────
@@ -402,9 +393,4 @@ test('dashboard: every list of channels includes X, with the supplied logo', () 
   // the exact path from the supplied logo is used in every place
   const logo = 'M714.163 519.284 1160.89 0h-105.86L667.137 450.887';
   assert.equal(html.split(logo).length - 1, 3, 'tile, settings card and chat icon all use the X logo');
-});
-
-test('the Browser Use inbox prompt asks which side sent the last message', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'social', 'browseruse_engine.js'), 'utf8');
-  assert.ok(/last_from_me/.test(src));
 });
