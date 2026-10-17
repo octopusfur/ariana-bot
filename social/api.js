@@ -305,25 +305,6 @@ function attach(app, { requireAuth } = {}) {
     return settleConnect(res, account, await engine.connect(account));
   });
 
-  // Phone-login fallback for X, for when X blocks the server from signing in by itself.
-  r.post('/x/import', guard, async (req, res) => {
-    const { handle, auth_token, ct0 } = req.body || {};
-    const h = String(handle || '').trim().replace(/^@/, '');
-    if (!h) return fail(res, 400, 'Enter the X username.');
-    let account = (await accounts.list()).find((x) => x.platform === 'twitter' && String(x.handle).toLowerCase() === h.toLowerCase());
-    if (!account) {
-      const added = await accounts.add({ platform: 'twitter', handle: h, actionsEnabled: true });
-      if (!added.ok) return fail(res, 400, added.error);
-      account = added.account;
-    }
-    const out = await engine.importSession(account, { auth_token, ct0 });
-    if (!out.ok) {
-      const updated = await accounts.setStatus(account.account_id, accounts.STATUS.NOT_CONNECTED, out.error);
-      return fail(res, out.code === 'bad_input' ? 400 : 502, out.error, { account: updated, code: out.code });
-    }
-    return settleConnect(res, account, { ok: true, connected: true, detail: out.detail });
-  });
-
   r.post('/accounts/:id/code', guard, async (req, res) => {
     const account = await accounts.get(req.params.id);
     if (!account) return fail(res, 404, 'That account is not in the list.');

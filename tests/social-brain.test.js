@@ -618,7 +618,6 @@ test('api: passwords are accepted on exactly two named connect routes, and cooki
   assert.ok(routes.length >= 12, `the dashboard surface is present (${routes.length} routes)`);
   const credRoutes = routes.filter((r) => /password|login|credential|cookie|connect/i.test(r) && !/accounts\/:id\/(dis)?connect/.test(r));
   assert.deepEqual(credRoutes.sort(), ['POST /instagram/connect', 'POST /x/connect']);
-  assert.ok(routes.includes('POST /x/import'), 'the phone-login fallback for X exists');
   assert.equal(/req\.get\(['"]cookie|req\.headers\.cookie/i.test(code), false, 'no route accepts cookies from the browser');
   assert.equal(/\bcookie\b/i.test(code), false, 'the code never touches cookies at all');
   assert.equal(/console\.(log|warn|error|info)\([^)]*(password|passwd|totp)/i.test(code), false, 'a password is never logged');

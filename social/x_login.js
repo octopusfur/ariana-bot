@@ -157,8 +157,13 @@ class XLogin {
     if (!res.ok) {
       const msg = j && j.errors && j.errors[0] && j.errors[0].message;
       const id = subtaskInputs && subtaskInputs[0] && subtaskInputs[0].subtask_id;
-      const blocked = res.status === 403 && !msg;
-      throw new XLoginError('http_error', `X rejected the sign-in step${id ? ' "' + id + '"' : ''} (HTTP ${res.status}${msg ? ': ' + msg : ''}).${blocked ? ' X is refusing sign-ins from this server\'s network address.' : ''}`, { status: res.status, blocked });
+      // X's bot protection: error 366 "flow name login is currently not accessible/accepted", or a bare 403 from the edge.
+      // It refuses scripted password sign-ins in general, so this is not a wrong password and retrying does not help.
+      const refused = /flow name .*login.* (not|currently not) (accessible|accepted)/i.test(msg || '') || (j && j.errors && j.errors[0] && j.errors[0].code === 366) || (res.status === 403 && !msg);
+      if (refused) {
+        throw new XLoginError('blocked', 'X refused the sign-in (' + res.status + (msg ? ': ' + msg : '') + '). That is X\'s bot protection: it blocks automatic password sign-ins from servers, so it is not a wrong password and trying again will not help.', { status: res.status, blocked: true });
+      }
+      throw new XLoginError('http_error', `X rejected the sign-in step${id ? ' "' + id + '"' : ''} (HTTP ${res.status}${msg ? ': ' + msg : ''}).`, { status: res.status });
     }
     if (!j) throw new XLoginError('bad_response', 'X answered the sign-in step with something that is not JSON.');
     this.response = j;

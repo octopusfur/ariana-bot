@@ -159,7 +159,7 @@ test('ui_metrics: a solvable script yields its answer; garbage throws (the calle
   assert.throws(() => solveUiMetrics('not a script'));
 });
 
-test('a 403 on the first step is retried once through x.com\'s web path, and the rest of the flow stays there', async () => {
+test('a 403 on the first step is retried once through x.com\'s web path', async () => {
   const fake = makeFakeX();
   const inner = fake.fetch;
   let refused = 0;
@@ -173,19 +173,20 @@ test('a 403 on the first step is retried once through x.com\'s web path, and the
   assert.equal(refused, 1, 'api.x.com is tried once, not once per step');
 });
 
-test('when both paths refuse, the error says it is the server\'s address being refused', async () => {
-  const fake = makeFakeX();
-  const inner = fake.fetch;
-  const fetch = async (url, opts) => {
-    const u = new URL(url);
-    if (u.pathname.endsWith('/onboarding/task.json')) return new Response('<html>blocked</html>', { status: 403 });
-    return inner(url, opts);
-  };
-  await assert.rejects(() => new XLogin({ ...creds, fetch }).run(), (e) => {
-    assert.equal(e.code, 'http_error');
-    assert.equal(e.blocked, true);
-    assert.match(e.message, /HTTP 403/);
-    assert.match(e.message, /network address/);
-    return true;
-  });
+test('X\'s bot protection (error 366 / bare 403) is reported as that, not as a wrong password', async () => {
+  for (const reply of [
+    () => new Response(JSON.stringify({ errors: [{ code: 366, message: 'flow name login is currently not accessible' }] }), { status: 400 }),
+    () => new Response('<html>blocked</html>', { status: 403 }),
+  ]) {
+    const fake = makeFakeX();
+    const inner = fake.fetch;
+    const fetch = async (url, opts) => (new URL(url).pathname.endsWith('/onboarding/task.json') ? reply() : inner(url, opts));
+    await assert.rejects(() => new XLogin({ ...creds, fetch }).run(), (e) => {
+      assert.equal(e.code, 'blocked');
+      assert.equal(e.blocked, true);
+      assert.match(e.message, /bot protection/);
+      assert.match(e.message, /not a wrong password/);
+      return true;
+    });
+  }
 });

@@ -488,37 +488,8 @@ test('Settings-saved login details are encrypted, win over the environment, and 
   delete process.env.X_PASSWORD;
 });
 
-test('phone login: values that look wrong are refused before X is asked, and nothing is stored', async () => {
-  await reset();
-  let asked = 0;
-  global.fetch = async () => { asked++; return new Response('{}', { status: 200 }); };
-  const short = await xengine.importSession(account, { auth_token: 'abc', ct0: 'def' });
-  assert.deepEqual([short.ok, short.code], [false, 'bad_input']);
-  assert.equal(asked, 0);
-  assert.equal((await vault.load(account.account_id)).session, null);
-});
-
-test('phone login: a login X accepts is saved encrypted and reported as connected', async () => {
-  await reset();
-  const fake = makeFakeX();
-  global.fetch = fake.fetch;
-  const r = await xengine.importSession(account, { auth_token: 'a'.repeat(40), ct0: 'c'.repeat(64) });
-  assert.equal(r.ok, true);
-  assert.equal(r.connected, true);
-  const saved = (await vault.load(account.account_id)).session;
-  assert.equal(saved.cookies.auth_token, 'a'.repeat(40));
-  assert.equal(JSON.stringify(await require('../social/store').loadSecret('xsession:' + account.account_id)).includes('a'.repeat(40)), false, 'stored encrypted');
-});
-
-test('phone login: a login X rejects is not kept', async () => {
-  await reset();
-  global.fetch = makeFakeX().fetch;
-  const savedPw = process.env.X_PASSWORD; delete process.env.X_PASSWORD; // no password to quietly sign in with instead
-  // the stub client treats an auth_token starting with OLD as one X no longer accepts
-  const r = await xengine.importSession(account, { auth_token: 'OLD'.padEnd(40, 'x'), ct0: 'c'.repeat(64) });
+test('cookie import is not offered, and says so', async () => {
+  const r = await xengine.importSession();
   assert.equal(r.ok, false);
-  assert.equal(r.code, 'bad_session');
-  assert.match(r.error, /fresh values/);
-  assert.equal((await vault.load(account.account_id)).session, null);
-  if (savedPw !== undefined) process.env.X_PASSWORD = savedPw;
+  assert.match(r.error, /not supported/);
 });
