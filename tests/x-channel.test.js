@@ -250,7 +250,7 @@ test('an engine with no inbox reader is told so in plain words', async () => {
   readStatus = 502; readJson = { success: false, code: 'unsupported', error: 'read_dms is not supported' };
   const { summary } = await xc.readInbox();
   assert.equal(summary.ok, false);
-  assert.match(summary.error, /sending DMs works, receiving needs the Browser Use engine/);
+  assert.match(summary.error, /could not read the inbox/);
 });
 
 test('it refuses cleanly when there is nothing to act as', async () => {

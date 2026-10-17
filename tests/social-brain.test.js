@@ -430,7 +430,7 @@ test('api: Connect with no server login is a clear 409 with the setup, never a f
     assert.equal(out.status, 409);
     assert.equal(out.json.ok, false);
     assert.equal(out.json.code, 'no_credentials');
-    assert.match(out.json.error, /X_PASSWORD/);
+    assert.match(out.json.error, /Settings/);
     const list = await api(base, '/api/social/accounts');
     assert.equal(list.json.accounts[0].status, 'not_connected', 'it is not marked online');
   } finally { stop(); }
@@ -609,18 +609,19 @@ test('api: autonomy is reported as off and can be turned on and off', async () =
   } finally { stop(); }
 });
 
-test('api: no route anywhere accepts a password or a cookie', async () => {
+test('api: passwords are accepted on exactly two named connect routes, and cookies nowhere', async () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'social', 'api.js'), 'utf8');
-  // Comments and the operator instructions may explain why there is no password
-  // field; no code path may actually handle one.
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.equal(/password\s*[:=]|passwd|passphrase/i.test(code), false, 'nothing assigns or reads a password');
-  assert.equal(/req\.body\.password|body\.password/i.test(code), false, 'no request body carries a password');
-  assert.equal(/req\.get\(['"]cookie|req\.headers\.cookie/i.test(code), false, 'no route accepts cookies from the browser');
-  assert.equal(/\bcookie\b/i.test(code), false, 'the code never touches cookies at all');
+  // Her creator typed X and Instagram sign-in details into Settings on purpose (so Ariana can sign herself in).
+  // That is allowed on those two routes only; nothing else may take a password, and nothing logs one.
   const routes = [...source.matchAll(/r\.(get|post|delete)\('([^']+)'/g)].map((m) => `${m[1].toUpperCase()} ${m[2]}`);
   assert.ok(routes.length >= 12, `the dashboard surface is present (${routes.length} routes)`);
-  assert.equal(routes.some((r) => /password|login|credential|cookie/i.test(r)), false, 'no credentials route exists');
+  const credRoutes = routes.filter((r) => /password|login|credential|cookie|connect/i.test(r) && !/accounts\/:id\/(dis)?connect/.test(r));
+  assert.deepEqual(credRoutes.sort(), ['POST /instagram/connect', 'POST /x/connect']);
+  assert.equal(/req\.get\(['"]cookie|req\.headers\.cookie/i.test(code), false, 'no route accepts cookies from the browser');
+  assert.equal(/\bcookie\b/i.test(code), false, 'the code never touches cookies at all');
+  assert.equal(/console\.(log|warn|error|info)\([^)]*(password|passwd|totp)/i.test(code), false, 'a password is never logged');
+  assert.equal((code.match(/password/g) || []).length <= 12, true, 'the password handling stays confined to the two connect routes');
 });
 
 // ── READS ───────────────────────────────────────────────────────────────────

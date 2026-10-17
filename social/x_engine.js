@@ -80,9 +80,19 @@ function credsFor(account) {
   return { username: cleanHandle(c.username) || handle, password: c.password, email: c.email || '', totpSecret: c.totp || c.totpSecret || '' };
 }
 
+// Details typed into Settings win; the server environment (X_PASSWORD …) still works as a fallback.
+async function resolveCreds(account) {
+  const saved = await vault.loadCreds(account.account_id);
+  if (saved.ok && saved.creds && saved.creds.password) {
+    const c = saved.creds;
+    return { username: cleanHandle(c.username) || cleanHandle(account.handle), password: c.password, email: c.email || '', totpSecret: c.totp || '' };
+  }
+  return credsFor(account);
+}
+
 const NO_CREDS = {
   ok: false, code: 'no_credentials',
-  error: 'No X login is set on the server. Add X_PASSWORD (plus X_EMAIL and X_TOTP_SECRET if the account uses them) to the environment, redeploy, then tap Connect.',
+  error: 'No X password saved yet. Open Settings → X, enter the account password and tap Connect X.',
 };
 
 // ── pacing: one action at a time, with a human-ish gap ──────────────────────
@@ -144,7 +154,7 @@ async function finishLogin(account, outcome, ua, login) {
 }
 
 async function signIn(account) {
-  const creds = credsFor(account);
+  const creds = await resolveCreds(account);
   if (!creds) return NO_CREDS;
   const L = await lib();
   const ua = (L.USER_AGENTS && L.USER_AGENTS[0]) || undefined;
@@ -241,14 +251,18 @@ function configHint() { return 'The X engine runs inside Ariana. Add X_PASSWORD 
 async function health() {
   const list = (await accounts.list()).filter((a) => a.platform === PLATFORM);
   let saved = 0;
-  for (const a of list) { const s = await vault.load(a.account_id); if (s.ok && s.session) saved++; }
+  let loginConfigured = false;
+  for (const a of list) {
+    const s = await vault.load(a.account_id); if (s.ok && s.session) saved++;
+    if (await resolveCreds(a)) loginConfigured = true;
+  }
   return {
     ok: true,
     health: {
       provider: 'x-lite', engine: 'in-process (no browser)', status: 'ok',
       sessions: saved, accounts: list.length,
       session_storage: vault.available() ? (store.usingSupabase() ? 'supabase (encrypted)' : 'local file (encrypted)') : 'no encryption key',
-      login_configured: list.some((a) => !!credsFor(a)),
+      login_configured: loginConfigured,
     },
   };
 }
@@ -297,6 +311,7 @@ async function disconnect(account) {
   pending.delete(account.account_id);
   clients.delete(account.account_id);
   const r = await vault.remove(account.account_id);
+  await vault.removeCreds(account.account_id); // disconnect forgets the password too
   return r.ok ? { ok: true, result: { removed: true } } : { ok: false, code: 'store_failed', error: r.error };
 }
 
@@ -369,7 +384,7 @@ async function act(account, action, payload) {
 module.exports = {
   configured, provider, baseUrl, configHint, health, capabilities, sessions, sessionStatus,
   verify, importSession, disconnect, act,
-  connect, submitCode, hasPendingLogin, pendingPrompt, credsFor,
+  connect, submitCode, hasPendingLogin, pendingPrompt, credsFor, resolveCreds,
   handledActions: () => Object.keys(HANDLERS),
   _setLibForTest: (l) => { _libOverride = l; clients.clear(); },
   _reset: () => { clients.clear(); pending.clear(); lastLogin.clear(); chain = Promise.resolve(); },

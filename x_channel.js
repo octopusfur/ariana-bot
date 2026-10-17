@@ -1,8 +1,8 @@
 // x_channel.js
 // ─────────────────────────────────────────────────────────────────────────────
 // X (Twitter) as a chat channel — the same way WhatsApp, Telegram and Snapchat
-// are, but through the SOCIAL ENGINE Ariana already has (Browser Use or
-// SocialCrabs). No extra service, no paid X API.
+// are, but through X's own web endpoints with the built-in X engine
+// (social/x_engine.js). No browser, no extra service, no paid X API.
 //
 //   out:  her reply goes through the social layer's `dm` action, so every guard
 //         she already has applies (creator switch, daily ceiling, dry-run, the
@@ -145,7 +145,7 @@ async function readInbox() {
     const acct = await xAccount();
     if (!acct.ok) return { summary: finish({ ok: false, code: acct.code, error: acct.error }), fresh: [] };
     if (!engine.configured()) {
-      return { summary: finish({ ok: false, code: 'not_configured', error: 'The social engine is not connected — ' + engine.configHint() }), fresh: [] };
+      return { summary: finish({ ok: false, code: 'not_configured', error: 'X is not connected — open Settings → X and connect it.' }), fresh: [] };
     }
     if (process.env.SOCIAL_DRY_RUN === '1') {
       return { summary: finish({ ok: false, code: 'dry_run', error: 'Dry run is on — no inbox was read.' }), fresh: [] };
@@ -166,7 +166,7 @@ async function readInbox() {
     });
     if (failed) {
       const hint = /unsupported|not supported|no handler|404|501/i.test(String(r.error || '') + String(r.code || ''))
-        ? ' Your engine has no X inbox reader — sending DMs works, receiving needs the Browser Use engine.'
+        ? ' The X engine could not read the inbox just now — try again in a minute, or reconnect X in Settings.'
         : '';
       return { summary: finish({ ok: false, code: r.code || 'read_failed', error: (r.error || 'Could not read the X inbox.') + hint }), fresh: [] };
     }

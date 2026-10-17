@@ -171,7 +171,7 @@ test('connect: no server password → a clear, actionable refusal, and no reques
   const r = await xengine.connect(account);
   assert.equal(r.ok, false);
   assert.equal(r.code, 'no_credentials');
-  assert.match(r.error, /X_PASSWORD/);
+  assert.match(r.error, /Settings/);
   assert.equal(hit, 0);
 });
 
@@ -396,7 +396,7 @@ test('act: an expired session with no server password says exactly what is missi
   const r = await xengine.act(account, 'like', { url: 'https://x.com/a/status/1' });
   assert.equal(r.ok, false);
   assert.match(r.error, /signing in again failed/);
-  assert.match(r.error, /X_PASSWORD/);
+  assert.match(r.error, /Settings/);
 });
 
 test('act: an expired session where X now wants a code asks the creator to open the Social screen', async () => {
@@ -474,4 +474,22 @@ test('the real vendored client library loads under this Node (no stub)', async (
   const v = await xengine.verify(account); // no session → resolves without any network, but only after the library imported
   assert.equal(v.ok, true);
   assert.equal(v.session.connected, false);
+});
+
+test('Settings-saved login details are encrypted, win over the environment, and disconnect forgets them', async () => {
+  const vault = require('../social/session_vault');
+  const saved = await vault.saveCreds('twitter:ariana.x', { username: 'ariana.x', password: 'pw-from-settings', email: 'a@b.c', totp: 'JBSWY3DPEHPK3PXP' });
+  assert.equal(saved.ok, true);
+  const raw = JSON.stringify(await require('../social/store').loadSecret('xcreds:twitter:ariana.x'));
+  assert.equal(raw.includes('pw-from-settings'), false, 'only ciphertext is stored');
+  process.env.X_PASSWORD = 'pw-from-env';
+  const acct = { account_id: 'twitter:ariana.x', platform: 'twitter', handle: 'ariana.x' };
+  const c = await xengine.resolveCreds(acct);
+  assert.equal(c.password, 'pw-from-settings');
+  assert.equal(c.email, 'a@b.c');
+  assert.equal(c.totpSecret, 'JBSWY3DPEHPK3PXP');
+  await xengine.disconnect(acct);
+  const after = await xengine.resolveCreds(acct);
+  assert.equal(after && after.password, 'pw-from-env', 'with the Settings details gone, the environment fallback still applies');
+  delete process.env.X_PASSWORD;
 });

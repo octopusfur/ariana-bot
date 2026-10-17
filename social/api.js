@@ -170,9 +170,9 @@ function attach(app, { requireAuth } = {}) {
     ok(res, { account: removed.account });
   });
 
-  // Connect = make sure this account has a working X login. Ariana signs in by herself with the
-  // credentials in the server environment (never typed into the dashboard). If X asks for a
-  // verification code, the dashboard shows a box and posts it to /code.
+  // Connect = make sure this account has a working X login. Ariana signs in by herself with the details
+  // saved from Settings → X (or, as a fallback, the server environment). If X asks for a verification
+  // code, the dashboard shows a box and posts it to /code.
   async function settleConnect(res, account, out) {
     const S = accounts.STATUS;
     if (!out.ok) {
@@ -278,6 +278,30 @@ function attach(app, { requireAuth } = {}) {
     if (!account) return fail(res, 404, 'That account is not in the list.');
     if (engine.routesToIG(account)) return connectInstagram(res, account);
     if (engine.routesToBU(account)) return connectViaBrowserUse(res, account);
+    return settleConnect(res, account, await engine.connect(account));
+  });
+
+  // Easy connect for X: type the account's password once (plus its email and/or authenticator secret if X
+  // checks them). They are encrypted into Supabase so Ariana can sign herself back in whenever X expires a
+  // session; they are never shown again. X signs in through the built-in engine — no browser, no social engine.
+  r.post('/x/connect', guard, async (req, res) => {
+    const { handle, password, email, totp } = req.body || {};
+    const h = String(handle || '').trim().replace(/^@/, '');
+    if (!h) return fail(res, 400, 'Enter the X username.');
+    const pw = String(password || '');
+    let account = (await accounts.list()).find((x) => x.platform === 'twitter' && String(x.handle).toLowerCase() === h.toLowerCase());
+    if (!pw && !(account && (await engine.x.resolveCreds(account)))) return fail(res, 400, 'Enter the X password.');
+    if (!account) {
+      const added = await accounts.add({ platform: 'twitter', handle: h, actionsEnabled: true });
+      if (!added.ok) return fail(res, 400, added.error);
+      account = added.account;
+    }
+    if (pw) {
+      const saved = await require('./session_vault').saveCreds(account.account_id, {
+        username: h, password: pw, email: String(email || '').trim(), totp: String(totp || '').replace(/\s+/g, ''),
+      });
+      if (!saved.ok) return fail(res, 500, saved.error);
+    }
     return settleConnect(res, account, await engine.connect(account));
   });
 

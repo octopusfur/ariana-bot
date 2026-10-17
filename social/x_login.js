@@ -169,7 +169,7 @@ class XLogin {
 
   async run() {
     const { username, password } = this.o;
-    if (!username || !password) throw new XLoginError('no_credentials', 'Missing X username or password on the server.');
+    if (!username || !password) throw new XLoginError('no_credentials', 'Missing X username or password.');
 
     const g = await this.call('POST', `${API}/guest/activate.json`, { json: {} });
     const gj = await g.json().catch(() => null);

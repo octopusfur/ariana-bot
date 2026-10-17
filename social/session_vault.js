@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const store = require('./store');
 
 const NAME = (accountId) => 'xsession:' + accountId;
+const CREDS = (accountId) => 'xcreds:' + accountId;
 
 function key() {
   const explicit = (process.env.X_SESSION_KEY || '').trim();
@@ -29,6 +30,10 @@ function key() {
 function available() { return !!key(); }
 
 function seal(obj, accountId) {
+  return sealWith(obj, accountId);
+}
+
+function sealWith(obj, accountId) {
   const k = key();
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', k, iv);
@@ -38,6 +43,10 @@ function seal(obj, accountId) {
 }
 
 function open(blob, accountId) {
+  return openWith(blob, accountId);
+}
+
+function openWith(blob, accountId) {
   const k = key();
   const d = crypto.createDecipheriv('aes-256-gcm', k, Buffer.from(blob.iv, 'base64'));
   d.setAAD(Buffer.from(accountId));
@@ -77,4 +86,30 @@ async function list() {
   catch (_) { return []; }
 }
 
-module.exports = { available, save, load, remove, list };
+// The sign-in details typed into Settings (password, optional email / authenticator secret). Same AES-256-GCM
+// seal, bound to a different context than the session so the two blobs are not interchangeable. Ariana needs
+// them to sign herself back in when X expires a session; they are never shown again and never sent to the browser.
+async function saveCreds(accountId, creds) {
+  if (!available()) return NO_KEY;
+  try {
+    const r = await store.saveSecret(CREDS(accountId), sealWith({ ...creds, saved_at: new Date().toISOString() }, 'creds:' + accountId));
+    return r.ok ? { ok: true, where: r.where } : { ok: false, code: 'store_failed', error: 'Could not save the login details: ' + r.error };
+  } catch (e) { return { ok: false, code: 'store_failed', error: 'Could not save the login details: ' + e.message }; }
+}
+
+async function loadCreds(accountId) {
+  if (!available()) return { ok: true, creds: null };
+  try {
+    const blob = await store.loadSecret(CREDS(accountId));
+    return { ok: true, creds: blob ? openWith(blob, 'creds:' + accountId) : null };
+  } catch (_) {
+    return { ok: false, code: 'unreadable', error: 'Saved login details cannot be decrypted (was X_SESSION_KEY or the Supabase key changed?). Enter them again in Settings.' };
+  }
+}
+
+async function removeCreds(accountId) {
+  try { await store.deleteSecret(CREDS(accountId)); return { ok: true }; }
+  catch (e) { return { ok: false, error: e.message }; }
+}
+
+module.exports = { available, save, load, remove, list, saveCreds, loadCreds, removeCreds };

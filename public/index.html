@@ -868,9 +868,26 @@ html.pal-vt{pointer-events:none}
           <svg class="st-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></summary>
         <div class="st-panel">
           <div id="x-status" class="st-note">Checking...</div>
-          <div class="st-note">She answers X direct messages the way she answers WhatsApp, through the social engine you already have. X does not announce new messages, so she looks when you press the button. Nothing runs on a timer.</div>
-          <button class="btn" id="x-check-btn" onclick="xCheck()" style="margin-top:12px">Check messages now</button>
+          <div class="st-note" style="line-height:1.65"><b>How to connect (one minute)</b><br>1. Type Ariana's X username and password below, then tap <b>Connect X</b>.<br>2. If X asks for a code, a box appears: type the code X emailed you (or your authenticator app's code) and tap <b>Send code</b>.<br>3. It turns green when she is in. After that she signs herself back in whenever X expires the login.<br>Everything runs inside Ariana on your own server: no browser, no paid X service. The password is encrypted in your database and never shown again.</div>
+          <div id="x-login">
+            <label class="lbl">X username</label>
+            <input type="text" id="x-user" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Ariana's X username, no @">
+            <label class="lbl" style="margin-top:10px">Password</label>
+            <input type="password" id="x-pass" class="inp" autocomplete="off" placeholder="Saved encrypted so she can re-login herself">
+            <label class="lbl" style="margin-top:10px">Email on the account <span style="opacity:.6">(optional)</span></label>
+            <input type="text" id="x-email" class="inp" autocomplete="off" autocapitalize="none" placeholder="Only needed if X asks to confirm it">
+            <label class="lbl" style="margin-top:10px">Authenticator secret <span style="opacity:.6">(optional)</span></label>
+            <input type="text" id="x-totp" class="inp" autocomplete="off" autocapitalize="none" placeholder="Only if the account uses an authenticator app">
+            <div id="x-code-wrap" style="display:none">
+              <label class="lbl" style="margin-top:10px" id="x-code-lbl">Code from X</label>
+              <input type="text" id="x-code" class="inp" autocomplete="off" placeholder="The code X sent you">
+              <button class="btn" onclick="xSendCode()" style="margin-top:10px">Send code</button>
+            </div>
+            <button class="btn" id="x-btn" onclick="xConnect()" style="margin-top:12px">Connect X</button>
+          </div>
+          <button class="btn-ghost" id="x-check" onclick="xCheck()" style="display:none;margin-top:10px">Check messages now</button>
           <div id="x-result" class="st-note" style="margin-top:8px"></div>
+          <button class="btn-ghost" id="x-off" onclick="xDisconnect()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Disconnect X</button>
         </div>
       </details>
       <details class="st-ch" name="st-ch" id="ch-snap">
@@ -1226,20 +1243,50 @@ function xSummary(l){
 }
 async function xRefresh(){
   const st=document.getElementById('x-status');if(!st)return;
-  const a=await snapGet('/api/x/status');
+  const a=await socAccounts('twitter');
   if(a.status===401){st.textContent='Enter your dashboard key under Access first, then reopen Settings.';return;}
-  const d=a.d||{},pill=document.getElementById('pill-x'),dot=document.getElementById('dot-x'),btn=document.getElementById('x-check-btn'),res=document.getElementById('x-result');
-  const setPill=(t,cls)=>{if(pill)pill.textContent=t;if(dot)dot.className='s-dot'+(cls?' '+cls:'');};
-  if(!a.ok){st.textContent='Could not read the X channel state.';setPill('Unavailable','err');return;}
-  if(!d.configured){st.textContent='The X engine is unavailable on the server.';setPill('Not set up');if(btn)btn.disabled=true;return;}
-  if(d.problem){st.textContent=d.problem.error;setPill('Needs account','warn');if(btn)btn.disabled=true;return;}
-  if(btn)btn.disabled=!d.can_receive;
-  st.textContent=d.can_receive?'Ready. She answers X messages for @'+d.account.handle+' when you press Check.':'Sending works for @'+d.account.handle+'. Receiving needs the Browser Use engine (SocialCrabs has no X inbox reader).';
-  setPill(d.can_receive?'Ready':'Send only',d.can_receive?'on':'warn');
-  if(res&&d.last_check)res.textContent=xSummary(d.last_check);
+  if(!a.ok){st.textContent='Could not load X state. Try again in a minute.';return;}
+  socPaint('x',a.list,'Not connected yet. Follow the steps below.');
+  const acc=a.list[0];
+  if(acc){const u=document.getElementById('x-user');if(u&&!u.value)u.value=acc.handle;window._xAcc=acc.account_id;}
+  const res=document.getElementById('x-result');
+  const s=await snapGet('/api/x/status');
+  if(res&&s.ok&&s.d&&s.d.last_check)res.textContent=xSummary(s.d.last_check);
+}
+async function xConnect(){
+  const handle=document.getElementById('x-user').value.trim().replace(/^@/,''),password=document.getElementById('x-pass').value;
+  const email=document.getElementById('x-email').value.trim(),totp=document.getElementById('x-totp').value.trim();
+  if(!handle){toast('Enter the X username');return;}
+  const acc=(await socAccounts('twitter')).list.find(x=>x.handle.toLowerCase()===handle.toLowerCase());
+  if(!password&&!acc){toast('Enter the password');return;}
+  const b=document.getElementById('x-btn');b.disabled=true;b.textContent='Connecting...';
+  const r=await jpost('/api/social/x/connect',{handle,password,email,totp});
+  b.disabled=false;b.textContent='Connect X';
+  const d=r.d||{};
+  if(d.account)window._xAcc=d.account.account_id;
+  if(!r.ok){toast(plainErr(d.error)||'Could not connect',9000);xRefresh();return;}
+  if(d.needs_code){document.getElementById('x-code-wrap').style.display='';document.getElementById('x-code-lbl').textContent=d.prompt||'Code from X';toast(d.prompt||'X sent you a code. Enter it below.',9000);return;}
+  document.getElementById('x-pass').value='';document.getElementById('x-code-wrap').style.display='none';
+  toast('X connected',4000);xRefresh();
+}
+async function xSendCode(){
+  const code=document.getElementById('x-code').value.trim();
+  if(!code||!window._xAcc){toast('Enter the code first');return;}
+  const r=await jpost('/api/social/accounts/'+encodeURIComponent(window._xAcc)+'/code',{code});
+  const d=r.d||{};
+  if(!r.ok){toast(plainErr(d.error)||'That code was not accepted',8000);return;}
+  if(d.needs_code){toast(d.prompt||'X wants another code',8000);return;}
+  document.getElementById('x-code').value='';document.getElementById('x-pass').value='';document.getElementById('x-code-wrap').style.display='none';
+  toast('X connected',4000);xRefresh();
+}
+async function xDisconnect(){
+  if(!confirm('Disconnect X? The saved login and password are deleted.'))return;
+  const a=await socAccounts('twitter');
+  for(const x of a.list){await jpost('/api/social/accounts/'+encodeURIComponent(x.account_id)+'/disconnect',{});}
+  toast('X disconnected');xRefresh();
 }
 async function xCheck(){
-  const btn=document.getElementById('x-check-btn'),res=document.getElementById('x-result');
+  const btn=document.getElementById('x-check'),res=document.getElementById('x-result');
   if(btn)btn.disabled=true;if(res)res.textContent='Checking… this can take a minute.';
   const {ok,d}=await jpost('/api/x/check',{});
   if(res)res.textContent=ok||d.error?xSummary(d):'The check did not work.';
