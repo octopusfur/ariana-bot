@@ -303,8 +303,24 @@ async function verify(account) {
   return { ok: true, session: { connected: true, exists: true, detail: `Signed in as @${me.screen_name}.` } };
 }
 
-async function importSession() {
-  return { ok: false, code: 'unsupported', error: 'Cookie import is gone: Ariana signs in by itself with the server credentials.' };
+// The phone-login fallback: when X refuses to let the server sign in (it blocks datacenter addresses), the
+// creator signs in on their own phone and hands over the two values X sets for that login. Nothing is stored
+// unless X accepts them, and no password is involved.
+async function importSession(account, session) {
+  const auth = String((session && session.auth_token) || '').trim().replace(/^["']|["']$/g, '');
+  const ct0 = String((session && session.ct0) || '').trim().replace(/^["']|["']$/g, '');
+  if (!/^[A-Za-z0-9%_-]{30,}$/.test(auth)) return { ok: false, code: 'bad_input', error: 'That auth_token does not look right. It is a long string of letters and numbers.' };
+  if (!/^[A-Za-z0-9%_-]{30,}$/.test(ct0)) return { ok: false, code: 'bad_input', error: 'That ct0 does not look right. It is a long string of letters and numbers.' };
+  const L = await lib();
+  const ua = (L.USER_AGENTS && L.USER_AGENTS[0]) || undefined;
+  const saved = await persist(account, { cookies: { auth_token: auth, ct0 }, userId: null }, ua);
+  if (!saved.ok) return saved;
+  const v = await verify(account);
+  if (v.ok && v.session.connected) return { ok: true, connected: true, detail: v.session.detail, stored_in: saved.where };
+  await vault.remove(account.account_id);
+  clients.delete(account.account_id);
+  const why = v.ok ? v.session.detail : v.error;
+  return { ok: false, code: 'bad_session', error: 'X did not accept that login: ' + why + ' Sign in to x.com in Safari again and copy fresh values.' };
 }
 
 async function disconnect(account) {

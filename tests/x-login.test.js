@@ -158,3 +158,34 @@ test('ui_metrics: a solvable script yields its answer; garbage throws (the calle
   assert.equal(solveUiMetrics(`function abc() { return "{'k':1}"; }`), '{"k":1}');
   assert.throws(() => solveUiMetrics('not a script'));
 });
+
+test('a 403 on the first step is retried once through x.com\'s web path, and the rest of the flow stays there', async () => {
+  const fake = makeFakeX();
+  const inner = fake.fetch;
+  let refused = 0;
+  const fetch = async (url, opts) => {
+    const u = new URL(url);
+    if (u.hostname === 'api.x.com' && u.pathname.endsWith('/onboarding/task.json')) { refused++; return new Response('<html>blocked</html>', { status: 403 }); }
+    return inner(url, opts);
+  };
+  const out = await new XLogin({ ...creds, fetch }).run();
+  assert.equal(out.status, 'ok');
+  assert.equal(refused, 1, 'api.x.com is tried once, not once per step');
+});
+
+test('when both paths refuse, the error says it is the server\'s address being refused', async () => {
+  const fake = makeFakeX();
+  const inner = fake.fetch;
+  const fetch = async (url, opts) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/onboarding/task.json')) return new Response('<html>blocked</html>', { status: 403 });
+    return inner(url, opts);
+  };
+  await assert.rejects(() => new XLogin({ ...creds, fetch }).run(), (e) => {
+    assert.equal(e.code, 'http_error');
+    assert.equal(e.blocked, true);
+    assert.match(e.message, /HTTP 403/);
+    assert.match(e.message, /network address/);
+    return true;
+  });
+});

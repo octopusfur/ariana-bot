@@ -885,6 +885,15 @@ html.pal-vt{pointer-events:none}
             </div>
             <button class="btn" id="x-btn" onclick="xConnect()" style="margin-top:12px">Connect X</button>
           </div>
+          <details id="x-alt" style="margin-top:14px">
+            <summary class="st-note" style="cursor:pointer"><b>Sign-in blocked (HTTP 403)? Use your phone's login instead</b></summary>
+            <div class="st-note" style="line-height:1.65;margin-top:8px">X sometimes refuses to let a server sign in. This does the sign-in on your phone and hands Ariana the result. It is free and takes a few minutes.<br><br>1. Get the free <b>Cookie Editor For Safari</b> app. Then iPhone Settings &gt; Apps &gt; Safari &gt; Extensions: turn Cookie Editor on and allow it for x.com.<br>2. In Safari (not the X app) go to <b>x.com</b> and sign in as Ariana.<br>3. Open Cookie Editor on x.com. Tap <b>auth_token</b>, copy its value, paste it below. Do the same for <b>ct0</b>.<br>4. Type the username above (if it is empty), then tap <b>Use this login</b>.</div>
+            <label class="lbl" style="margin-top:10px">auth_token</label>
+            <input type="password" id="x-auth" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Paste the auth_token value">
+            <label class="lbl" style="margin-top:10px">ct0</label>
+            <input type="password" id="x-ct0" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Paste the ct0 value">
+            <button class="btn" id="x-import-btn" onclick="xImport()" style="margin-top:12px">Use this login</button>
+          </details>
           <button class="btn-ghost" id="x-check" onclick="xCheck()" style="display:none;margin-top:10px">Check messages now</button>
           <div id="x-result" class="st-note" style="margin-top:8px"></div>
           <button class="btn-ghost" id="x-off" onclick="xDisconnect()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Disconnect X</button>
@@ -1264,9 +1273,21 @@ async function xConnect(){
   b.disabled=false;b.textContent='Connect X';
   const d=r.d||{};
   if(d.account)window._xAcc=d.account.account_id;
-  if(!r.ok){toast(plainErr(d.error)||'Could not connect',9000);xRefresh();return;}
+  if(!r.ok){const blocked=/HTTP 403|refusing sign-ins/i.test(d.error||'');if(blocked){const alt=document.getElementById('x-alt');if(alt)alt.open=true;toast('X blocked the server from signing in. Use the phone login option just below.',10000);}else toast(plainErr(d.error)||'Could not connect',9000);xRefresh();return;}
   if(d.needs_code){document.getElementById('x-code-wrap').style.display='';document.getElementById('x-code-lbl').textContent=d.prompt||'Code from X';toast(d.prompt||'X sent you a code. Enter it below.',9000);return;}
   document.getElementById('x-pass').value='';document.getElementById('x-code-wrap').style.display='none';
+  toast('X connected',4000);xRefresh();
+}
+async function xImport(){
+  const handle=document.getElementById('x-user').value.trim().replace(/^@/,''),auth=document.getElementById('x-auth').value.trim(),ct0=document.getElementById('x-ct0').value.trim();
+  if(!handle){toast('Type the X username first');return;}
+  if(!auth||!ct0){toast('Paste both the auth_token and the ct0');return;}
+  const b=document.getElementById('x-import-btn');b.disabled=true;b.textContent='Checking...';
+  const r=await jpost('/api/social/x/import',{handle,auth_token:auth,ct0});
+  b.disabled=false;b.textContent='Use this login';
+  const d=r.d||{};
+  if(!r.ok){toast(plainErr(d.error)||'X did not accept that login',9000);xRefresh();return;}
+  document.getElementById('x-auth').value='';document.getElementById('x-ct0').value='';
   toast('X connected',4000);xRefresh();
 }
 async function xSendCode(){

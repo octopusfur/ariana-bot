@@ -20,6 +20,7 @@ const vm = require('vm');
 
 const BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 const API = 'https://api.x.com/1.1';
+const WEB_API = 'https://x.com/i/api/1.1'; // the same flow through x.com's own web path; tried once if api.x.com refuses the first step
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
 class XLoginError extends Error {
@@ -119,6 +120,7 @@ class XLogin {
     this.flowToken = null;
     this.response = null;
     this.pending = null;
+    this.base = API;
   }
 
   async call(method, url, { json, params } = {}) {
@@ -145,13 +147,18 @@ class XLogin {
     const body = { ...(data || {}) };
     if (this.flowToken) body.flow_token = this.flowToken;
     if (subtaskInputs) body.subtask_inputs = subtaskInputs;
-    const res = await this.call('POST', `${API}/onboarding/task.json`, { json: body, params });
+    let res = await this.call('POST', `${this.base}/onboarding/task.json`, { json: body, params });
+    if (res.status === 403 && !this.flowToken && this.base === API) {
+      this.base = WEB_API; // some networks are refused on api.x.com but not on x.com's web path
+      res = await this.call('POST', `${this.base}/onboarding/task.json`, { json: body, params });
+    }
     const text = await res.text();
     let j = null; try { j = JSON.parse(text); } catch (_) {}
     if (!res.ok) {
       const msg = j && j.errors && j.errors[0] && j.errors[0].message;
       const id = subtaskInputs && subtaskInputs[0] && subtaskInputs[0].subtask_id;
-      throw new XLoginError('http_error', `X rejected the sign-in step${id ? ' "' + id + '"' : ''} (HTTP ${res.status}${msg ? ': ' + msg : ''}).`, { status: res.status });
+      const blocked = res.status === 403 && !msg;
+      throw new XLoginError('http_error', `X rejected the sign-in step${id ? ' "' + id + '"' : ''} (HTTP ${res.status}${msg ? ': ' + msg : ''}).${blocked ? ' X is refusing sign-ins from this server\'s network address.' : ''}`, { status: res.status, blocked });
     }
     if (!j) throw new XLoginError('bad_response', 'X answered the sign-in step with something that is not JSON.');
     this.response = j;
@@ -180,7 +187,7 @@ class XLogin {
       params: { flow_name: 'login' },
       data: { input_flow_data: { flow_context: { debug_overrides: {}, start_location: { location: 'splash_screen' } } }, subtask_versions: SUBTASK_VERSIONS },
     });
-    await this.call('POST', `${API}/onboarding/sso_init.json`, { json: { provider: 'apple' } }).catch(() => {});
+    await this.call('POST', `${this.base}/onboarding/sso_init.json`, { json: { provider: 'apple' } }).catch(() => {});
 
     let ui = '';
     try {
