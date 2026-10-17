@@ -423,7 +423,7 @@ The engine drops **in front of** your LLM calls. Everything behind stays the sam
 
 ## Social Action Layer (added)
 
-Ariana can operate real Instagram, X and LinkedIn accounts. Her brain is
+Ariana can operate a real X (Twitter) account. Her brain is
 unchanged — this is an addition in front of it, not a rewrite.
 
 ```
@@ -432,28 +432,28 @@ Ariana's brain (engine_v2 prompt + her Groq tool loop in index.js)
       ▼
 social/  — capability check → creator permission → limits → confirmation → activity log
       ▼
-socialcrabs-service/  — the engine: real sessions, real browsers (Playwright)
+social/x_engine.js  — built-in engine: plain HTTP, encrypted session in Supabase, auto re-login
       ▼
-Instagram · X · LinkedIn
+X (x.com's own web endpoints; no paid API, no browser)
 ```
 
 - **Her tools**: `social_like`, `social_comment`, `social_follow`, `social_dm`,
-  `social_post`, `social_search`, … built only for actions the capability
-  manifest says exist on a platform she has an *enabled* account on. No enabled
+  `social_post`, `social_repost`, … built only for actions the capability
+  manifest says exist on X for an account she has *enabled*. No enabled
   accounts → no social tools offered.
 - **Her prompt**: a short block listing her accounts and the rules (name the
   account, never claim an action she didn't take, say when a platform can't do
   something) is appended to the dynamic prompt. Nothing about who she is changes.
 - **Multi-account**: `account_id = platform:handle`; each account has its own
-  session in the engine, its own permission switch, its own activity trail.
+  encrypted session in Supabase, its own permission switch, its own activity trail.
 - **Safety**: per-account daily caps, 5-target ceiling per call, confirmation
-  tokens for unfollow / batches / publishing, engine-side pacing and its own
-  rate limiter.
+  tokens for unfollow / batches / publishing, and one-at-a-time pacing in the engine.
 - **Honesty**: capability manifest is the single source of truth for the
-  dashboard, the tool list and the engine's dispatch table; a test fails if the
-  two copies drift, and another fails if a supported action has no dispatch.
-- **Failure modes are visible**: no engine → "Backend not connected" in the
-  dashboard and a plain "I couldn't do that right now" from her; expired session
-  → `Error` + reason in the dashboard and in her tool result.
+  dashboard, the tool list and the engine's dispatch table; a test fails if a
+  supported action has no handler in the engine.
+- **Failure modes are visible**: no saved login → "Tap Connect" in the
+  dashboard and a plain "I couldn't do that right now" from her; an expired session
+  is replaced by one automatic sign-in, and if that fails → `Error` + reason in the
+  dashboard and in her tool result.
 
-See `SOCIAL.md` for the platform matrix, deployment and the security model.
+See `SOCIAL.md` for what is supported, setup and the security model.

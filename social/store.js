@@ -11,8 +11,9 @@
 //     is git-ignored. On a host with an ephemeral disk that means the register
 //     resets on redeploy — the log says so at startup rather than pretending.
 //
-// Sessions are NOT stored here. They live in the engine (socialcrabs-service),
-// encrypted, and are never written to Ariana's database or disk.
+// Login sessions are stored too, but ONLY as AES-256-GCM ciphertext (see session_vault.js), in rows of
+// ariana_social_config whose id starts with "secret:". No extra table; plaintext never touches the
+// database or the disk.
 //
 // Required Supabase tables (create once — see SOCIAL.md):
 //   ariana_social_accounts, ariana_social_activity, ariana_social_config
@@ -265,6 +266,64 @@ async function saveConfig(patch) {
   return next;
 }
 
+// ── SECRETS (encrypted blobs; the caller encrypts) ─────────────────────────
+// Stored as rows of ariana_social_config with id "secret:<name>", so no new table is needed.
+// Without Supabase they go to <DATA_DIR>/secrets/<name>.json (git-ignored).
+
+const SECRET_PREFIX = 'secret:';
+const safeName = (name) => String(name).replace(/[^a-zA-Z0-9_.:@-]/g, '_').slice(0, 120);
+const secretFile = (name) => path.join(DATA_DIR, 'secrets', safeName(name).replace(/:/g, '_') + '.json');
+
+async function loadSecret(name) {
+  const sb = init();
+  if (sb) {
+    const { data, error } = await sb.from('ariana_social_config').select('config').eq('id', SECRET_PREFIX + safeName(name)).maybeSingle();
+    if (!error && data && data.config) return data.config;
+    if (error && tableMissing(error)) tableWarning(error);
+    else if (error) console.warn('[social] loadSecret failed:', error.message);
+    return null;
+  }
+  return readJsonFile(secretFile(name), null);
+}
+
+async function saveSecret(name, blob) {
+  const sb = init();
+  const updated_at = new Date().toISOString();
+  if (sb) {
+    const { error } = await sb.from('ariana_social_config').upsert({ id: SECRET_PREFIX + safeName(name), config: blob, updated_at }, { onConflict: 'id' });
+    if (error) { if (tableMissing(error)) tableWarning(error); return { ok: false, error: error.message }; }
+    return { ok: true, where: 'supabase' };
+  }
+  await fsp.mkdir(path.dirname(secretFile(name)), { recursive: true });
+  await writeJsonFile(secretFile(name), blob);
+  return { ok: true, where: 'file' };
+}
+
+async function deleteSecret(name) {
+  const sb = init();
+  if (sb) {
+    const { error } = await sb.from('ariana_social_config').delete().eq('id', SECRET_PREFIX + safeName(name));
+    return error ? { ok: false, error: error.message } : { ok: true };
+  }
+  try { await fsp.unlink(secretFile(name)); } catch (_) {}
+  return { ok: true };
+}
+
+// Names (without the prefix) of stored secrets starting with `prefix`.
+async function listSecrets(prefix = '') {
+  const sb = init();
+  const want = safeName(prefix);
+  if (sb) {
+    const { data, error } = await sb.from('ariana_social_config').select('id').like('id', SECRET_PREFIX + want + '%');
+    if (error) return [];
+    return (data || []).map((r) => r.id.slice(SECRET_PREFIX.length));
+  }
+  try {
+    const files = await fsp.readdir(path.join(DATA_DIR, 'secrets'));
+    return files.filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).filter((n) => n.startsWith(want.replace(/:/g, '_')));
+  } catch (_) { return []; }
+}
+
 module.exports = {
   _setSupabaseForTest: (sb) => { supabase = sb; supabaseTried = true; },
   DATA_DIR,
@@ -276,4 +335,8 @@ module.exports = {
   loadActivity,
   loadConfig,
   saveConfig,
+  loadSecret,
+  saveSecret,
+  deleteSecret,
+  listSecrets,
 };

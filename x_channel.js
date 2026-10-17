@@ -8,13 +8,13 @@
 //         she already has applies (creator switch, daily ceiling, dry-run, the
 //         activity log). This module adds no way around them.
 //   in:   X has no way to tell us a DM arrived unless you pay for its API, so
-//         incoming DMs are PULLED: one `read_dms` run on the engine, when
-//         something asks for it.
+//         incoming DMs are PULLED: one `read_dms` call (a plain HTTP request to
+//         X's inbox), when something asks for it.
 //
 // WHAT TRIGGERS A CHECK (nothing runs on its own by default):
 //   · you press "Check messages now" in the dashboard   (POST /api/x/check)
 //   · X_INBOX_POLL_MINUTES is set above 0               (off unless you opt in;
-//     every check is one engine run, which Browser Use bills)
+//     every check is one request to X's inbox, so it is cheap)
 //
 // SAFETY, because this is a real inbox:
 //   · The FIRST check only learns what is already there and answers none of it,
@@ -223,15 +223,12 @@ async function checkInbox(onMessage) {
 
 async function status() {
   const acct = await xAccount();
-  const provider = engine.provider();
   const configured = engine.configured();
-  let note = null;
-  if (!configured) note = 'The social engine is not connected yet.';
-  else if (provider === 'socialcrabs') note = 'Replying works. Receiving needs the Browser Use engine: SocialCrabs has no X inbox reader.';
+  const note = null;
   return {
     configured,
-    engine: provider,
-    can_receive: configured && provider === 'browser-use',
+    engine: engine.provider(),
+    can_receive: configured,
     account: acct.ok ? { account_id: acct.account.account_id, handle: acct.account.handle } : null,
     problem: acct.ok ? null : { code: acct.code, error: acct.error },
     polling_minutes: pollMinutes(),

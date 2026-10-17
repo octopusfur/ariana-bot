@@ -45,7 +45,7 @@ async function hydrate(force = false) {
     platform: r.platform,
     handle: r.handle,
     label: r.label || null,
-    provider: r.provider || 'socialcrabs',
+    provider: r.provider || 'x-lite',
     actions_enabled: !!r.actions_enabled,
     // Only meaningful on platforms that can publish: when on, Ariana may post
     // without a per-post confirmation. Off unless the creator turns it on.
@@ -96,7 +96,7 @@ async function add({ platform, handle, label = null, actionsEnabled = false }) {
     platform: platformId,
     handle: clean,
     label: label || (caps.platformInfo(platformId).label + ' @' + clean),
-    provider: 'socialcrabs',
+    provider: 'x-lite',
     actions_enabled: !!actionsEnabled,
     autopublish: false,
     status: STATUS.NOT_CONNECTED,

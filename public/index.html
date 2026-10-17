@@ -1194,7 +1194,7 @@ async function xRefresh(){
   const d=a.d||{},pill=document.getElementById('pill-x'),dot=document.getElementById('dot-x'),btn=document.getElementById('x-check-btn'),res=document.getElementById('x-result');
   const setPill=(t,cls)=>{if(pill)pill.textContent=t;if(dot)dot.className='s-dot'+(cls?' '+cls:'');};
   if(!a.ok){st.textContent='Could not read the X channel state.';setPill('Unavailable','err');return;}
-  if(!d.configured){st.textContent='The social engine is not connected yet. Set BROWSER_USE_API_KEY (or SOCIAL_ENGINE_URL) on the server.';setPill('Not set up');if(btn)btn.disabled=true;return;}
+  if(!d.configured){st.textContent='The X engine is unavailable on the server.';setPill('Not set up');if(btn)btn.disabled=true;return;}
   if(d.problem){st.textContent=d.problem.error;setPill('Needs account','warn');if(btn)btn.disabled=true;return;}
   if(btn)btn.disabled=!d.can_receive;
   st.textContent=d.can_receive?'Ready. She answers X messages for @'+d.account.handle+' when you press Check.':'Sending works for @'+d.account.handle+'. Receiving needs the Browser Use engine (SocialCrabs has no X inbox reader).';
@@ -1412,7 +1412,7 @@ function renderHomeSocial(){
   const el=document.getElementById('home-social-accounts');if(!el)return;
   if(soc.error){el.innerHTML='<div class="home-state error-state">Could not load social account state. Try again from Social Studio.</div>';return;}
   const manifest=(soc.caps&&soc.caps.capabilities&&soc.caps.capabilities.platforms)||[];
-  const definitions=[['instagram','Instagram'],['twitter','X'],['linkedin','LinkedIn']];
+  const definitions=[['twitter','X']];
   el.innerHTML=definitions.map(([id,label])=>{
     const info=manifest.find(p=>p.id===id)||{};
     const accounts=soc.accounts.filter(a=>a.platform===id);
@@ -1758,7 +1758,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#wp-menu,#wp-btn'))d
 // Connected accounts, their real capabilities, and what Ariana actually did.
 // Every state below maps to something the backend reported: nothing here shows
 // "Online", "Completed" or a capability the engine did not confirm.
-let soc={status:null,accounts:[],activity:[],autonomy:null,caps:null,details:{},adding:{},busy:false,error:null,login:{}};
+let soc={status:null,accounts:[],activity:[],autonomy:null,caps:null,details:{},adding:{},busy:false,error:null,login:{},code:{}};
 
 async function loadSocial(manual){
   try{
@@ -1825,21 +1825,22 @@ function socEngineStrip(){
 
 function socEngineLine(st){
   const h=st.engine&&st.engine.health,bits=[];
-  if(h){
+  if(h&&h.provider==='x-lite'){
+    bits.push('Built-in X engine (no browser)');
+    bits.push(h.sessions+' saved login'+(h.sessions===1?'':'s'));
+    bits.push(h.session_storage?('logins: '+socEsc(h.session_storage)):'');
+    if(!h.login_configured)bits.push('server login not set');
+  }else if(h){
     bits.push(socEsc(h.provider||h.engine||'engine'));
-    if(typeof h.browsers_open==='number')bits.push(h.browsers_open+' browser(s) open');
-    if(h.billing&&typeof h.billing.credits==='number')bits.push('$'+Number(h.billing.credits).toFixed(2)+' credit');
   }
   bits.push(st.storage&&st.storage.supabase?'state in Supabase':'state in local files');
-  return bits.join(' · ');
+  return bits.filter(Boolean).join(' · ');
 }
 
 // The platform list the Add rows are built from. If the engine's list is missing or in a shape
-// we can't draw, fall back to the three platforms Ariana supports — adding an account must
+// we can't draw, fall back to the platform Ariana supports (X) — adding an account must
 // never depend on the capability list being well-formed.
 const SOC_FALLBACK_PLATFORMS=[
-  {id:'instagram',label:'Instagram',handle_label:'instagram handle'},
-  {id:'linkedin',label:'LinkedIn',handle_label:'linkedin handle'},
   {id:'twitter',label:'X',handle_label:'x handle'}
 ];
 function socUsablePlatforms(){
@@ -1883,7 +1884,7 @@ function socAccountCard(a){
       <span class="s-chip ${state==='online'?'ok':(state==='error'?'err':'')}" style="margin-left:auto">${label}</span>
     </div>
     ${detail?`<div class="s-acct-note">${socEsc(socReasonText(detail,300))}</div>`:''}
-    ${(soc.login&&soc.login[a.account_id]&&state!=='online')?`<div class="s-acct-note"><a class="s-link" href="${socEsc(soc.login[a.account_id])}" target="_blank" rel="noopener">Open the sign-in browser</a> — sign in there, then tap Connect again.</div>`:''}
+    ${(soc.code&&soc.code[a.account_id])?`<div class="s-acct-note">${socEsc(soc.code[a.account_id].prompt||'X sent a verification code.')}<div class="s-addrow" style="margin-top:8px"><input class="inp" id="soc-code-${socEsc(a.account_id)}" placeholder="Code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" autocorrect="off"><button class="s-mini on" onclick="socSubmitCode('${socEsc(a.account_id)}')">Submit code</button></div></div>`:''}
     <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
       <div style="font-size:12px;color:var(--txt2);flex:1">Actions ${a.actions_enabled?'enabled':'disabled'}${a.actions_enabled?' — Ariana can act through this account':''}</div>
       <button class="tgl ${a.actions_enabled?'on':''}" onclick="socToggleActions('${socEsc(a.account_id)}',${a.actions_enabled?false:true})"><span class="tgl-k"></span></button>
@@ -1906,8 +1907,6 @@ function socAccountCard(a){
 
 function socAutonomyBlock(){
   const cfg=soc.autonomy;if(!cfg)return '<div class="s-act-err">Autonomy config unavailable.</div>';
-  const wl=(cfg.watchlist&&cfg.watchlist.instagram||[]).join(', ');
-  const searches=(cfg.linkedin_searches||[]).join(', ');
   return `<div class="s-act" style="border:none;background:transparent;padding:0">
     <div style="display:flex;align-items:center;gap:10px">
       <div style="flex:1;font-size:12.5px;color:var(--txt2);line-height:1.5">When on, Ariana may look at posts from the accounts you list and decide — using her own judgement — whether to like or comment. Nothing is sent while this is off.</div>
@@ -1915,8 +1914,7 @@ function socAutonomyBlock(){
     </div>
     <div class="sec" style="margin-top:12px"><label class="lbl">Check every (minutes)</label><input class="inp" id="soc-auto-interval" value="${socEsc(cfg.interval_minutes)}"></div>
     <div class="sec"><label class="lbl">Max actions per pass</label><input class="inp" id="soc-auto-max" value="${socEsc(cfg.max_actions_per_tick)}"></div>
-    <div class="sec"><label class="lbl">Instagram accounts to watch (comma separated)</label><input class="inp" id="soc-auto-watch" value="${socEsc(wl)}" placeholder="handle1, handle2"></div>
-    <div class="sec"><label class="lbl">LinkedIn searches (comma separated)</label><input class="inp" id="soc-auto-search" value="${socEsc(searches)}" placeholder="ai agents, product design"></div>
+    <div class="s-act-err" style="margin:10px 0">Watching other accounts' posts needs a post reader, which the built-in X engine does not have yet. For now she acts on X when you chat or ask her to; a pass has nothing to read.</div>
     <div class="s-act-actions" style="display:flex;gap:8px"><button class="s-mini" onclick="socSaveAutonomy({})">Save</button><button class="s-mini" onclick="socRunAutonomy()">Run one pass now</button></div>
   </div>`;
 }
@@ -1968,25 +1966,33 @@ async function socAdd(platform){
   if(!handle)return toast('Enter the account handle');
   const r=await socPost('/api/social/accounts',{platform,handle});
   if(!r.ok)return toast((r.error||'Could not add').slice(0,140));
-  toast('Added — now provision its session, then press Connect');
+  toast('Added — now press Connect');
   loadSocial();
 }
 async function socConnect(id){
-  toast('Checking the session on the engine…');
+  toast('Signing in… this can take up to 30 seconds',6000);
   const r=await socPost('/api/social/accounts/'+encodeURIComponent(id)+'/connect');
-  if(!r.ok){soc.details[id]=true;toast((r.error||'Connect failed').slice(0,140));}
-  else if(r.login_url){
-    if(/^https:\/\//i.test(r.login_url)){soc.login[id]=r.login_url;try{window.open(r.login_url,'_blank');}catch{}}
-    toast('Sign-in browser ready. Sign in until you see your home feed, close it, then tap Connect right away (it expires in 30 min). If it did not open, tap "Open the sign-in browser" on the account.',9000);
-  }
-  else if(r.needs_provisioning)toast('No session yet — see Social → setup steps');
-  else if(r.connected===false)toast((r.error||'Not signed in yet. Tap Connect and sign in.').slice(0,140),5000);
-  else{delete soc.login[id];toast('Connected');}
+  socAfterConnect(id,r);
+}
+function socAfterConnect(id,r){
+  soc.code=soc.code||{};
+  if(!r.ok){delete soc.code[id];soc.details[id]=true;toast((r.error||'Connect failed').slice(0,160),7000);}
+  else if(r.needs_code){soc.code[id]={prompt:r.prompt,kind:r.kind};toast('X wants a verification code — enter it on the account card.',8000);}
+  else if(r.connected===false)toast((r.error||'Not signed in yet.').slice(0,160),6000);
+  else{delete soc.code[id];toast('Connected');}
   loadSocial();
+}
+async function socSubmitCode(id){
+  const el=document.getElementById('soc-code-'+id);
+  const code=el&&el.value.trim();
+  if(!code)return toast('Enter the code first');
+  toast('Checking the code…',5000);
+  const r=await socPost('/api/social/accounts/'+encodeURIComponent(id)+'/code',{code});
+  socAfterConnect(id,r);
 }
 async function socReconnect(id){ await socConnect(id); }
 async function socDisconnect(id){
-  if(!confirm('Disconnect this account? The stored session is deleted from the engine.'))return;
+  if(!confirm('Disconnect this account? Its saved login is deleted. Connect signs in again.'))return;
   const r=await socPost('/api/social/accounts/'+encodeURIComponent(id)+'/disconnect');
   toast(r.ok?'Disconnected':(r.error||'Failed').slice(0,120));loadSocial();
 }
@@ -2006,10 +2012,9 @@ async function socRemove(id){
 }
 async function socSaveAutonomy(patch){
   const num=(id,fallback)=>{const v=document.getElementById(id);const n=v?parseInt(v.value,10):NaN;return Number.isFinite(n)?n:fallback;};
-  const list=id=>{const v=document.getElementById(id);return v?v.value.split(',').map(s=>s.trim()).filter(Boolean):[];};
   const body=Object.assign({},patch);
   if('enabled' in patch){body.interval_minutes=num('soc-auto-interval',180);body.max_actions_per_tick=num('soc-auto-max',2);}
-  else{body.interval_minutes=num('soc-auto-interval',180);body.max_actions_per_tick=num('soc-auto-max',2);body.watchlist={instagram:list('soc-auto-watch')};body.linkedin_searches=list('soc-auto-search');}
+  else{body.interval_minutes=num('soc-auto-interval',180);body.max_actions_per_tick=num('soc-auto-max',2);}
   const r=await socPost('/api/social/autonomy',body);
   toast(r.ok?(body.enabled===true?'Autonomy on':(body.enabled===false?'Autonomy off':'Saved')):(r.error||'Failed').slice(0,120));
   loadSocial();
