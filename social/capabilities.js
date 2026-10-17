@@ -21,17 +21,19 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.j
 // instead of browser automation. It replaces the base 'instagram' entry only while that
 // service is configured.
 const IG_API = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.ig-api.json'), 'utf8'));
-// TikTok exists only through Browser Use Cloud. It is ADDED to the platform list only while
-// that is the engine — the self-hosted SocialCrabs engine has no TikTok handler.
+// TikTok exists only through Browser Use Cloud (paid, per task). It is ADDED to the platform list only when
+// TIKTOK_VIA_BROWSER_USE=on and that is the engine — the self-hosted SocialCrabs engine has no TikTok handler.
 const TIKTOK = JSON.parse(fs.readFileSync(path.join(__dirname, 'capabilities.tiktok.json'), 'utf8'));
 
 function igApiActive() {
   try { return require('./ig_engine').configured(); } catch (_) { return false; }
 }
 
+// TikTok is OFF unless TIKTOK_VIA_BROWSER_USE=on. It can only run through Browser Use Cloud, which
+// bills per task, so merely having a Browser Use key (for something else) must never start it.
 function tiktokActive() {
   const selfHosted = (process.env.SOCIAL_ENGINE_URL || '').trim();
-  return !selfHosted && !!(process.env.BROWSER_USE_API_KEY || '').trim();
+  return process.env.TIKTOK_VIA_BROWSER_USE === 'on' && !selfHosted && !!(process.env.BROWSER_USE_API_KEY || '').trim();
 }
 
 // The platforms as they are right now: base manifest, with whichever overlays are live.

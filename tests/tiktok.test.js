@@ -2,6 +2,7 @@
 // TikTok runs only through Browser Use Cloud. Pins down: it is offered only then, and the
 // browser tasks say "video", keep the no-password rule, and refuse what TikTok cannot do here.
 process.env.BROWSER_USE_API_KEY = 'bu_test';
+process.env.TIKTOK_VIA_BROWSER_USE = 'on';
 process.env.SOCIAL_ACTION_GAP_MS = '0';
 process.env.SOCIAL_DATA_DIR = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'ariana-tt-'));
 delete process.env.SUPABASE_URL;
@@ -35,6 +36,14 @@ test('TikTok is offered while Browser Use is the engine', () => {
   assert.equal(caps.supports('tiktok', 'post'), false);
   assert.match(caps.unsupportedReason('tiktok', 'post'), /video file/);
   assert.equal(caps.describe().unsupported_platforms.some((p) => p.id === 'tiktok'), false);
+});
+
+test('TikTok is off by default: a Browser Use key alone never starts it (it bills per task)', () => {
+  delete process.env.TIKTOK_VIA_BROWSER_USE;
+  assert.equal(caps.platformIds().includes('tiktok'), false);
+  assert.equal(caps.describe().unsupported_platforms.some((p) => p.id === 'tiktok'), true);
+  process.env.TIKTOK_VIA_BROWSER_USE = 'on';
+  assert.ok(caps.platformIds().includes('tiktok'));
 });
 
 test('TikTok is not offered with the self-hosted engine, which has no TikTok handler', () => {

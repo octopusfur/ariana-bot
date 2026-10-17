@@ -170,7 +170,7 @@ test('sign-in: once connected the link goes away', async () => {
 test('Browser Use answers in the shape the dashboard draws, and names itself', async () => {
   const caps = (await bu.capabilities()).capabilities;
   assert.ok(api.usableManifest(caps));
-  assert.deepStrictEqual(caps.platforms.map((p) => p.id).sort(), ['instagram', 'linkedin', 'tiktok', 'twitter']); // TikTok is offered while Browser Use is the engine
+  assert.deepStrictEqual(caps.platforms.map((p) => p.id).sort(), ['instagram', 'linkedin', 'twitter']);
   global.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ totalCreditsBalanceUsd: 4.2, concurrentSessionLimit: 3 }) });
   const h = await bu.health();
   assert.equal(h.health.provider, 'browser-use');
