@@ -161,6 +161,10 @@ textarea.inp{resize:vertical;min-height:120px}
 .btn{background:var(--acc);border:none;border-radius:14px;padding:15px 20px;color:var(--bg);font-weight:700;font-size:15px;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;transition:opacity .18s}
 .btn:active{opacity:.82}
 .btn-ghost{background:transparent;border:1px solid var(--bdr2);border-radius:12px;padding:12px 16px;color:var(--txt);font-size:14px;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;transition:all .18s}
+.copy-btn{background:transparent;border:1px solid var(--bdr2);border-radius:8px;padding:4px 10px;color:var(--txt2);font-size:11.5px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:6px}
+.copy-btn svg{width:12px;height:12px}
+.copy-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.copy-row>div{flex:1;min-width:0}
 .btn-ghost:active{background:var(--s2)}
 .tgl{width:44px;height:26px;border-radius:13px;background:var(--s3);border:1px solid var(--bdr2);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
 .tgl.on{background:var(--acc)}
@@ -919,13 +923,15 @@ html.pal-vt{pointer-events:none}
             <div id="snap-reply-note" class="st-note">She answers everyone who messages her.</div>
             <button class="btn-ghost" id="snap-pause" onclick="snapPause()" style="margin-top:8px">Pause replies</button>
             <button class="btn-ghost" id="snap-diag-btn" onclick="snapDiagnose()" style="margin-top:8px">Check connection</button>
-            <div id="snap-diag" class="st-note" style="white-space:pre-wrap;word-break:break-word"></div>
+            <div class="copy-row"><div id="snap-diag" class="st-note" style="white-space:pre-wrap;word-break:break-word"></div></div>
+            <button class="copy-btn" id="snap-diag-copy" style="display:none" onclick="copyBlock('snap-diag',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
             <details class="st-more"><summary class="st-link">Advanced: add a chat by ID</summary>
               <div id="snap-chat-list" class="st-note"></div>
               <input type="text" id="snap-conv" class="inp" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="Chat ID" style="margin-top:8px">
               <button class="btn-ghost" onclick="snapAddChat()" style="margin-top:8px">Add chat</button>
               <button class="btn-ghost" onclick="snapFindChats()" style="margin-top:8px">Find chat IDs</button>
               <div id="snap-cands" class="st-note" style="word-break:break-all;line-height:1.7"></div>
+              <button class="copy-btn" id="snap-cands-copy" style="display:none" onclick="copyBlock('snap-cands',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
             </details>
           </div>
           <button class="btn-ghost" id="snap-unlink" onclick="snapUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Sign out of Snapchat</button>
@@ -989,7 +995,7 @@ html.pal-vt{pointer-events:none}
             <input type="tel" id="fb-appid" class="inp" inputmode="numeric" placeholder="Lets Ariana set the webhook for you">
             <button class="btn" id="fb-btn" onclick="fbSave()" style="margin-top:12px">Link Messenger</button>
           </div>
-          <details id="fb-hook-wrap" class="st-more" style="display:none"><summary class="st-link">Webhook details</summary><div id="fb-hook" class="st-note" style="word-break:break-all;line-height:1.7"></div></details>
+          <details id="fb-hook-wrap" class="st-more" style="display:none"><summary class="st-link">Webhook details</summary><div id="fb-hook" class="st-note" style="word-break:break-all;line-height:1.7"></div><button class="copy-btn" id="fb-hook-copy" onclick="copyBlock('fb-hook',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></details>
           <button class="btn-ghost" id="fb-unlink" onclick="fbUnlink()" style="display:none;margin-top:10px;border-color:rgba(255,68,85,.2);color:var(--red)">Unlink Messenger</button>
         </div>
       </details>
@@ -1355,6 +1361,7 @@ async function snapFindChats(){
   const a=await snapGet('/api/snapchat/conversations/candidates');
   if(!a.ok){box.textContent=plainErr(a.d.error)||'Could not look.';return;}
   const c=a.d.candidates||[];
+  const cc=document.getElementById('snap-cands-copy');if(cc)cc.style.display=c.length?'':'none';
   box.innerHTML=c.length?('Possible IDs (suggestions only, tap one to fill the box):<br>'+c.map(x=>'<a href="#" style="color:var(--acc)" onclick="document.getElementById(\'snap-conv\').value=\''+x+'\';return false">'+x+'</a>').join('<br>')):'Nothing found yet. Send a message to the account first, then try again.';
 }
 async function snapDiagnose(){
@@ -1372,6 +1379,7 @@ async function snapDiagnose(){
   if(d.sync_sample_hex)L.push('','No chats found. Sample for debugging:',d.sync_sample_hex);
   if(d.last_error)L.push('','Last error: '+plainErr(d.last_error));
   box.textContent=L.join('\n');
+  const cb=document.getElementById('snap-diag-copy');if(cb)cb.style.display=L.length?'':'none';
 }
 async function snapPause(){const {ok}=await jpost('/api/snapchat/pause',{paused:!window.__snapPaused});toast(ok?(window.__snapPaused?'Replies resumed':'Replies paused'):'Failed');snapRefresh();}
 async function snapUnlink(){const {ok}=await jpost('/api/snapchat/unlink',{});toast(ok?'Signed out of Snapchat':'Failed');snapRefresh();}
@@ -1559,6 +1567,17 @@ function go(name){
   if(name==='profile')loadProfileStats();
 }
 let _tt;
+async function copyBlock(id,btn){
+  const el=document.getElementById(id);if(!el)return;
+  const text=(el.innerText||el.textContent||'').trim();
+  if(!text)return;
+  try{
+    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);
+    else{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}
+    if(btn){const label=btn.textContent;btn.textContent='Copied';setTimeout(()=>{btn.textContent=label;},1500);}
+    else toast('Copied');
+  }catch(e){toast('Could not copy');}
+}
 function toast(msg,dur=2600){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('show'),dur);}
 function autoH(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
 function channelStatusClass(status){return status==='connected'?'is-connected':status==='configured'?'is-configured':status==='unreachable'?'is-error':'is-muted';}
