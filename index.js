@@ -5076,6 +5076,7 @@ async function runProactiveCheck() {
     if (id.startsWith('sc_') && process.env.SNAPCHAT_PROACTIVE !== 'on') continue; // opt-in only
     if (id.startsWith('x_') && process.env.X_PROACTIVE !== 'on') continue; // opt-in only
     if (id.startsWith('ig_') || id.startsWith('tt_')) continue; // she never texts first on Instagram or TikTok
+    if ((convo.platform || 'whatsapp') === 'whatsapp') continue; // she never texts first on WhatsApp — unprompted messages get the account restricted/logged out
     const rawPhone = id.replace(/^(tg_|sg_|sms_|fb_|sc_|x_|ig_|tt_)/, '');
     if (blockedNumbers.has(id) || blockedNumbers.has(rawPhone)) continue;
     if ((now - (proactiveLastSent[id] || 0)) < MIN_GAP) continue; // messaged recently
@@ -5374,15 +5375,6 @@ app.get("/wa/qr",   (req, res) => proxyWaUi(req, res, "/qr"));
 app.get("/wa/pair", (req, res) => proxyWaUi(req, res, "/pair"));
 app.get("/pair",    (req, res) => proxyWaUi(req, res, "/pair"));
 
-function startKeepAlive() {
-  if (!RENDER_URL) return;
-  setInterval(() => {
-    axios.get(`${RENDER_URL}/ping`).catch(() => {});
-    axios.get(`${SIGNAL_CLI_URL}/v1/about`).catch(() => {});
-  }, 10 * 60 * 1000); // 10 min — safely under Render's 15-min spin-down
-  console.log("⏱️  Keep-alive started (every 10 min)");
-}
-
 // ── START ─────────────────────────────────────────────────────
 server.listen(PORT, async () => {
   // Load API keys from Supabase FIRST — before any AI calls happen
@@ -5509,7 +5501,6 @@ server.listen(PORT, async () => {
   startSignalPolling();
   startSleepCheck();
   startProactiveMessaging();
-  startKeepAlive();
   startSkillsCurator();
   console.log(`📶 Signal fix: add  SIGNAL_CLI_OPTS=--trust-new-identities always  to your signal-cli Render service env vars`);
   console.log(`📞 Vapi calling:    ${process.env.VAPI_API_KEY ? "✅" : "— set VAPI_API_KEY + VAPI_PHONE_ID to enable"}`);
