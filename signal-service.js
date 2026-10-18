@@ -40,13 +40,3 @@ server.listen(PORT, () => {
   console.log(`📡 Proxying to: ${SIGNAL_CLI_URL}`);
 });
 
-// Keep-alive ping to prevent signal-cli Render instance from sleeping
-const PING_INTERVAL = 8 * 60 * 1000; // every 8 minutes
-setInterval(() => {
-  const lib = SIGNAL_CLI_URL.startsWith("https") ? https : http;
-  lib.get(`${SIGNAL_CLI_URL}/v1/about`, (res) => {
-    console.log(`📡 Signal CLI ping: ${res.statusCode}`);
-  }).on("error", (e) => {
-    console.warn(`⚠️  Signal CLI ping failed: ${e.message}`);
-  });
-}, PING_INTERVAL);
