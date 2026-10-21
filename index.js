@@ -1356,6 +1356,12 @@ async function getReplyRaw(id, userMsg, systemOverride, imageBase64 = null, prep
     sys += `\n\nCURRENT MOOD OVERRIDE: You are feeling ${extrasMood} right now. Let this genuinely influence your tone, energy, and word choice.`;
   }
 
+  // Her own WhatsApp Status: she really does post these (status_poster.js, 24h stories). Without this line she
+  // has no idea she can, and denies it. Stated as fact so she checks the record instead of guessing.
+  if (!systemOverride) {
+    sys += `\n\nYOUR WHATSAPP STATUS: you really can post to your own WhatsApp Status (the 24-hour story) and you do, on your own schedule, in your own voice. If someone asks whether you posted a status, never say you cannot. If you cannot see your own recent posts in this conversation, say that plainly and do not guess or deny them.`;
+  }
+
   // Which social accounts she can act through (only when the creator enabled
   // some). Purely additive — nothing about who she is changes here.
   if (!systemOverride) {
