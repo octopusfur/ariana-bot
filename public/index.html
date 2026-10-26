@@ -82,6 +82,7 @@ body::before{content:'';position:absolute;inset:0;background:var(--bg);z-index:-
 .row-av img{width:100%;height:100%;object-fit:cover;display:block}
 .row-body{flex:1;min-width:0}
 .row-title{font-size:14px;font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-num{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:12px;color:var(--acc3);user-select:text;-webkit-user-select:text}.row-num .rn-v{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.3}.row-num .cp-mini{flex-shrink:0;background:transparent;border:1px solid var(--bdr2);border-radius:7px;padding:2px 8px;color:var(--txt2);font-size:11px;cursor:pointer}.hdr-num{font-size:11px;font-weight:500;color:var(--acc3);margin-top:1px;user-select:text;-webkit-user-select:text}
 .row-sub{font-size:12px;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
 .row-meta{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
 .row-time{font-size:11px;color:var(--txt3)}
@@ -121,6 +122,13 @@ body::before{content:'';position:absolute;inset:0;background:var(--bg);z-index:-
 .mgrid2{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:0 16px}
 .mi{position:relative;border-radius:10px;overflow:hidden;background:var(--s2);aspect-ratio:3/4;cursor:pointer}
 .mi img,.mi video{width:100%;height:100%;object-fit:cover;display:block}
+/* The app only ever scrolls up and down: nothing may pan sideways (iPhone can drift a whole screen left/right) */
+html,body{max-width:100%;overscroll-behavior-x:none}
+.scr,.sbody{overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y}
+#s-media .media-tabs{flex-wrap:wrap;overflow-x:hidden;touch-action:pan-y}
+#s-media .mgrid2{grid-template-columns:repeat(2,minmax(0,1fr))}
+#s-media .mi{min-width:0;max-width:100%}
+.mi-tags{overflow-wrap:anywhere}
 .mi-tagbtn{position:absolute;top:7px;left:7px;background:rgba(0,0,0,.6);border:none;border-radius:6px;padding:0 8px;height:26px;color:#fff;font-size:11px;cursor:pointer;backdrop-filter:blur(8px)}
 .mi-tags{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:10px;line-height:1.3;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.78));pointer-events:none}
 .mi-menu{position:absolute;top:7px;right:7px;background:rgba(0,0,0,.6);border:none;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;backdrop-filter:blur(8px)}
@@ -1709,6 +1717,43 @@ function getPlatIcon(p){
   if(p==='sms')return'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="stroke:var(--h6)" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>';
   return'<svg width="14" height="14" viewBox="0 0 24 24" style="fill:var(--h1)"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
 }
+/** The number (or ID) behind a conversation name. Signal can hide a contact's number and send only a private ID. */
+function convoNumber(c){
+  const raw=String(c.id||c.phone||'').replace(/^(tg_|sg_|sms_|fb_|sc_|x_|ig_|tt_)/,'');
+  const plat=c.platform||'whatsapp';
+  if(c.number&&/^\+?\d{6,15}$/.test(String(c.number))){const v=String(c.number).startsWith('+')?String(c.number):'+'+c.number;return {value:v,label:v};} // the number Signal gave us
+  const digits=/^\+?\d{6,15}$/.test(raw);
+  if(digits&&['whatsapp','signal','sms'].includes(plat)){
+    const v=raw.startsWith('+')?raw:'+'+raw;
+    // WhatsApp's hidden-number IDs are 15 digits long: real phone numbers almost never are
+    if(plat==='whatsapp'&&raw.replace('+','').length>=15)return {value:raw,label:'WhatsApp ID '+raw+' (not a phone number)'};
+    return {value:v,label:v};
+  }
+  if(plat==='signal'&&/^[0-9a-f]{8}-[0-9a-f-]{20,}$/i.test(raw))return {value:raw,needsLookup:true,label:'No phone number yet: Signal only gave a private ID '+raw.slice(0,8)+'\u2026'};
+  const nm={telegram:'Telegram ID ',messenger:'Messenger ID ',snapchat:'Snapchat ID ',x:'X ID '}[plat]||'ID ';
+  return {value:raw,label:nm+raw};
+}
+async function findSignalNumber(id,btn){
+  btn.textContent='Looking...';
+  try{
+    const r=await fetch('/api/signal/number?id='+encodeURIComponent(id),{headers:authH()}).then(x=>x.json());
+    if(r&&r.number){if(conversations[id])conversations[id].number=r.number;renderPlatformList();toast('Found '+r.number,3000);}
+    else{btn.textContent='Not shared';toast((r&&r.reason)||'Signal has no number for this contact',5000);}
+  }catch(e){btn.textContent='Failed';}
+}
+/* Safety net: if anything (focus, selection, a gesture) ever nudges a screen sideways, put it straight back. */
+document.addEventListener('scroll',function(e){
+  var t=e.target===document?document.scrollingElement:e.target;
+  if(!t||!t.scrollLeft)return;
+  if(t===document.scrollingElement||(t.classList&&(t.classList.contains('scr')||t.classList.contains('sbody'))))t.scrollLeft=0;
+},true);
+async function copyVal(v,btn){
+  try{
+    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(v);
+    else{const ta=document.createElement('textarea');ta.value=v;ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}
+    if(btn){const t=btn.textContent;btn.textContent='Copied';setTimeout(()=>{btn.textContent=t;},1200);}
+  }catch(e){toast('Press and hold the number to copy');}
+}
 function renderPlatformList(){
   const el=document.getElementById('platform-convos');
   const pk=platKey(currentPlatform);
@@ -1721,14 +1766,14 @@ function renderPlatformList(){
     const av=c.avatar?`<img src="${c.avatar}" alt="">`:`<span>${(c.name||c.phone||'?')[0]}</span>`;
     return`<div class="row" style="background:var(--s1)" onclick="openConvoById('${escAttr(c.id||c.phone)}')">
       <div class="row-av">${av}</div>
-      <div class="row-body"><div class="row-title">${escHTML(c.name||c.phone||c.id)}</div><div class="row-sub">${escHTML((last?.text||last?.content||'').slice(0,60)||'...')}</div></div>
+      <div class="row-body"><div class="row-title">${escHTML(c.name||c.phone||c.id)}</div><div class="row-sub">${escHTML((last?.text||last?.content||'').slice(0,60)||'...')}</div>${(()=>{const n=convoNumber(c);return`<div class="row-num"><span class="rn-v">${escHTML(n.label)}</span>${n.needsLookup?`<button class="cp-mini" type="button" data-id="${escAttr(c.id||c.phone)}" onclick="event.stopPropagation();findSignalNumber(this.dataset.id,this)">Find number</button>`:`<button class="cp-mini" type="button" data-v="${escAttr(n.value)}" onclick="event.stopPropagation();copyVal(this.dataset.v,this)">Copy</button>`}</div>`;})()}</div>
       <div class="row-meta">
         <div style="display:flex;align-items:center;gap:4px">${getPlatIcon(c.platform||'whatsapp')}${unread?`<div class="row-badge">${unread}</div>`:''}</div>
         <div class="row-time">${ts}</div>
       </div></div>`;
   }).join('');
 }
-function openConvoById(id){const c=conversations[id];if(!c)return;currentPhone=id;document.getElementById('convo-name').textContent=c.name||id;const av=document.getElementById('convo-av');av.innerHTML=c.avatar?`<img src="${c.avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`<span>${(c.name||id||'?')[0]}</span>`;const on=takeoverState[id]||false;setTakeoverUI(on);document.getElementById('convo-ibar').style.display=on?'block':'none';renderConvoMsgs(c);applyWallpaper();document.getElementById('s-convo').classList.add('on');}
+function openConvoById(id){const c=conversations[id];if(!c)return;currentPhone=id;{const nm=document.getElementById('convo-name');const nn=convoNumber(c);nm.textContent=c.name||id;const sub=document.createElement('div');sub.className='hdr-num';sub.textContent=nn.label+'  (tap to copy)';sub.onclick=()=>copyVal(nn.value);nm.appendChild(sub);}const av=document.getElementById('convo-av');av.innerHTML=c.avatar?`<img src="${c.avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`<span>${(c.name||id||'?')[0]}</span>`;const on=takeoverState[id]||false;setTakeoverUI(on);document.getElementById('convo-ibar').style.display=on?'block':'none';renderConvoMsgs(c);applyWallpaper();document.getElementById('s-convo').classList.add('on');}
 function closeConvo(){document.getElementById('s-convo').classList.remove('on');}
 function renderConvoMsgs(c){const el=document.getElementById('convo-msgs');const av=(cfg.get('avatar')||'').replace(/"/g,'%22');el.innerHTML=(c.messages||[]).slice(-60).map(m=>{const isAri=m.role==='assistant'||m.role==='ariana'||m.fromMe;return`<div class="mg ${isAri?'a':'u'}${isAri&&av?' wav':''}">${isAri&&av?`<img class="mg-av" src="${av}" alt="">`:''}<div class="bbl">${escHTML(m.text||m.content||'')}</div></div>`;}).join('');el.scrollTop=el.scrollHeight;}
 function setTakeoverUI(on){document.getElementById('takeover-btn').style.background=on?'var(--grn)':'var(--s3)';document.getElementById('takeover-knob').style.left=on?'21px':'3px';}

@@ -3360,6 +3360,16 @@ const statusWatcher = require('./status_watcher').create({
   },
 });
 // "Her life" dashboard screen: read / change the controls, plus a little live info for the screen
+// The phone number behind a Signal contact that arrived as a private ID (dashboard: "Find number").
+app.get('/api/signal/number', requireDashboardAuth, async (req, res) => {
+  try {
+    const id = String(req.query.id || '');
+    const r = await require('./signal_lookup').resolveNumber(id, { base: SIGNAL_CLI_URL, account: SIGNAL_NUMBER });
+    if (r.number && conversations[id]) conversations[id].number = r.number;
+    res.json(r);
+  } catch (e) { res.status(500).json({ ok: false, number: null, reason: e.message }); }
+});
+
 app.get('/api/controls', requireDashboardAuth, async (req, res) => {
   try {
     const st = statusPoster.state || {};
@@ -5032,6 +5042,7 @@ function startSignalPolling() {
 
         if (!text) return;
         const id = `sg_${from}`;
+        { const cv = getConvo(id); if (envelope.sourceNumber) cv.number = envelope.sourceNumber; if (envelope.sourceUuid) cv.uuid = envelope.sourceUuid; } // so the dashboard can show the number behind the name
         const convo = conversations[id];
         if (convo?.messages?.length) {
           const last = convo.messages[convo.messages.length - 1];
